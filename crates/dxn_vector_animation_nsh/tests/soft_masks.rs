@@ -384,3 +384,38 @@ fn an_svg_mask_clipped_to_its_region_is_soft() {
         .scene;
     assert_soft(&scene);
 }
+
+#[test]
+fn a_mask_showing_nothing_draws_nothing() {
+    // Intersected onto nothing, and a shape of no opacity: no clip of
+    // their outlines (an empty clip is not honoured everywhere).
+    for mask in [
+        vec![blended(
+            BlendMode::DestinationIn,
+            vec![half(circle(45.0, 45.0, 35.0))],
+        )],
+        vec![filled(
+            circle(45.0, 45.0, 35.0),
+            WHITE,
+            Animated::Static(0.0),
+        )],
+    ] {
+        let s = masked(MaskKind::Alpha, false, mask, content());
+        let plan = plan::compile(&s, Matrix::IDENTITY).unwrap();
+        let clips = |units: &[Unit]| -> usize {
+            units
+                .iter()
+                .map(|u| match u {
+                    Unit::Canvas(ops) => ops.iter().filter(|o| matches!(o, Op::Clip(_))).count(),
+                    _ => 0,
+                })
+                .sum()
+        };
+        assert_eq!(clips(&plan.units), 0);
+        let share = common::differing(
+            &common::plan_pixels(&s, 0.5, 100, 100),
+            &common::reference_pixels(&s, 0.5, 100, 100),
+        );
+        assert!(share <= 0.004, "{share}");
+    }
+}

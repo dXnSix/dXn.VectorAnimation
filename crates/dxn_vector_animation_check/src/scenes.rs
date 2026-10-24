@@ -90,6 +90,34 @@ pub const SOFT_MASK: &str = r##"<svg xmlns="http://www.w3.org/2000/svg" width="1
   <g mask="url(#alpha)"><g class="slide"><rect x="25" y="50" width="50" height="50" fill="#1E5AE6"/></g></g>
 </svg>"##;
 
+/// Masks whose shapes turn: a clip (opaque), a soft mask of one shape
+/// (half transparent) and one of two overlapping shapes turning apart.
+pub const TURNING_MASKS: [&str; 3] = [
+    r##"<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100" viewBox="0 0 100 100">
+  <style>@keyframes turn { to { transform: rotate(360deg); } } .t { transform-origin: 50px 50px; animation: turn 2s linear infinite; }</style>
+  <mask id="m" maskUnits="userSpaceOnUse" x="0" y="0" width="100" height="100" style="mask-type: alpha">
+    <rect class="t" x="20" y="35" width="60" height="30" fill="#000"/>
+  </mask>
+  <g mask="url(#m)"><rect width="100" height="100" fill="#F24822"/><circle cx="50" cy="50" r="18" fill="#1E5AE6"/></g>
+</svg>"##,
+    r##"<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100" viewBox="0 0 100 100">
+  <style>@keyframes turn { to { transform: rotate(360deg); } } .t { transform-origin: 50px 50px; animation: turn 2s linear infinite; }</style>
+  <mask id="m" maskUnits="userSpaceOnUse" x="0" y="0" width="100" height="100" style="mask-type: alpha">
+    <rect class="t" x="20" y="35" width="60" height="30" fill="#000" fill-opacity="0.5"/>
+  </mask>
+  <g mask="url(#m)"><rect width="100" height="100" fill="#F24822"/><circle cx="50" cy="50" r="18" fill="#1E5AE6"/></g>
+</svg>"##,
+    r##"<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100" viewBox="0 0 100 100">
+  <style>@keyframes turn { to { transform: rotate(360deg); } } @keyframes back { to { transform: rotate(-360deg); } }
+    .t { transform-origin: 50px 50px; animation: turn 2s linear infinite; } .b { transform-origin: 50px 50px; animation: back 2s linear infinite; }</style>
+  <mask id="m" maskUnits="userSpaceOnUse" x="0" y="0" width="100" height="100" style="mask-type: alpha">
+    <rect class="t" x="20" y="35" width="60" height="30" fill="#000" fill-opacity="0.6"/>
+    <rect class="b" x="30" y="20" width="25" height="60" fill="#000" fill-opacity="0.6"/>
+  </mask>
+  <g mask="url(#m)"><rect width="100" height="100" fill="#F24822"/><circle cx="50" cy="50" r="18" fill="#1E5AE6"/></g>
+</svg>"##,
+];
+
 const GOLD: Color = Color::rgba(0.96, 0.72, 0.0, 1.0);
 const LIGHT: Color = Color::rgba(1.0, 0.91, 0.64, 1.0);
 const RED: Color = Color::rgba(0.9, 0.1, 0.1, 1.0);
@@ -401,5 +429,8 @@ pub fn built_in(fixtures: &std::path::Path) -> Result<Vec<(String, Scene)>, Stri
         ("shadow".into(), svg(SHADOW.as_bytes())?),
         ("blur".into(), svg(BLUR.as_bytes())?),
         ("soft-mask".into(), svg(SOFT_MASK.as_bytes())?),
+        ("turning-clip".into(), svg(TURNING_MASKS[0].as_bytes())?),
+        ("turning-mask".into(), svg(TURNING_MASKS[1].as_bytes())?),
+        ("turning-masks".into(), svg(TURNING_MASKS[2].as_bytes())?),
     ])
 }

@@ -33,6 +33,22 @@ pub(super) struct SoftMask {
     regions: Vec<(Vec<Op>, Num)>,
 }
 
+impl SoftMask {
+    /// A mask that shows nothing anywhere.
+    fn nothing() -> SoftMask {
+        SoftMask {
+            regions: vec![(Vec::new(), Num::Const(1.0))],
+        }
+    }
+
+    /// Whether it shows nothing anywhere, at any time.
+    pub(super) fn hides_all(&self) -> bool {
+        self.regions
+            .iter()
+            .any(|(clip, away)| clip.is_empty() && away.is(1.0))
+    }
+}
+
 /// A mask's content as it composites.
 enum Tree {
     Group {
@@ -128,6 +144,10 @@ impl Compiler {
         }
         // All or nothing everywhere: its shapes clip, but for chained mattes,
         // which clips do not follow.
+        // Showing nothing anywhere: no clip of its shapes says so.
+        if away.iter().all(|a| a.is(1.0)) {
+            return Ok(Some(SoftMask::nothing()));
+        }
         if away.iter().all(|a| a.is(0.0) || a.is(1.0)) && !chained(&tree) {
             return Ok(None);
         }
@@ -207,10 +227,14 @@ impl Compiler {
             regions.push((ops, self.g.math(MathOp::Sub, Num::Const(1.0), f)));
         }
         regions.retain(|(_, a)| !a.is(0.0));
-        if regions.iter().all(|(_, a)| a.is(1.0)) {
+        let mask = SoftMask { regions };
+        if mask.hides_all() {
+            return Some(SoftMask::nothing());
+        }
+        if mask.regions.iter().all(|(_, a)| a.is(1.0)) {
             return None;
         }
-        Some(SoftMask { regions })
+        Some(mask)
     }
 
     /// `tree` as a product, where it composites to one: its first shape,

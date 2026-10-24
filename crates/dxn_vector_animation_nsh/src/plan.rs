@@ -615,7 +615,26 @@ fn closed(mut ops: Vec<Op>) -> Vec<Op> {
 
 fn frame_items(items: &[Item], base: Matrix, alpha: &mut Vec<f64>, ops: &mut Vec<Op>) {
     let a = |alpha: &Vec<f64>| Num::Const(*alpha.last().unwrap_or(&1.0));
+    // Inside a layer whose mask shows nothing: how deep, while skipping.
+    let mut hidden = 0usize;
     for item in items {
+        if hidden > 0 {
+            match item {
+                Item::PushLayer(_) => hidden += 1,
+                Item::PopLayer => hidden -= 1,
+                _ => {}
+            }
+            continue;
+        }
+        if let Item::PushLayer(layer) = item
+            && layer.mask.as_ref().is_some_and(|m| {
+                !m.inverted && !m.items.iter().any(|i| matches!(i, Item::Fill { .. }))
+            })
+        {
+            // Its clip would be empty, which not every platform honours.
+            hidden = 1;
+            continue;
+        }
         match item {
             Item::Fill {
                 path,
@@ -1125,10 +1144,19 @@ impl Compiler {
             Some(mask) => self.soft_mask(mask, local, depth)?,
             None => None,
         };
+        // A mask that shows nothing anywhere: nothing of the group to draw
+        // (an empty clip is not honoured everywhere).
+        if soft.as_ref().is_some_and(mask::SoftMask::hides_all) {
+            return Ok(());
+        }
         if let Some(mask) = &g.mask
             && soft.is_none()
         {
-            frame.extend(self.mask(mask, local, depth)?);
+            let ops = self.mask(mask, local, depth)?;
+            if matches!(ops.as_slice(), [Op::BeginPath, Op::Clip(_), ..]) {
+                return Ok(());
+            }
+            frame.extend(ops);
         }
         let opacity = self.g.track(&g.opacity, local, |o| o.clamp(0.0, 1.0));
         let opacity = self.mul(opacity, visible);
