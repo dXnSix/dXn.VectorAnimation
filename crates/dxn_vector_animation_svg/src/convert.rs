@@ -73,6 +73,7 @@ const ANIMATABLE: &[&str] = &[
     "stroke-dashoffset",
     "stroke-dasharray",
     "d",
+    "visibility",
 ];
 
 /// The winning declarations of one element: property → value.
@@ -201,6 +202,14 @@ impl<'a, 'input> Converter<'a, 'input> {
             nodes: 0,
             declared: HashMap::new(),
         };
+        if doc.descendants().any(|n| {
+            matches!(
+                n.tag_name().name(),
+                "animate" | "animateTransform" | "animateMotion" | "animateColor" | "set"
+            )
+        }) {
+            converter.warn("SMIL animation (<animate>, <animateTransform>, <animateMotion>, <set>) is left out: those elements show their static values");
+        }
         // The timeline every animation fits in.
         for node in doc.descendants().filter(|n| n.is_element()) {
             for spec in converter.animation_specs(node) {
@@ -717,6 +726,25 @@ impl<'a, 'input> Converter<'a, 'input> {
         animations: &HashMap<String, Vec<Keyframe<String>>>,
         content: Node,
     ) -> Result<Node, Error> {
+        // Figma Motion writes an element's position twice: as its `transform`
+        // attribute and as CSS (`translate`, a motion path), meaning the CSS
+        // to replace the attribute (as Safari draws it, and as the design's
+        // guides line up). The attribute goes when CSS positions the element.
+        let positioned = ["translate", "rotate", "scale", "offset-path"]
+            .iter()
+            .any(|p| declared.contains_key(*p) || animations.contains_key(*p));
+        let from_attribute =
+            declared.get("transform").map(String::as_str) == node.attribute("transform");
+        let declared = &if positioned && from_attribute && !animations.contains_key("transform") {
+            let mut d = declared.clone();
+            d.remove("transform");
+            d
+        } else {
+            declared.clone()
+        };
+        let visibility = animations
+            .get("visibility")
+            .map(|keys| visibility_track(keys));
         let mut bounds_cache: Option<Option<Rect>> = None;
         let mut bounds = |content: &Node| *bounds_cache.get_or_insert_with(|| node_bounds(content));
         let transform = self.transform_ops(declared, animations, &mut || bounds(&content));
@@ -753,6 +781,7 @@ impl<'a, 'input> Converter<'a, 'input> {
             _ => None,
         };
         let trivial = transform.is_empty()
+            && visibility.is_none()
             && opacity == Animated::Static(1.0)
             && blend == BlendMode::Normal
             && clip.is_none()
@@ -772,6 +801,14 @@ impl<'a, 'input> Converter<'a, 'input> {
         group.blend = blend;
         group.clip = clip;
         group.mask = mask.map(Box::new);
+        if let Some(visible) = visibility {
+            // Inside the element's own opacity: the two multiply.
+            group.children = vec![Node::Group(Group {
+                opacity: visible,
+                children: std::mem::take(&mut group.children),
+                ..Group::new()
+            })];
+        }
         Ok(Node::Group(group))
     }
 
@@ -1557,6 +1594,34 @@ impl<'a, 'input> Converter<'a, 'input> {
             content: masked,
         }))
     }
+}
+
+/// CSS `visibility` keyframes as an opacity of 0 or 1. Between a visible
+/// and a hidden keyframe the element is visible (CSS interpolates
+/// `visibility` so), so it shows from the start of a segment that ends
+/// visible and until the end of one that starts visible.
+fn visibility_track(keys: &[Keyframe<String>]) -> Animated<f64> {
+    let shown = |v: &str| if v.trim() == "visible" { 1.0 } else { 0.0 };
+    let frames = keys
+        .iter()
+        .enumerate()
+        .map(|(i, k)| {
+            let (now, next) = (
+                shown(&k.value),
+                keys.get(i + 1).map_or(0.0, |n| shown(&n.value)),
+            );
+            let easing = if now == 0.0 && next == 1.0 {
+                // Hidden at the keyframe itself, visible right after.
+                dxn_vector_animation::Easing::LinearPoints {
+                    points: vec![(0.0, 0.0), (1e-6, 1.0), (1.0, 1.0)],
+                }
+            } else {
+                dxn_vector_animation::Easing::Hold
+            };
+            Keyframe::new(k.time, now, easing)
+        })
+        .collect();
+    Animated::from_keyframes(frames, 1.0)
 }
 
 /// Elements drawn only where something refers to them.

@@ -28,8 +28,11 @@ pub fn sniff(data: &[u8]) -> bool {
     if *first != b'{' {
         return false;
     }
-    let text = String::from_utf8_lossy(head);
-    text.contains("\"layers\"") && text.contains("\"fr\"")
+    // Exporters write the header (`v`, `fr`, `ip`, `op`) first or last.
+    let tail = &data[data.len().saturating_sub(64 * 1024)..];
+    let (head, tail) = (String::from_utf8_lossy(head), String::from_utf8_lossy(tail));
+    let has = |key: &str| head.contains(key) || tail.contains(key);
+    has("\"layers\"") && (has("\"fr\"") || has("\"op\""))
 }
 
 /// Reads the Lottie JSON document `data` with the default [`Limits`].

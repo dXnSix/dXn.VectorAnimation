@@ -119,7 +119,11 @@ fn read(file: &Path) -> Result<(Format, Import), String> {
             },
         ));
     }
-    if dxn_vector_animation_lottie::sniff(&data) || data.starts_with(b"PK\x03\x04") {
+    let json = data.iter().find(|b| !b.is_ascii_whitespace()) == Some(&b'{');
+    if dxn_vector_animation_lottie::sniff(&data)
+        || data.starts_with(b"PK\x03\x04")
+        || json && !dxn_vector_animation_svg::sniff(&data)
+    {
         return dxn_vector_animation_lottie::read_with(&data, &limits)
             .map(|i| (Format::Lottie, i))
             .map_err(fail);

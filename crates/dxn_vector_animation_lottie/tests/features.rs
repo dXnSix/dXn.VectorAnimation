@@ -171,3 +171,59 @@ fn sniffs_lottie_and_refuses_archives() {
         Err(dxn_vector_animation::Error::Unsupported(_))
     ));
 }
+
+#[test]
+fn sniffs_exports_that_write_their_header_last() {
+    let padding = "x".repeat(70_000);
+    let doc =
+        format!(r#"{{"layers":[],"nm":"{padding}","v":"5.7","fr":30,"ip":0,"op":10,"w":1,"h":1}}"#);
+    assert!(dxn_vector_animation_lottie::sniff(doc.as_bytes()));
+}
+
+#[test]
+fn layers_playing_backwards_show() {
+    let p = json!({ "a": 1, "k": [ { "t": 0, "s": [0, 0] }, { "t": 20, "s": [100, 0] } ] });
+    let data = comp(
+        json!([{ "ty": 4, "ind": 1, "ip": 20, "op": 0, "st": 20, "sr": -1, "ks": ks(p), "shapes": square([1.0, 0.0, 0.0, 1.0]) }]),
+        json!([]),
+    );
+    let scene = dxn_vector_animation_lottie::read(&data).unwrap().scene;
+    let items = scene.frame_at(0.5).items;
+    let x = items.iter().find_map(|i| match i {
+        Item::Fill { transform, .. } => Some(transform.e),
+        _ => None,
+    });
+    // Frame 5 of the scene is frame 15 of the layer: three quarters along.
+    assert_eq!(x, Some(75.0));
+}
+
+#[test]
+fn remapped_time_on_the_out_point_shows_the_frame_before() {
+    let inner = json!([{ "ty": 4, "ind": 1, "ip": 0, "op": 10, "st": 0,
+        "ks": ks(json!({ "a": 1, "k": [ { "t": 0, "s": [0, 0] }, { "t": 10, "s": [100, 0] } ] })),
+        "shapes": square([0.0, 1.0, 0.0, 1.0]) }]);
+    let data = comp(
+        json!([{ "ty": 0, "ind": 1, "refId": "inner", "ip": 0, "op": 10, "st": 0, "ks": ks(json!({ "a": 0, "k": [0, 0] })),
+            "tm": { "a": 0, "k": 1.0 } }]),
+        json!([{ "id": "inner", "layers": inner }]),
+    );
+    let scene = dxn_vector_animation_lottie::read(&data).unwrap().scene;
+    let x = scene.frame_at(0.5).items.iter().find_map(|i| match i {
+        Item::Fill { transform, .. } => Some(transform.e),
+        _ => None,
+    });
+    assert_eq!(x, Some(90.0), "frame 9, not nothing at frame 10");
+}
+
+#[test]
+fn unknown_blend_modes_are_named() {
+    let data = comp(
+        json!([{ "ty": 4, "ind": 1, "bm": 28, "ip": 0, "op": 20, "st": 0, "ks": ks(json!({ "a": 0, "k": [0, 0] })), "shapes": square([1.0, 0.0, 0.0, 1.0]) }]),
+        json!([]),
+    );
+    let w = dxn_vector_animation_lottie::read(&data)
+        .unwrap()
+        .warnings
+        .join("\n");
+    assert!(w.contains("blend mode 28"), "{w}");
+}

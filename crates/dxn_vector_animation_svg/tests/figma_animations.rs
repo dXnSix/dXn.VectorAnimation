@@ -103,3 +103,52 @@ fn motion_follows_the_offset_path() {
     );
     assert_eq!(transform.a, 1.0, "offset-rotate: 0deg keeps it upright");
 }
+
+#[test]
+fn css_positions_replace_the_transform_attribute() {
+    // As Figma Motion writes a moving element: its position both as the
+    // attribute and as CSS `translate` with a motion path.
+    let svg = r#"<svg width="100" height="100" xmlns="http://www.w3.org/2000/svg">
+      <style>#t { translate: 10px 20px; offset-path: path('M0 0 L50 0'); offset-rotate: 0deg; animation: kf 1s linear infinite; }
+      @keyframes kf { 0% { offset-distance: 0%; } 100% { offset-distance: 100%; } }</style>
+      <rect id="t" transform="translate(10 20)" width="5" height="5" fill="red"/>
+    </svg>"#;
+    let scene = dxn_vector_animation_svg::read(svg.as_bytes())
+        .unwrap()
+        .scene;
+    let frame = scene.frame_at(0.5);
+    let Item::Fill { transform, .. } = &frame.items[0] else {
+        panic!()
+    };
+    assert_eq!(transform.apply(Point::ZERO), Point::new(35.0, 20.0));
+}
+
+#[test]
+fn visibility_steps_as_css_interpolates_it() {
+    let svg = r#"<svg width="10" height="10" xmlns="http://www.w3.org/2000/svg">
+      <style>#v { animation: kf 1s linear infinite; }
+      @keyframes kf { 0% { visibility: hidden; } 50% { visibility: visible; } 75% { visibility: hidden; } 100% { visibility: hidden; } }</style>
+      <rect id="v" width="5" height="5" fill="red"/>
+    </svg>"#;
+    let import = dxn_vector_animation_svg::read(svg.as_bytes()).unwrap();
+    assert!(import.warnings.is_empty(), "{:?}", import.warnings);
+    let shown = |t: f64| !import.scene.frame_at(t).items.is_empty();
+    assert!(!shown(0.0));
+    assert!(
+        shown(0.1),
+        "visible from the start of a segment ending visible"
+    );
+    assert!(shown(0.7), "and until the end of one starting visible");
+    assert!(!shown(0.8));
+}
+
+#[test]
+fn smil_is_reported() {
+    let svg = r#"<svg width="10" height="10" xmlns="http://www.w3.org/2000/svg"><rect width="5" height="5"><animate attributeName="width" values="5;10" dur="1s"/></rect></svg>"#;
+    let import = dxn_vector_animation_svg::read(svg.as_bytes()).unwrap();
+    assert!(
+        import.warnings.iter().any(|w| w.contains("SMIL")),
+        "{:?}",
+        import.warnings
+    );
+}

@@ -292,9 +292,10 @@ impl<'a> Converter<'a> {
             opacity,
             blend: blend_mode(layer.get("bm").and_then(num).unwrap_or(0.0) as i64, self),
             mask: mask.map(Box::new),
+            // A layer playing backwards has its in point after its out point.
             active: Some(TimeRange {
-                start: ip / self.fr,
-                end: op / self.fr,
+                start: ip.min(op) / self.fr,
+                end: ip.max(op) / self.fr,
             }),
             children: content,
             ..Group::new()
@@ -314,9 +315,25 @@ impl<'a> Converter<'a> {
             return Ok(Vec::new());
         };
         let children = self.composition(layers)?;
+        // A remapped time on the layer's out point shows the frame before
+        // it, as lottie-web does (the out point itself shows nothing).
+        let op = layer.get("op").and_then(num);
+        let fr = self.fr;
+        let before_end = |v: f64| match op {
+            Some(op) if (v * fr - op).abs() < 1e-6 => (op - 1.0) / fr,
+            _ => v,
+        };
         let remap = layer
             .get("tm")
-            .map(|tm| scalar(Some(tm), 0, 1.0, 0.0, self.fr));
+            .map(|tm| match scalar(Some(tm), 0, 1.0, 0.0, fr) {
+                Animated::Static(v) => Animated::Static(before_end(v)),
+                Animated::Track(t) => Animated::Track(Track::new(
+                    t.keyframes
+                        .into_iter()
+                        .map(|k| Keyframe::new(k.time, before_end(k.value), k.easing))
+                        .collect(),
+                )),
+            });
         let w = layer.get("w").and_then(num);
         let h = layer.get("h").and_then(num);
         let clip = match (w, h) {
@@ -980,8 +997,14 @@ fn blend_mode(bm: i64, converter: &mut Converter<'_>) -> BlendMode {
         14 => BlendMode::Color,
         15 => BlendMode::Luminosity,
         16 => BlendMode::Add,
-        _ => {
+        17 => {
             converter.warn("the hard mix blend mode is drawn as normal");
+            BlendMode::Normal
+        }
+        other => {
+            converter.warn(format!(
+                "blend mode {other} is not a Lottie blend mode and is drawn as normal"
+            ));
             BlendMode::Normal
         }
     }
