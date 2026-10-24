@@ -113,6 +113,14 @@ pub fn raster(view: &Scene, time: f64, ratio: f64) -> Option<(Arc<ImageData>, Re
     let area = frame
         .bounds()?
         .intersect(Rect::new(0.0, 0.0, view.width, view.height))?;
+    // What is blurred throughout loses nothing drawn at fewer pixels: as
+    // few as keep its blur `BLUR_PIXELS` of them, scaled up where it shows.
+    let blurred = blur_floor(&frame.items);
+    let ratio = if blurred > 0.0 {
+        ratio.min(BLUR_PIXELS / blurred)
+    } else {
+        ratio
+    };
     // Out to whole pixels.
     let (x0, y0) = (
         (area.x * ratio).floor() / ratio,
@@ -129,6 +137,48 @@ pub fn raster(view: &Scene, time: f64, ratio: f64) -> Option<(Arc<ImageData>, Re
         }),
         region,
     ))
+}
+
+/// How many pixels the deviation of a blur takes, at least, in a raster of
+/// what is blurred throughout.
+const BLUR_PIXELS: f64 = 3.0;
+
+/// How blurred everything `items` draw is, at least (the deviation, in
+/// their lengths): each drawing by the blurs of the layers it is in, as
+/// far out as a clip or mask, whose edges come after its layer's blur.
+fn blur_floor(items: &[Item]) -> f64 {
+    // Each open layer: its blur, and whether it clips or masks.
+    let mut layers: Vec<(f64, bool)> = Vec::new();
+    let mut floor = f64::INFINITY;
+    for item in items {
+        match item {
+            Item::PushLayer(layer) => {
+                let sigma = layer
+                    .effects
+                    .iter()
+                    .map(|e| match e {
+                        dxn_vector_animation::FrameEffect::Blur { sigma } => sigma * sigma,
+                        _ => 0.0,
+                    })
+                    .sum::<f64>();
+                layers.push((sigma, layer.clip.is_some() || layer.mask.is_some()));
+            }
+            Item::PopLayer => {
+                layers.pop();
+            }
+            _ => {
+                let mut squared = 0.0;
+                for &(sigma, clips) in &layers {
+                    if clips {
+                        break;
+                    }
+                    squared += sigma;
+                }
+                floor = floor.min(squared.sqrt());
+            }
+        }
+    }
+    if floor.is_finite() { floor } else { 0.0 }
 }
 
 /// The runs of `track`: its keyframes split where their commands change.

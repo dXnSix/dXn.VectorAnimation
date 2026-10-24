@@ -235,7 +235,7 @@ dependencies = [
 [[package]]
 name = "dxn_vector_animation"
 version = "0.1.0"
-source = "git+https://github.com/dXnSix/dXn.VectorAnimation?branch=main#0c5c0f188260fc4b8da1abe5dbf57835384db8c7"
+source = "git+https://github.com/dXnSix/dXn.VectorAnimation?branch=main#74e7bf8aefadb692eed8afed3f01001f938b817a"
 dependencies = [
  "base64",
  "kurbo",
@@ -260,7 +260,7 @@ dependencies = [
 [[package]]
 name = "dxn_vector_animation_lottie"
 version = "0.1.0"
-source = "git+https://github.com/dXnSix/dXn.VectorAnimation?branch=main#0c5c0f188260fc4b8da1abe5dbf57835384db8c7"
+source = "git+https://github.com/dXnSix/dXn.VectorAnimation?branch=main#74e7bf8aefadb692eed8afed3f01001f938b817a"
 dependencies = [
  "base64",
  "dxn_vector_animation",
@@ -290,7 +290,7 @@ dependencies = [
 [[package]]
 name = "dxn_vector_animation_render"
 version = "0.1.0"
-source = "git+https://github.com/dXnSix/dXn.VectorAnimation?branch=main#0c5c0f188260fc4b8da1abe5dbf57835384db8c7"
+source = "git+https://github.com/dXnSix/dXn.VectorAnimation?branch=main#74e7bf8aefadb692eed8afed3f01001f938b817a"
 dependencies = [
  "dxn_vector_animation",
  "image",
@@ -301,7 +301,7 @@ dependencies = [
 [[package]]
 name = "dxn_vector_animation_svg"
 version = "0.1.0"
-source = "git+https://github.com/dXnSix/dXn.VectorAnimation?branch=main#0c5c0f188260fc4b8da1abe5dbf57835384db8c7"
+source = "git+https://github.com/dXnSix/dXn.VectorAnimation?branch=main#74e7bf8aefadb692eed8afed3f01001f938b817a"
 dependencies = [
  "base64",
  "dxn_vector_animation",

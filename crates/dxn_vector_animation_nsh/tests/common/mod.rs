@@ -281,13 +281,20 @@ fn units_in(
                 let view = plan::in_view(part, base, f64::from(w), f64::from(h));
                 let mut p = sk::Pixmap::new(win.w, win.h).unwrap();
                 if let Some((image, at)) = plan::raster(&view, t, 1.0) {
+                    // Into its place, scaled as the platforms scale it.
                     let image = sk::Pixmap::decode_png(&image.bytes).expect("a PNG");
+                    let (iw, ih) = (f64::from(image.width()), f64::from(image.height()));
+                    let m = Matrix::translate(at.x - f64::from(win.x), at.y - f64::from(win.y))
+                        * Matrix::scale(at.width / iw, at.height / ih);
                     p.draw_pixmap(
-                        at.x.round() as i32 - win.x,
-                        at.y.round() as i32 - win.y,
+                        0,
+                        0,
                         image.as_ref(),
-                        &sk::PixmapPaint::default(),
-                        sk::Transform::identity(),
+                        &sk::PixmapPaint {
+                            quality: sk::FilterQuality::Bilinear,
+                            ..Default::default()
+                        },
+                        sk_transform(m),
                         None,
                     );
                 }

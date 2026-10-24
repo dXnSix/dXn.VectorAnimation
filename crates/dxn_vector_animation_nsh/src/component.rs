@@ -1,8 +1,8 @@
 //! `VectorAnimation`: plays animated SVG and Lottie.
 
-use std::{rc::Rc, sync::Arc};
+use std::{cell::RefCell, collections::HashMap, rc::Rc, sync::Arc};
 
-use dxn_vector_animation::{Frame, Matrix, Scene};
+use dxn_vector_animation::{Frame, ImageData, Matrix, Rect, Scene};
 use nsh_core::{
     geometry::{Bounds, Points, Size, px},
     ui::{SignalEquals, prelude::*, signal_with},
@@ -401,10 +401,14 @@ fn rastered(
     let view = plan::in_view(scene, base, size.0, size.1);
     let still = plan::still(scene);
     let empty = Graph::default();
+    let made = RefCell::new(Rasters::default());
     canvas(move || {
         let t = if still { 0.0 } else { clock.get() };
         let ratio = f64::from(pixel_ratio()).max(1.0);
-        let ops = match plan::raster(&view, t, ratio) {
+        let raster = made
+            .borrow_mut()
+            .get(t, ratio, |t| plan::raster(&view, t, ratio));
+        let ops = match raster {
             Some((image, at)) => vec![plan::Op::Image(image, at)],
             None => Vec::new(),
         };
@@ -413,6 +417,50 @@ fn rastered(
     .absolute()
     .size_full()
     .into_element()
+}
+
+/// How many bytes of images a part keeps of the rasters it made.
+const RASTER_BYTES: usize = 32 << 20;
+
+/// How many rasters a second a part that moves makes, at most: each kept
+/// for when its time comes again (a loop), within [`RASTER_BYTES`].
+const RASTER_RATE: f64 = 60.0;
+
+/// The rasters a part made, by frame.
+#[derive(Default)]
+struct Rasters {
+    ratio: f64,
+    by_frame: HashMap<i64, Option<(Arc<ImageData>, Rect)>>,
+    bytes: usize,
+}
+
+impl Rasters {
+    /// The raster at `t` (to the nearest frame) at `ratio`, made by `make`
+    /// if it is not kept.
+    fn get(
+        &mut self,
+        t: f64,
+        ratio: f64,
+        make: impl FnOnce(f64) -> Option<(Arc<ImageData>, Rect)>,
+    ) -> Option<(Arc<ImageData>, Rect)> {
+        if ratio != self.ratio {
+            *self = Rasters {
+                ratio,
+                ..Default::default()
+            };
+        }
+        let frame = (t * RASTER_RATE).round() as i64;
+        if let Some(kept) = self.by_frame.get(&frame) {
+            return kept.clone();
+        }
+        let made = make(frame as f64 / RASTER_RATE);
+        let size = made.as_ref().map_or(0, |(image, _)| image.bytes.len());
+        if self.bytes + size <= RASTER_BYTES {
+            self.bytes += size;
+            self.by_frame.insert(frame, made.clone());
+        }
+        made
+    }
 }
 
 /// Reads `src` into a scene.
@@ -512,4 +560,58 @@ pub fn fit(scene: &Scene, w: f64, h: f64, mode: ResizeMode) -> Matrix {
         ResizeMode::Center => (1.0, 1.0),
     };
     Matrix::new(sx, 0.0, 0.0, sy, (w - sw * sx) / 2.0, (h - sh * sy) / 2.0)
+}
+
+#[cfg(test)]
+mod tests {
+    use std::cell::Cell;
+
+    use super::*;
+
+    fn image(bytes: usize) -> Option<(Arc<ImageData>, Rect)> {
+        Some((
+            Arc::new(ImageData {
+                mime: "image/png".into(),
+                bytes: vec![0; bytes],
+            }),
+            Rect::new(0.0, 0.0, 1.0, 1.0),
+        ))
+    }
+
+    #[test]
+    fn rasters_are_made_once_a_frame_and_kept() {
+        let made = Cell::new(0);
+        let mut rasters = Rasters::default();
+        let make = |_| {
+            made.set(made.get() + 1);
+            image(10)
+        };
+        // A loop's frames, twice over: made the first time only.
+        for _ in 0..2 {
+            for k in 0..30 {
+                rasters.get(f64::from(k) / 60.0 + 0.001, 2.0, make);
+            }
+        }
+        assert_eq!(made.get(), 30);
+        // At another ratio, made again.
+        rasters.get(0.0, 3.0, make);
+        assert_eq!(made.get(), 31);
+    }
+
+    #[test]
+    fn rasters_past_the_budget_are_not_kept() {
+        let made = Cell::new(0);
+        let mut rasters = Rasters::default();
+        let make = |_| {
+            made.set(made.get() + 1);
+            image(RASTER_BYTES / 2 + 1)
+        };
+        for _ in 0..2 {
+            for k in 0..3 {
+                rasters.get(f64::from(k), 1.0, make);
+            }
+        }
+        // The first kept; the others made each time.
+        assert_eq!(made.get(), 5);
+    }
 }
