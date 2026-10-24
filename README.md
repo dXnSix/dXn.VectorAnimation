@@ -9,7 +9,8 @@ primitives: canvases whose numbers and colors NSH's native animation graph moves
 JavaScript and no engine work per frame.
 
 > **Status: phase 1.** The component, playback, the TSX and Rust APIs and an example app, checked headless
-> (`nsh test`) and against 53 real animation files; not yet on a device.
+> (`nsh test`), against 53 real animation files, and frame by frame in the iOS simulator and in Chrome;
+> not yet on Android, Windows, Linux or GPUI.
 
 ## Usage
 
@@ -138,9 +139,10 @@ version); an `nsh` built from a checkout needs that checkout's crates: a local, 
 
 ## Roadmap
 
-1. **Done:** the component with canvases, warped time and playback; the TSX and Rust APIs; the example app.
-2. On device on every platform; soft masks and moving gradients on the graph; sampling one canvas instead of
-   the whole scene; views with bound transforms for groups that only move or fade.
+1. **Done:** the component with canvases, warped time and playback; the TSX and Rust APIs; the example app;
+   moving trims, dash patterns and gradients on the graph; the iOS simulator and the web.
+2. Android, Windows, Linux and GPUI; soft masks on the graph; sampling one canvas instead of the whole
+   scene; views with bound transforms for groups that only move or fade.
 
 ## License
 

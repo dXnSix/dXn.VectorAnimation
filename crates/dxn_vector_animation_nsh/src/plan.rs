@@ -208,8 +208,22 @@ pub fn from_frame(frame: &Frame, base: Matrix) -> Plan {
     frame_items(&frame.items, base, &mut alpha, &mut ops);
     Plan {
         graph: Graph::default(),
-        units: vec![Unit::Canvas(ops)],
+        units: vec![Unit::Canvas(closed(ops))],
     }
+}
+
+/// `ops` with every `save()` they leave open restored at the end. A canvas
+/// starting inside groups replays their setup and ends inside them; the
+/// platforms keep a context's state from one drawing to the next (the web
+/// one does), so what a drawing leaves saved would clip the next one.
+fn closed(mut ops: Vec<Op>) -> Vec<Op> {
+    let open = ops.iter().fold(0usize, |depth, op| match op {
+        Op::Save => depth + 1,
+        Op::Restore => depth.saturating_sub(1),
+        _ => depth,
+    });
+    ops.extend(std::iter::repeat_n(Op::Restore, open));
+    ops
 }
 
 fn frame_items(items: &[Item], base: Matrix, alpha: &mut Vec<f64>, ops: &mut Vec<Op>) {
@@ -424,7 +438,7 @@ impl Compiler {
         let open = self.open();
         if !open.canvas.is_empty() {
             let canvas = std::mem::take(&mut open.canvas);
-            open.units.push(Unit::Canvas(canvas));
+            open.units.push(Unit::Canvas(closed(canvas)));
         }
     }
 
