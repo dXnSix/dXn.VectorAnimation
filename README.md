@@ -81,10 +81,13 @@ The view is the animation's own size unless the app sizes it.
 - **Transforms, motion paths and matrices.** Transform lists are canvas transforms of animated values; motion
   paths are lookups of the path sampled by length; animated matrices animate their decomposition; skews are
   sampled.
-- **Trim paths.** A moving end (drawing on) or a moving start (drawing off) is a dash pattern as long as the
-  outline, moved along it.
-- **What the graph cannot express** (gradients that move, animated dash patterns, a trim moving at both ends,
-  animated stars, paths morphing between different commands) is sampled frame by frame on the engine thread
+- **Trims and dash patterns that move.** Where only one end of the drawn part moves (drawing on or off), the
+  part is a dash pattern as long as the outline, moved along it. Where both move (spinners, trims carried round
+  by their offset, Figma's path trims, dash lengths that change), the part is a path of its own whose points
+  the graph moves: each segment cut where the part starts and ends, from lookups of the outline sampled by
+  length.
+- **What the graph cannot express** (gradients that move, dash patterns of several dashes that move, animated
+  stars, paths morphing between different commands) is sampled frame by frame on the engine thread
   instead, for the whole scene; the reason is logged.
 - **The web** plays it the same way: NSH's web runtime replays canvases with Canvas 2D and runs the animation
   graph on the browser's frames.
@@ -121,7 +124,8 @@ draw what the reference does, except masks of partial opacity or luminance, whic
 
 `nsh test` builds the example's runner with the NSH crates the crate resolves (crates.io's at the CLI's
 version); an `nsh` built from a checkout needs that checkout's crates: a local, uncommitted
-`examples/gallery/.cargo/config.toml` patching `nsh-*` to it.
+`examples/gallery/.cargo/config.toml` patching `nsh-*` to it, with `nsh test .` run from `examples/gallery`
+(Cargo reads that configuration from the directory it runs in).
 
 ## Roadmap
 

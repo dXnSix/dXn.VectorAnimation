@@ -157,6 +157,14 @@ pub const TIME: NodeId = 0;
 /// segment.
 const SAMPLES_PER_SEGMENT: usize = 24;
 
+/// How far from their corner [`Graph::above`] and [`Graph::below`] are
+/// exact: lengths along outlines stay well within it, and the native graph
+/// (single precision) still tells the corner from its ends.
+pub const RAMP: f64 = 1.0e5;
+
+/// How long the rise of a [`Graph::step`] is.
+pub const STEP: f64 = 0.01;
+
 impl Graph {
     /// Its nodes, in the order they were made (inputs before what reads
     /// them).
@@ -226,6 +234,46 @@ impl Graph {
             outputs: vec![v],
             curve: Curve::Linear,
         })
+    }
+
+    /// `x` through the breakpoints `inputs` (ascending) to `outputs`,
+    /// straight between them, clamped at both ends.
+    pub fn lookup(&mut self, x: Num, inputs: &[f64], outputs: &[f64]) -> Num {
+        match x {
+            Num::Const(v) => Num::Const(interpolate(
+                v,
+                inputs,
+                Curve::Linear,
+                |seg, t| outputs[seg] + (outputs[seg + 1] - outputs[seg]) * t,
+                |i| outputs[i],
+            )),
+            Num::Node(input) => Num::Node(self.add(Expr::Interp {
+                input,
+                inputs: inputs.to_vec(),
+                outputs: outputs.to_vec(),
+                curve: Curve::Linear,
+            })),
+        }
+    }
+
+    /// `max(x - at, 0)`, for `x` within [`RAMP`] of `at`.
+    pub fn above(&mut self, x: Num, at: f64) -> Num {
+        self.lookup(x, &[at - RAMP, at, at + RAMP], &[0.0, 0.0, RAMP])
+    }
+
+    /// `max(at - x, 0)`, for `x` within [`RAMP`] of `at`.
+    pub fn below(&mut self, x: Num, at: f64) -> Num {
+        self.lookup(x, &[at - RAMP, at, at + RAMP], &[RAMP, 0.0, 0.0])
+    }
+
+    /// 1 where `x` is past `at` (beyond it when `up`, short of it when
+    /// not), 0 where it is not, rising over [`STEP`].
+    pub fn step(&mut self, x: Num, at: f64, up: bool) -> Num {
+        if up {
+            self.lookup(x, &[at, at + STEP], &[0.0, 1.0])
+        } else {
+            self.lookup(x, &[at - STEP, at], &[1.0, 0.0])
+        }
     }
 
     /// The sum of `items`, as a balanced tree (the native graph evaluates

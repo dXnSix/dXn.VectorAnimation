@@ -16,6 +16,7 @@ base64.workspace = true
 dxn_vector_animation.workspace = true
 dxn_vector_animation_lottie.workspace = true
 dxn_vector_animation_svg.workspace = true
+kurbo.workspace = true
 log.workspace = true
 nsh-core.workspace = true
 serde_json.workspace = true

@@ -14,7 +14,8 @@ The NSH player for animated SVG and Lottie (the `dxn_vector_animation_nsh` crate
 - Playback runs on NSH's native animation graph; a scene the graph cannot express is sampled frame by frame
   on the engine thread (`plan::Unsupported` says why, logged at info).
 - The compiler's output (`plan`, `graph`) is plain data: tests replay it with Canvas 2D semantics and compare
-  the pixels with the reference renderer's (`tests/common`). A new mapping gets a scene in `tests/plans.rs`.
+  the pixels with the reference renderer's (`tests/common`). A new mapping gets a scene in `tests/plans.rs`,
+  or a test file of its own when it is a feature of its own (`tests/moving_dashes.rs`).
 
 ## Validation
 

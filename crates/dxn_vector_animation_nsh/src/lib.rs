@@ -13,6 +13,7 @@ mod lower;
 pub mod plan;
 pub mod playback;
 pub mod source;
+mod span;
 
 use nsh_core::ui::prelude::*;
 

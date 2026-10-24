@@ -16,6 +16,7 @@ dxn_vector_animation_lottie = { git = "https://github.com/dXnSix/dXn.VectorAnima
 dxn_vector_animation_render = { git = "https://github.com/dXnSix/dXn.VectorAnimation", branch = "main" }
 dxn_vector_animation_svg = { git = "https://github.com/dXnSix/dXn.VectorAnimation", branch = "main" }
 base64 = "0.23.1"
+kurbo = { version = "0.13.1", default-features = false, features = ["std"] }
 log = "0.4"
 # NSH by version requirement: an app's own NSH (crates.io, a checkout, a
 # fork) is the one the player builds with.

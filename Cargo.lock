@@ -264,6 +264,7 @@ dependencies = [
  "dxn_vector_animation_lottie",
  "dxn_vector_animation_render",
  "dxn_vector_animation_svg",
+ "kurbo",
  "log",
  "nsh-core",
  "nsh-engine",
