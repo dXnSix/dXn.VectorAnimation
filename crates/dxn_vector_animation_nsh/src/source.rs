@@ -82,7 +82,8 @@ pub struct Loaded {
     pub warnings: Vec<String>,
 }
 
-/// Reads `bytes` (an SVG, a Lottie JSON or a compiled scene).
+/// Reads `bytes` (an SVG, a Lottie JSON, a dotLottie archive or a compiled
+/// scene).
 pub fn read(bytes: &[u8]) -> Result<Loaded, String> {
     let limits = Limits::default();
     if compiled::sniff(bytes) {
