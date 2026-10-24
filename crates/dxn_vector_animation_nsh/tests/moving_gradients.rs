@@ -307,7 +307,7 @@ fn opaque_bands_overlap_instead_of_meeting() {
         .iter()
         .flat_map(|u| match u {
             Unit::Canvas(ops) => ops.iter().collect::<Vec<_>>(),
-            Unit::Layer { .. } => Vec::new(),
+            Unit::Layer { .. } | Unit::Sampled(_) => Vec::new(),
         })
         .collect();
     assert!(ops.iter().any(|op| matches!(op, Op::Atop)));
@@ -369,8 +369,13 @@ fn stops_whose_colors_and_places_both_change_are_sampled() {
         ]),
     );
     let s = scene(vec![filled(rect(0.0, 0.0, 100.0, 100.0), paint, 1.0)]);
-    let err = dxn_vector_animation_nsh::plan::compile(&s, Matrix::IDENTITY).unwrap_err();
-    assert!(err.0.contains("both change"), "{}", err.0);
+    let plan = dxn_vector_animation_nsh::plan::compile(&s, Matrix::IDENTITY).unwrap();
+    assert!(
+        plan.sampled.iter().any(|why| why.contains("both change")),
+        "{:?}",
+        plan.sampled
+    );
+    assert_plan_matches(&s);
 }
 
 /// The coin in a player, as a compiled scene.

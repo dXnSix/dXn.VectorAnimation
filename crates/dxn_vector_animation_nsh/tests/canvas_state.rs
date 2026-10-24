@@ -12,6 +12,7 @@ fn canvases(units: &[Unit], out: &mut Vec<Vec<Op>>) {
         match u {
             Unit::Canvas(ops) => out.push(ops.clone()),
             Unit::Layer { units, .. } => canvases(units, out),
+            Unit::Sampled(_) => {}
         }
     }
 }

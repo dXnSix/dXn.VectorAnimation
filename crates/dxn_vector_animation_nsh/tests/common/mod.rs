@@ -18,7 +18,7 @@ use tiny_skia as sk;
 pub fn plan_pixels(scene: &Scene, time: f64, w: u32, h: u32) -> sk::Pixmap {
     let base = dxn_vector_animation_nsh::fit(scene, f64::from(w), f64::from(h), Default::default());
     let plan = plan::compile(scene, base).expect("the scene compiles");
-    units(&plan.units, &plan.graph, time, w, h)
+    units(&plan.units, &plan.graph, time, w, h, base)
 }
 
 /// The reference renderer's pixels of `scene` at `time`.
@@ -33,6 +33,11 @@ pub fn reference_pixels(scene: &Scene, time: f64, w: u32, h: u32) -> sk::Pixmap 
 
 /// The share of pixels that differ by more than a quarter in a channel.
 pub fn differing(a: &sk::Pixmap, b: &sk::Pixmap) -> f64 {
+    differing_by(a, b, 64)
+}
+
+/// The share of pixels that differ by more than `by` in a channel.
+pub fn differing_by(a: &sk::Pixmap, b: &sk::Pixmap, by: u8) -> f64 {
     let mut bad = 0usize;
     for (p, q) in a.pixels().iter().zip(b.pixels()) {
         let d = [
@@ -41,7 +46,7 @@ pub fn differing(a: &sk::Pixmap, b: &sk::Pixmap) -> f64 {
             p.blue().abs_diff(q.blue()),
             p.alpha().abs_diff(q.alpha()),
         ];
-        if d.iter().any(|d| *d > 64) {
+        if d.iter().any(|d| *d > by) {
             bad += 1;
         }
     }
@@ -70,7 +75,7 @@ pub fn assert_plan_matches(scene: &Scene, times: &[f64], w: u32, h: u32) {
 /// How far out any path point of `scene`'s plan lies at `time`, in device
 /// pixels of a `w` × `h` view.
 pub fn widest_point(scene: &Scene, time: f64, w: u32, h: u32) -> f64 {
-    fn walk(list: &[Unit], g: &Graph, t: f64, w: u32, h: u32) -> f64 {
+    fn walk(list: &[Unit], g: &Graph, t: f64, w: u32, h: u32, base: Matrix) -> f64 {
         list.iter()
             .map(|unit| match unit {
                 Unit::Canvas(ops) => {
@@ -79,16 +84,20 @@ pub fn widest_point(scene: &Scene, time: f64, w: u32, h: u32) -> f64 {
                     replay.run(ops, &mut p);
                     replay.widest.get()
                 }
-                Unit::Layer { units, .. } => walk(units, g, t, w, h),
+                Unit::Layer { units, .. } => walk(units, g, t, w, h, base),
+                Unit::Sampled(part) => {
+                    let plan = plan::from_frame(&part.frame_at(t), base);
+                    walk(&plan.units, &plan.graph, t, w, h, base)
+                }
             })
             .fold(0.0, f64::max)
     }
     let base = dxn_vector_animation_nsh::fit(scene, f64::from(w), f64::from(h), Default::default());
     let plan = plan::compile(scene, base).expect("the scene compiles");
-    walk(&plan.units, &plan.graph, time, w, h)
+    walk(&plan.units, &plan.graph, time, w, h, base)
 }
 
-fn units(list: &[Unit], g: &Graph, t: f64, w: u32, h: u32) -> sk::Pixmap {
+fn units(list: &[Unit], g: &Graph, t: f64, w: u32, h: u32, base: Matrix) -> sk::Pixmap {
     let mut out = sk::Pixmap::new(w, h).unwrap();
     for unit in list {
         let (pixmap, opacity, blend) = match unit {
@@ -101,7 +110,16 @@ fn units(list: &[Unit], g: &Graph, t: f64, w: u32, h: u32) -> sk::Pixmap {
                 opacity,
                 blend,
                 units: inner,
-            } => (units(inner, g, t, w, h), g.num(*opacity, t), *blend),
+            } => (units(inner, g, t, w, h, base), g.num(*opacity, t), *blend),
+            // A part sampled frame by frame: its frame at `t`.
+            Unit::Sampled(part) => {
+                let plan = plan::from_frame(&part.frame_at(t), base);
+                (
+                    units(&plan.units, &plan.graph, t, w, h, base),
+                    1.0,
+                    BlendMode::Normal,
+                )
+            }
         };
         let paint = sk::PixmapPaint {
             opacity: opacity.clamp(0.0, 1.0) as f32,

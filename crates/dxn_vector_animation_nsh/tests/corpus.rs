@@ -44,12 +44,12 @@ fn corpus_plans_match_their_frames() {
         let scene = loaded.scene;
         let base = dxn_vector_animation::Matrix::IDENTITY;
         let plan = dxn_vector_animation_nsh::plan::compile(&scene, base);
-        let Ok(_) = plan else {
-            println!(
-                "{name}: sampled ({})",
-                plan.err().map(|e| e.0).unwrap_or_default()
-            );
-            continue;
+        let plan = match plan {
+            Ok(plan) => plan,
+            Err(why) => {
+                println!("{name}: sampled ({})", why.0);
+                continue;
+            }
         };
         let w: u32 = std::env::var("DXN_CORPUS_WIDTH")
             .ok()
@@ -76,8 +76,13 @@ fn corpus_plans_match_their_frames() {
             share = share.max(diff);
         }
         worst = worst.max(share);
+        let parts = if plan.sampled.is_empty() {
+            String::new()
+        } else {
+            format!(", parts sampled ({})", plan.sampled.join("; "))
+        };
         println!(
-            "{name}: native, up to {:.2}% of pixels differ",
+            "{name}: native{parts}, up to {:.2}% of pixels differ",
             share * 100.0
         );
     }

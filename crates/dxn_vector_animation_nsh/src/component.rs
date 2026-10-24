@@ -1,14 +1,15 @@
 //! `VectorAnimation`: plays animated SVG and Lottie.
 
-use std::rc::Rc;
+use std::{rc::Rc, sync::Arc};
 
-use dxn_vector_animation::{Matrix, Scene};
+use dxn_vector_animation::{Frame, Matrix, Scene};
 use nsh_core::{
     geometry::{Bounds, Points, Size, px},
     ui::{SignalEquals, prelude::*, signal_with},
 };
 
 use crate::{
+    graph::Graph,
     lower::{self, Nodes},
     plan,
     playback::{Direction, Playback},
@@ -130,6 +131,8 @@ impl VectorAnimationApi {
 struct Ready {
     loaded: Loaded,
     native: bool,
+    /// Parts of it are sampled frame by frame, on the engine's clock.
+    mixed: bool,
 }
 
 /// Plays an animated SVG (CSS animations, as Figma Motion exports them) or a
@@ -149,6 +152,9 @@ pub fn VectorAnimation(
     cx.methods(VectorAnimationApi { seek_to });
     let loading = stored(None::<Spawned<()>>);
     let playing = stored(None::<Spawned<()>>);
+    // The engine's clock beside the graph's, for parts sampled frame by
+    // frame.
+    let ticking = stored(None::<Spawned<()>>);
 
     // Reading the source.
     effect(move || {
@@ -164,15 +170,26 @@ pub fn VectorAnimation(
                     for w in &loaded.warnings {
                         log::warn!("VectorAnimation: left out: {w}");
                     }
-                    let native = match plan::compile(&loaded.scene, Matrix::IDENTITY) {
-                        Ok(_) => true,
+                    let (native, mixed) = match plan::compile(&loaded.scene, Matrix::IDENTITY) {
+                        Ok(plan) => {
+                            for why in &plan.sampled {
+                                log::info!(
+                                    "VectorAnimation: a part sampled frame by frame ({why})"
+                                );
+                            }
+                            (true, !plan.sampled.is_empty())
+                        }
                         Err(plan::Unsupported(why)) => {
                             log::info!("VectorAnimation: sampled frame by frame ({why})");
-                            false
+                            (false, false)
                         }
                     };
                     let info = info(&loaded);
-                    ready.set(Some(Rc::new(Ready { loaded, native })));
+                    ready.set(Some(Rc::new(Ready {
+                        loaded,
+                        native,
+                        mixed,
+                    })));
                     cx.emit(VectorAnimationEvent::Load(info));
                 }
                 Err(e) => cx.emit(VectorAnimationEvent::Error(e)),
@@ -217,9 +234,12 @@ pub fn VectorAnimation(
             }
         });
         let seek = seek_to.get();
-        let native = r.native;
+        let (native, mixed) = (r.native, r.mixed);
         untracked(move || {
             if let Some(task) = playing.replace(None) {
+                task.cancel();
+            }
+            if let Some(task) = ticking.replace(None) {
                 task.cancel();
             }
             time.stop();
@@ -257,13 +277,8 @@ pub fn VectorAnimation(
                 } else {
                     from
                 };
-                if native {
-                    time.set(from as f32);
-                    let run = playback.animation(&time, from);
-                    if run.start().await {
-                        cx.emit(VectorAnimationEvent::End);
-                    }
-                } else {
+                // The engine's clock, frame by frame.
+                let tick = move || async move {
                     clock.set(from);
                     let started = next_frame().await;
                     loop {
@@ -272,10 +287,22 @@ pub fn VectorAnimation(
                             playback.position(from, now.duration_since(started).as_secs_f64());
                         clock.set(t);
                         if done {
-                            cx.emit(VectorAnimationEvent::End);
                             break;
                         }
                     }
+                };
+                if native {
+                    if mixed {
+                        ticking.replace(Some(spawn(tick())));
+                    }
+                    time.set(from as f32);
+                    let run = playback.animation(&time, from);
+                    if run.start().await {
+                        cx.emit(VectorAnimationEvent::End);
+                    }
+                } else {
+                    tick().await;
+                    cx.emit(VectorAnimationEvent::End);
                 }
             })));
         });
@@ -313,26 +340,42 @@ pub fn VectorAnimation(
             && let Ok(plan) = plan::compile(&r.loaded.scene, base)
         {
             let nodes = Nodes::new(&plan.graph, time);
-            return lower::elements(&plan.units, &nodes);
+            let part = move |part: &Arc<Scene>| {
+                let part = part.clone();
+                sampled(move |t| part.frame_at(t), base, clock, time)
+            };
+            return lower::elements(&plan.units, &nodes, &part);
         }
-        // Sampled: the frame at the clock's time, drawn again as it moves.
         let r = r.clone();
-        let empty = plan::from_frame(&r.loaded.scene.frame_at(0.0), base).graph;
-        vec![
-            canvas(move || {
-                let frame = r.loaded.scene.frame_at(clock.get());
-                let plan = plan::from_frame(&frame, base);
-                let ops = match plan.units.first() {
-                    Some(plan::Unit::Canvas(ops)) => ops.clone(),
-                    _ => Vec::new(),
-                };
-                lower::painter(&ops, &Nodes::new(&empty, time))
-            })
-            .absolute()
-            .size_full()
-            .into_element(),
-        ]
+        vec![sampled(
+            move |t| r.loaded.scene.frame_at(t),
+            base,
+            clock,
+            time,
+        )]
     })))
+}
+
+/// A canvas drawing the frame `frame_at` the clock's time, drawn again as
+/// the clock moves.
+fn sampled(
+    frame_at: impl Fn(f64) -> Frame + 'static,
+    base: Matrix,
+    clock: Signal<f64>,
+    time: AnimatedValue,
+) -> AnyElement {
+    let empty = Graph::default();
+    canvas(move || {
+        let plan = plan::from_frame(&frame_at(clock.get()), base);
+        let ops = match plan.units.first() {
+            Some(plan::Unit::Canvas(ops)) => ops.clone(),
+            _ => Vec::new(),
+        };
+        lower::painter(&ops, &Nodes::new(&empty, time))
+    })
+    .absolute()
+    .size_full()
+    .into_element()
 }
 
 /// Reads `src` into a scene.

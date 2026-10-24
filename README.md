@@ -96,8 +96,11 @@ The view is the animation's own size unless the app sizes it.
   (bands whose edges met showed seams on Android). A stroke so painted clips to its outline.
 - **What the graph cannot express** (gradient stops whose colors and places both change, radial gradients
   whose stops move, dash patterns of several dashes that move, animated stars, paths morphing between
-  different commands) is sampled frame by frame on the engine thread
-  instead, for the whole scene; the reason is logged.
+  different commands) is sampled frame by frame on the engine thread instead, that part alone: a canvas of its
+  own drawing the part within copies of the groups it is in (their clips, masks and transforms; the layers it
+  is drawn in fade and blend it), the rest of the scene still on the graph. Sampled siblings with nothing
+  drawn between share one canvas. A group whose own transform, clip or mask the graph cannot express is
+  sampled whole. The reasons are logged.
 - **The web** plays it the same way: NSH's web runtime replays canvases with Canvas 2D and runs the animation
   graph on the browser's frames.
 
@@ -144,8 +147,8 @@ version); an `nsh` built from a checkout needs that checkout's crates: a local, 
 
 1. **Done:** the component with canvases, warped time and playback; the TSX and Rust APIs; the example app;
    moving trims, dash patterns and gradients on the graph; the iOS simulator and the web.
-2. Windows, and GPUI on macOS; soft masks on the graph; sampling one canvas instead of the whole scene;
-   views with bound transforms for groups that only move or fade.
+2. Windows, and GPUI on macOS; soft masks on the graph; views with bound transforms for groups that only
+   move or fade.
 
 ## License
 

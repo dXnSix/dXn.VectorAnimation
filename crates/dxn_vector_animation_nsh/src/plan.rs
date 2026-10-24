@@ -139,6 +139,10 @@ pub enum Gradient {
 pub enum Unit {
     /// A canvas, the size of the view.
     Canvas(Vec<Op>),
+    /// A canvas drawing a part of the scene the graph cannot express,
+    /// sampled frame by frame: the part within copies of the groups it is
+    /// in (their opacity and blending left to the layers it is drawn in).
+    Sampled(Arc<Scene>),
     /// A view the size of the view over the units below it.
     Layer {
         /// Its opacity.
@@ -157,6 +161,9 @@ pub struct Plan {
     pub graph: Graph,
     /// What is drawn, bottom first.
     pub units: Vec<Unit>,
+    /// Why the parts drawn by [`Unit::Sampled`] are sampled, each reason
+    /// once.
+    pub sampled: Vec<String>,
 }
 
 /// Why a scene cannot be played on the native graph (it is then sampled
@@ -185,6 +192,52 @@ struct Compiler {
     /// The setup of each group drawn inside, outermost first: what a canvas
     /// starting there replays.
     context: Vec<Vec<Op>>,
+    /// The groups drawn inside, outermost first, without their children,
+    /// and whether each is a layer: what a sampled part is drawn within.
+    ancestors: Vec<(Group, bool)>,
+    /// The scene's size and timeline, for sampled parts.
+    stage: Scene,
+    /// Why parts are sampled.
+    sampled: Vec<String>,
+}
+
+/// Where the compiler was before a node: what drawing it is undone to.
+struct Mark {
+    graph: usize,
+    layers: usize,
+    units: usize,
+    canvas: usize,
+    alpha: Num,
+    context: usize,
+    ancestors: usize,
+}
+
+/// `g` without its children.
+fn shell(g: &Group) -> Group {
+    Group {
+        id: g.id.clone(),
+        name: g.name.clone(),
+        transform: g.transform.clone(),
+        opacity: g.opacity.clone(),
+        blend: g.blend,
+        clip: g.clip.clone(),
+        mask: g.mask.clone(),
+        active: g.active,
+        time: g.time.clone(),
+        children: Vec::new(),
+    }
+}
+
+/// `node` added to the group `depth` groups down the last children of `g`:
+/// the one a sampled part is in.
+fn add_within(g: &mut Group, depth: usize, node: Node) {
+    if depth > 0
+        && let Some(Node::Group(inner)) = g.children.last_mut()
+    {
+        add_within(inner, depth - 1, node);
+    } else {
+        g.children.push(node);
+    }
 }
 
 /// Compiles `scene` drawn through `base` (the scene's fit into the view).
@@ -200,6 +253,14 @@ pub fn compile(scene: &Scene, base: Matrix) -> Result<Plan, Unsupported> {
             alpha: Num::Const(1.0),
         }],
         context: Vec::new(),
+        ancestors: Vec::new(),
+        stage: Scene {
+            width: scene.width,
+            height: scene.height,
+            timeline: scene.timeline.clone(),
+            root: Group::new(),
+        },
+        sampled: Vec::new(),
     };
     c.group(&scene.root, TIME, 0)?;
     c.flush();
@@ -207,6 +268,7 @@ pub fn compile(scene: &Scene, base: Matrix) -> Result<Plan, Unsupported> {
     Ok(Plan {
         graph: c.g,
         units: root,
+        sampled: c.sampled,
     })
 }
 
@@ -220,6 +282,7 @@ pub fn from_frame(frame: &Frame, base: Matrix) -> Plan {
     Plan {
         graph: Graph::default(),
         units: vec![Unit::Canvas(closed(ops))],
+        sampled: Vec::new(),
     }
 }
 
@@ -454,6 +517,93 @@ impl Compiler {
         }
     }
 
+    /// Where it is now.
+    fn mark(&mut self) -> Mark {
+        let (layers, graph, context, ancestors) = (
+            self.layers.len(),
+            self.g.len(),
+            self.context.len(),
+            self.ancestors.len(),
+        );
+        let open = self.open();
+        Mark {
+            graph,
+            layers,
+            units: open.units.len(),
+            canvas: open.canvas.len(),
+            alpha: open.alpha,
+            context,
+            ancestors,
+        }
+    }
+
+    /// Undoes what was drawn since `mark`.
+    fn undo(&mut self, mark: Mark) {
+        self.g.truncate(mark.graph);
+        self.layers.truncate(mark.layers);
+        self.context.truncate(mark.context);
+        self.ancestors.truncate(mark.ancestors);
+        let open = self.open();
+        if open.units.len() > mark.units {
+            // The canvas then open was flushed: it is the first unit since.
+            let first = open.units.drain(mark.units..).next();
+            open.canvas = match first {
+                Some(Unit::Canvas(mut ops)) if mark.canvas > 0 => {
+                    ops.truncate(mark.canvas);
+                    ops
+                }
+                _ => Vec::new(),
+            };
+        } else {
+            open.canvas.truncate(mark.canvas);
+        }
+        open.alpha = mark.alpha;
+    }
+
+    /// `node` sampled frame by frame, within the groups it is in: a canvas
+    /// of its own, or the one of `joins` (the index of the sampled part of a
+    /// sibling just before it, nothing drawn between). Returns the index of
+    /// the part.
+    fn sample(&mut self, node: &Node, joins: Option<usize>) -> usize {
+        let depth = self.ancestors.len();
+        let open = self.open();
+        if let Some(i) = joins
+            && i + 1 == open.units.len()
+            && open.canvas.is_empty()
+            && let Some(Unit::Sampled(scene)) = open.units.get_mut(i)
+        {
+            add_within(&mut Arc::make_mut(scene).root, depth - 1, node.clone());
+            return i;
+        }
+        // The layers it is drawn in fade and blend it already.
+        let layered = self.ancestors.iter().rposition(|(_, layer)| *layer);
+        let mut part = node.clone();
+        for (i, (group, _)) in self.ancestors.iter().enumerate().rev() {
+            let mut group = group.clone();
+            if layered.is_some_and(|l| i <= l) {
+                group.opacity = Animated::Static(1.0);
+                group.blend = BlendMode::Normal;
+            }
+            group.children = vec![part];
+            part = Node::Group(group);
+        }
+        let root = match part {
+            Node::Group(g) => g,
+            other => Group {
+                children: vec![other],
+                ..Group::new()
+            },
+        };
+        self.flush();
+        let scene = Scene {
+            root,
+            ..self.stage.clone()
+        };
+        let open = self.open();
+        open.units.push(Unit::Sampled(Arc::new(scene)));
+        open.units.len() - 1
+    }
+
     /// [`FAR`] in the scene's lengths.
     fn far(&self) -> f64 {
         far(self.base)
@@ -533,10 +683,15 @@ impl Compiler {
             self.open().canvas.extend(frame.iter().cloned());
         }
         self.context.push(frame);
+        self.ancestors.push((shell(g), isolate));
+        // The part sampled last, while nothing is drawn after it: where a
+        // sibling sampled next joins it.
+        let mut last: Option<usize> = None;
         for child in &g.children {
-            match child {
-                Node::Group(child) => self.group(child, local, depth + 1)?,
-                Node::Shape(shape) => self.shape(shape, local)?,
+            let mark = self.mark();
+            let done = match child {
+                Node::Group(child) => self.group(child, local, depth + 1),
+                Node::Shape(shape) => self.shape(shape, local),
                 Node::Image(image) => {
                     let alpha = self.open().alpha;
                     self.draw(vec![
@@ -545,9 +700,22 @@ impl Compiler {
                         Op::Image(image.data.clone(), image.rect),
                         Op::Restore,
                     ]);
+                    Ok(())
                 }
+            };
+            // What the graph cannot express is sampled, that part alone.
+            if let Err(Unsupported(why)) = done {
+                self.undo(mark);
+                if !self.sampled.contains(&why) {
+                    self.sampled.push(why);
+                }
+                last = Some(self.sample(child, last));
+            } else if self.open().units.len() > mark.units || self.open().canvas.len() > mark.canvas
+            {
+                last = None;
             }
         }
+        self.ancestors.pop();
         self.context.pop();
         if !self.open().canvas.is_empty() {
             self.open().canvas.push(Op::Restore);

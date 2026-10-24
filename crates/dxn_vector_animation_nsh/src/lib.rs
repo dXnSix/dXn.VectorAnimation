@@ -4,8 +4,9 @@
 //! into a scene, the scene compiled into canvases whose numbers and colors
 //! are nodes of NSH's native animation graph ([`plan`], [`graph`]), and
 //! playback moves one time value: the UI thread plays the whole animation
-//! with no JavaScript and no engine work per frame. What the graph cannot
-//! express is sampled frame by frame on the engine thread instead.
+//! with no JavaScript and no engine work per frame. A part the graph cannot
+//! express is sampled frame by frame on the engine thread instead, in a
+//! canvas of its own beside the rest.
 
 mod component;
 pub mod graph;

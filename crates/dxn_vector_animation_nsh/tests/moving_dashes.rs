@@ -219,8 +219,13 @@ fn a_dash_pattern_that_repeats_is_sampled() {
     };
     let dash = shape.stroke.as_mut().unwrap().dash.as_mut().unwrap();
     dash.array[1] = Animated::Static(20.0);
-    let err = dxn_vector_animation_nsh::plan::compile(&s, Matrix::IDENTITY).unwrap_err();
-    assert!(err.0.contains("repeating"), "{}", err.0);
+    let plan = dxn_vector_animation_nsh::plan::compile(&s, Matrix::IDENTITY).unwrap();
+    assert!(
+        plan.sampled.iter().any(|why| why.contains("repeating")),
+        "{:?}",
+        plan.sampled
+    );
+    assert_plan_matches(&s, TIMES, 100, 100);
 }
 
 /// The ring spinner in a player.

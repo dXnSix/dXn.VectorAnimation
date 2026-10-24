@@ -172,6 +172,24 @@ impl Graph {
         &self.nodes
     }
 
+    /// How many nodes it has: a mark to go back to ([`Graph::truncate`]).
+    pub fn len(&self) -> usize {
+        self.nodes.len()
+    }
+
+    /// Whether it has no nodes but the time.
+    pub fn is_empty(&self) -> bool {
+        self.nodes.len() <= 1
+    }
+
+    /// Drops the nodes made since it had `len`.
+    pub fn truncate(&mut self, len: usize) {
+        if len < self.nodes.len() {
+            self.nodes.truncate(len);
+            self.index.retain(|_, id| *id < len);
+        }
+    }
+
     /// The node `expr` (made once).
     pub fn add(&mut self, expr: Expr) -> NodeId {
         let key = format!("{expr:?}");

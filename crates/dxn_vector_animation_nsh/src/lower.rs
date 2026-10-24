@@ -98,8 +98,13 @@ fn interpolation(curve: Curve) -> Interpolation {
 }
 
 /// The elements of `units`, bottom first: canvases and layers the size of
-/// the view, over one another.
-pub(crate) fn elements(units: &[Unit], nodes: &Nodes) -> Vec<AnyElement> {
+/// the view, over one another; `sampled` makes the canvas of a part drawn
+/// frame by frame.
+pub(crate) fn elements(
+    units: &[Unit],
+    nodes: &Nodes,
+    sampled: &dyn Fn(&Arc<dxn_vector_animation::Scene>) -> AnyElement,
+) -> Vec<AnyElement> {
     units
         .iter()
         .map(|unit| match unit {
@@ -107,6 +112,7 @@ pub(crate) fn elements(units: &[Unit], nodes: &Nodes) -> Vec<AnyElement> {
                 let painter = painter(ops, nodes);
                 canvas(painter).absolute().size_full().into_element()
             }
+            Unit::Sampled(part) => sampled(part),
             Unit::Layer {
                 opacity,
                 blend,
@@ -128,7 +134,9 @@ pub(crate) fn elements(units: &[Unit], nodes: &Nodes) -> Vec<AnyElement> {
                 if let Some(mode) = blend_mode(*blend) {
                     layer = layer.mix_blend_mode(mode);
                 }
-                layer.children(elements(units, nodes)).into_element()
+                layer
+                    .children(elements(units, nodes, sampled))
+                    .into_element()
             }
         })
         .collect()
