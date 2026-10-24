@@ -136,7 +136,8 @@ pub enum Paint {
 #[derive(Debug, Clone)]
 pub struct Graph {
     nodes: Vec<Expr>,
-    index: HashMap<String, NodeId>,
+    /// Nodes by a hash of their expression (equal ones are one).
+    index: HashMap<u64, Vec<NodeId>>,
 }
 
 impl Default for Graph {
@@ -148,6 +149,70 @@ impl Default for Graph {
         g.add(Expr::Time);
         g
     }
+}
+
+/// A hash of `expr`: its variant, nodes, and numbers' bits.
+fn hash(expr: &Expr) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    let floats = |h: &mut std::collections::hash_map::DefaultHasher, v: &[f64]| {
+        v.len().hash(h);
+        for x in v {
+            x.to_bits().hash(h);
+        }
+    };
+    let curve = |h: &mut std::collections::hash_map::DefaultHasher, c: &Curve| match c {
+        Curve::Linear => 0u8.hash(h),
+        Curve::Bezier(a, b, c, d) => {
+            1u8.hash(h);
+            for x in [a, b, c, d] {
+                x.to_bits().hash(h);
+            }
+        }
+    };
+    match expr {
+        Expr::Time => 0u8.hash(&mut h),
+        Expr::Interp {
+            input,
+            inputs,
+            outputs,
+            curve: c,
+        } => {
+            1u8.hash(&mut h);
+            input.hash(&mut h);
+            floats(&mut h, inputs);
+            floats(&mut h, outputs);
+            curve(&mut h, c);
+        }
+        Expr::InterpColor {
+            input,
+            inputs,
+            colors,
+            curve: c,
+        } => {
+            2u8.hash(&mut h);
+            input.hash(&mut h);
+            floats(&mut h, inputs);
+            colors.hash(&mut h);
+            curve(&mut h, c);
+        }
+        Expr::Math(op, a, b) => {
+            3u8.hash(&mut h);
+            (*op as u8).hash(&mut h);
+            a.hash(&mut h);
+            match b {
+                Operand::Node(n) => {
+                    0u8.hash(&mut h);
+                    n.hash(&mut h);
+                }
+                Operand::Const(c) => {
+                    1u8.hash(&mut h);
+                    c.to_bits().hash(&mut h);
+                }
+            }
+        }
+    }
+    h.finish()
 }
 
 /// The node of the playback time.
@@ -186,19 +251,24 @@ impl Graph {
     pub fn truncate(&mut self, len: usize) {
         if len < self.nodes.len() {
             self.nodes.truncate(len);
-            self.index.retain(|_, id| *id < len);
+            self.index.retain(|_, ids| {
+                ids.retain(|id| *id < len);
+                !ids.is_empty()
+            });
         }
     }
 
     /// The node `expr` (made once).
     pub fn add(&mut self, expr: Expr) -> NodeId {
-        let key = format!("{expr:?}");
-        if let Some(&id) = self.index.get(&key) {
+        let key = hash(&expr);
+        if let Some(ids) = self.index.get(&key)
+            && let Some(&id) = ids.iter().find(|&&id| self.nodes[id] == expr)
+        {
             return id;
         }
         let id = self.nodes.len();
         self.nodes.push(expr);
-        self.index.insert(key, id);
+        self.index.entry(key).or_default().push(id);
         id
     }
 

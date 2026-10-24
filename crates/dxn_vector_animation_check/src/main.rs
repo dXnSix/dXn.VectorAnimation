@@ -9,8 +9,11 @@
 //!   reports the share of pixels that differ (straight, and at the best
 //!   shift of a pixel, as a border of a fraction of a pixel moves the
 //!   content), writing each pair side by side.
+//! - `profile <dir> [--size <points>] [--ratio <pixels>]` reports what
+//!   playing each file of a folder costs (`profile.rs`).
 
 mod compare;
+mod profile;
 mod scenes;
 
 use std::{
@@ -80,9 +83,11 @@ fn main() -> ExitCode {
     let result = match args.first().map(String::as_str) {
         Some("scenes") => write_scenes(&args[1..]),
         Some("compare") => compare::run(&args[1..]),
+        Some("profile") => profile::run(&args[1..]),
         _ => Err(
             "usage: vector-animation-check scenes <app> [--corpus <dir>]\n       \
-                  vector-animation-check compare <shots> <app> [--tile <points>] [--out <dir>]"
+                  vector-animation-check compare <shots> <app> [--tile <points>] [--out <dir>]\n       \
+                  vector-animation-check profile <dir> [--size <points>] [--ratio <pixels a point>]"
                 .into(),
         ),
     };

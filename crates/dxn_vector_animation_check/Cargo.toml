@@ -1,6 +1,6 @@
 [package]
 name = "dxn_vector_animation_check"
-description = "Device checks of the VectorAnimation player: the check app's scenes and the comparison of its screenshots with the reference renderer"
+description = "Device checks of the VectorAnimation player: the check app's scenes, the comparison of its screenshots with the reference renderer, and what playing each file costs"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -16,6 +16,7 @@ path = "src/main.rs"
 [dependencies]
 dxn_vector_animation.workspace = true
 dxn_vector_animation_lottie.workspace = true
+dxn_vector_animation_nsh = { path = "../dxn_vector_animation_nsh" }
 dxn_vector_animation_render.workspace = true
 dxn_vector_animation_svg.workspace = true
 serde_json.workspace = true

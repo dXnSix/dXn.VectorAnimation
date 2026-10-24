@@ -196,6 +196,16 @@ On the iOS simulator, Chrome, the Android emulator, and GTK and GPUI on Linux, t
 reference in under 0.5% of their pixels at the device's scale (up to 3% in Chrome at one pixel a point, where
 a pixel of anti-aliasing is a larger share), except masks of partial opacity or luminance, which clip hard.
 
+## What playing costs
+
+`vector-animation-check profile <dir> [--size <points>] [--ratio <pixels a point>]` reports, for each file of a
+folder: how long its plan takes to compile, its graph's nodes and breakpoints, what each frame draws
+(canvases, layers, operations), and the engine thread's work each frame for parts sampled frame by frame and
+for rasters of parts that move. On the 53 corpus files at 200 points and 3 pixels a point, plans compile in
+7 ms at most (most under 2), and the engine thread does no work a frame but for two files whose blurs or
+shadows move (9 and 1 ms a frame: each raster renders only where its part draws). The graph's evaluation on
+the platforms' UI threads, and frame times on real phones, are not measured here.
+
 ## Roadmap
 
 1. **Done:** the component with canvases, warped time and playback; the TSX and Rust APIs; the example app;

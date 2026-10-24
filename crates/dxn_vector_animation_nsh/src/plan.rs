@@ -37,15 +37,16 @@ const FAR: f64 = 5.0e4;
 /// [`FAR`] in the scene's lengths, drawn through `base`.
 /// The coordinates of `p`'s points, in order.
 fn coords(p: &Path) -> Vec<f64> {
-    p.elements()
-        .iter()
-        .flat_map(|el| match *el {
-            PathEl::MoveTo(a) | PathEl::LineTo(a) => vec![a.x, a.y],
-            PathEl::QuadTo(c, a) => vec![c.x, c.y, a.x, a.y],
-            PathEl::CubicTo(c1, c2, a) => vec![c1.x, c1.y, c2.x, c2.y, a.x, a.y],
-            PathEl::Close => vec![],
-        })
-        .collect()
+    let mut out = Vec::with_capacity(p.elements().len() * 6);
+    for el in p.elements() {
+        match *el {
+            PathEl::MoveTo(a) | PathEl::LineTo(a) => out.extend([a.x, a.y]),
+            PathEl::QuadTo(c, a) => out.extend([c.x, c.y, a.x, a.y]),
+            PathEl::CubicTo(c1, c2, a) => out.extend([c1.x, c1.y, c2.x, c2.y, a.x, a.y]),
+            PathEl::Close => {}
+        }
+    }
+    out
 }
 
 /// The commands of `p` with the coordinates `nums`, in order.
@@ -104,19 +105,29 @@ pub fn in_view(scene: &Scene, base: Matrix, w: f64, h: f64) -> Scene {
 }
 
 /// `view` (a scene [`in_view`]) at `time` as the reference renderer draws
-/// it, `ratio` pixels a point: a PNG.
-pub fn raster(view: &Scene, time: f64, ratio: f64) -> Option<Arc<ImageData>> {
-    let px = |v: f64| (v * ratio).round().clamp(1.0, 8192.0) as u32;
-    let options = dxn_vector_animation_render::RenderOptions {
-        width: Some(px(view.width)),
-        height: Some(px(view.height)),
-        ..Default::default()
-    };
-    let pixmap = dxn_vector_animation_render::render(&view.frame_at(time), &options).ok()?;
-    Some(Arc::new(ImageData {
-        mime: "image/png".into(),
-        bytes: pixmap.encode_png().ok()?,
-    }))
+/// it, `ratio` pixels a point: a PNG of where it draws (in whole pixels),
+/// and where that is in the view.
+pub fn raster(view: &Scene, time: f64, ratio: f64) -> Option<(Arc<ImageData>, Rect)> {
+    let frame = view.frame_at(time);
+    let area = frame
+        .bounds()?
+        .intersect(Rect::new(0.0, 0.0, view.width, view.height))?;
+    // Out to whole pixels.
+    let (x0, y0) = (
+        (area.x * ratio).floor() / ratio,
+        (area.y * ratio).floor() / ratio,
+    );
+    let x1 = ((area.x + area.width) * ratio).ceil() / ratio;
+    let y1 = ((area.y + area.height) * ratio).ceil() / ratio;
+    let region = Rect::new(x0, y0, x1 - x0, y1 - y0);
+    let pixmap = dxn_vector_animation_render::render_region(&frame, region, ratio).ok()?;
+    Some((
+        Arc::new(ImageData {
+            mime: "image/png".into(),
+            bytes: pixmap.encode_png().ok()?,
+        }),
+        region,
+    ))
 }
 
 /// The runs of `track`: its keyframes split where their commands change.
@@ -255,6 +266,10 @@ fn outline_times(keys: &[f64]) -> Vec<f64> {
 
 /// The samples (`times`, `values`) without those a straight line between
 /// their neighbors kept stands for within `tolerance`.
+/// The samples (`times`, `values`) without those a straight line between
+/// their neighbors kept stands for within `tolerance`: in one pass, the
+/// slopes from the last sample kept that pass every sample since within
+/// the tolerance narrowing as it goes.
 fn simplified(times: &[f64], values: &[f64], tolerance: f64) -> (Vec<f64>, Vec<f64>) {
     let n = times.len();
     if values.iter().all(|v| (v - values[0]).abs() <= tolerance) {
@@ -262,17 +277,26 @@ fn simplified(times: &[f64], values: &[f64], tolerance: f64) -> (Vec<f64>, Vec<f
     }
     let mut keep = vec![0];
     let mut from = 0;
+    let (mut lo, mut hi) = (f64::NEG_INFINITY, f64::INFINITY);
     for i in 1..n.saturating_sub(1) {
-        // Whether a line from the last sample kept to the one after `i`
-        // passes all between within the tolerance.
+        // `i` passed within the tolerance by a line from `from`...
+        let dt = times[i] - times[from];
+        if dt > 0.0 {
+            lo = lo.max((values[i] - tolerance - values[from]) / dt);
+            hi = hi.min((values[i] + tolerance - values[from]) / dt);
+        }
+        // ...on to the sample after it.
         let to = i + 1;
-        let line = |k: usize| {
-            let u = (times[k] - times[from]) / (times[to] - times[from]);
-            values[from] + (values[to] - values[from]) * u
+        let span = times[to] - times[from];
+        let slope = if span > 0.0 {
+            (values[to] - values[from]) / span
+        } else {
+            f64::NAN
         };
-        if (from + 1..to).any(|k| (values[k] - line(k)).abs() > tolerance) {
+        if !(lo <= slope && slope <= hi) {
             keep.push(i);
             from = i;
+            (lo, hi) = (f64::NEG_INFINITY, f64::INFINITY);
         }
     }
     if n > 1 {

@@ -116,12 +116,19 @@ fn units(list: &[Unit], g: &Graph, t: f64, w: u32, h: u32, base: Matrix) -> sk::
             // draws them.
             Unit::Raster(part) => {
                 let view = plan::in_view(part, base, f64::from(w), f64::from(h));
-                let image = plan::raster(&view, t, 1.0).expect("it renders");
-                (
-                    sk::Pixmap::decode_png(&image.bytes).expect("a PNG"),
-                    1.0,
-                    BlendMode::Normal,
-                )
+                let mut p = sk::Pixmap::new(w, h).unwrap();
+                if let Some((image, at)) = plan::raster(&view, t, 1.0) {
+                    let image = sk::Pixmap::decode_png(&image.bytes).expect("a PNG");
+                    p.draw_pixmap(
+                        at.x.round() as i32,
+                        at.y.round() as i32,
+                        image.as_ref(),
+                        &sk::PixmapPaint::default(),
+                        sk::Transform::identity(),
+                        None,
+                    );
+                }
+                (p, 1.0, BlendMode::Normal)
             }
             // A part sampled frame by frame: its frame at `t`.
             Unit::Sampled(part) => {

@@ -405,10 +405,7 @@ fn rastered(
         let t = if still { 0.0 } else { clock.get() };
         let ratio = f64::from(pixel_ratio()).max(1.0);
         let ops = match plan::raster(&view, t, ratio) {
-            Some(image) => vec![plan::Op::Image(
-                image,
-                dxn_vector_animation::Rect::new(0.0, 0.0, size.0, size.1),
-            )],
+            Some((image, at)) => vec![plan::Op::Image(image, at)],
             None => Vec::new(),
         };
         lower::painter(&ops, &Nodes::new(&empty, time))
