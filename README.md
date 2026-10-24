@@ -70,7 +70,8 @@ core and the importers build for WebAssembly; a build that plays compiled scenes
 - **Effects.** Groups cast drop shadows (color, offset, blur, knocked out under the drawing or not, cast by
   its coverage or by its silhouette made all or nothing as Figma's are) and blur (Gaussian), each value
   animated; consecutive shadows are all cast by the drawing. The reference renderer
-  blurs as SVG suggests, with three box blurs along each axis.
+  blurs as SVG suggests, with three box blurs along each axis, drawing past the frame's edges as far as what
+  is drawn there casts or blurs into it.
 - **Two ways to play.** Sample the scene at any time, or read its tracks and drive them with a native
   animation system (what the NSH player does: its UI thread plays the tracks without per-frame work in Rust).
 - **Compiled scenes.** `compiled::to_json` / `from_json` save and load a scene as `.vector-animation.json`, so
