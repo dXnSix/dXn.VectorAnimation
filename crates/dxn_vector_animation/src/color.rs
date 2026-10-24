@@ -54,11 +54,14 @@ impl Color {
 
     /// The color a fraction `t` of the way to `to`, mixed in premultiplied
     /// sRGB as CSS animations mix colors (equal alphas mix channel by
-    /// channel, as Lottie does).
+    /// channel, as Lottie does, and so does a mix with no alpha: a
+    /// transparent gradient stop keeps its color).
     pub fn lerp(self, to: Color, t: f64) -> Color {
         let a = self.a + (to.a - self.a) * t;
-        if a <= 0.0 {
-            return Color::TRANSPARENT;
+        if self.a == to.a || a <= 0.0 {
+            let mix = |x: f64, y: f64| x + (y - x) * t;
+            return Color::rgba(mix(self.r, to.r), mix(self.g, to.g), mix(self.b, to.b), a)
+                .clamped();
         }
         let mix = |x: f64, y: f64| (x * self.a + (y * to.a - x * self.a) * t) / a;
         Color::rgba(mix(self.r, to.r), mix(self.g, to.g), mix(self.b, to.b), a).clamped()
