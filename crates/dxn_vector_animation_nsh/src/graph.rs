@@ -302,7 +302,7 @@ impl Graph {
             [one] => return Num::Const(f(one.value)),
             _ => {}
         }
-        let times: Vec<f64> = keys.iter().map(|k| k.time).collect();
+        let times = rising(keys.iter().map(|k| k.time).collect());
         let values: Vec<f64> = keys.iter().map(|k| f(k.value)).collect();
         let easings: Vec<&Easing> = keys[..keys.len() - 1].iter().map(|k| &k.easing).collect();
         // One curve throughout: one interpolation.
@@ -348,7 +348,7 @@ impl Graph {
             [one] => return Paint::Const(pack(one.value.with_opacity(opacity))),
             _ => {}
         }
-        let times: Vec<f64> = keys.iter().map(|k| k.time).collect();
+        let times = rising(keys.iter().map(|k| k.time).collect());
         let colors: Vec<u32> = keys
             .iter()
             .map(|k| pack(k.value.with_opacity(opacity)))
@@ -546,6 +546,17 @@ impl Graph {
             Paint::Node(id) => self.eval_color(id, time),
         }
     }
+}
+
+/// Keyframe times made to rise: of keyframes at one time the last holds
+/// there (as the scene samples them), the ones before it a jump earlier.
+fn rising(mut times: Vec<f64>) -> Vec<f64> {
+    for i in (0..times.len().saturating_sub(1)).rev() {
+        if times[i] >= times[i + 1] {
+            times[i] = times[i + 1] - JUMP;
+        }
+    }
+    times
 }
 
 /// The curve all `easings` share, when they share one NSH has.
