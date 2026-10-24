@@ -105,27 +105,27 @@ pub fn render_region(frame: &Frame, region: Rect, scale: f64) -> Result<sk::Pixm
 /// around it for what its layers' effects take from past its edges: the
 /// shadows and blurs of what is drawn there fall into it.
 fn draw_over(frame: &Frame, w: u32, h: u32, base: Matrix) -> Option<sk::Pixmap> {
-    let m = overscan(frame, base, w, h);
-    let (gw, gh) = (w + 2 * m, h + 2 * m);
-    let m = if u64::from(gw) * u64::from(gh) > MAX_PIXELS {
-        0
+    let [l, t, r, b] = overscan(frame, base, w, h);
+    let (gw, gh) = (w + l + r, h + t + b);
+    let [l, t, r, b] = if u64::from(gw) * u64::from(gh) > MAX_PIXELS {
+        [0; 4]
     } else {
-        m
+        [l, t, r, b]
     };
     let mut renderer = Renderer {
-        width: w + 2 * m,
-        height: h + 2 * m,
-        base: Matrix::translate(f64::from(m), f64::from(m)) * base,
+        width: w + l + r,
+        height: h + t + b,
+        base: Matrix::translate(f64::from(l), f64::from(t)) * base,
         images: HashMap::new(),
     };
     let drawn = renderer.draw(&frame.items)?;
-    if m == 0 {
+    if l + t + r + b == 0 {
         return Some(drawn);
     }
     let mut out = sk::Pixmap::new(w, h)?;
     out.draw_pixmap(
-        -(m as i32),
-        -(m as i32),
+        -(l as i32),
+        -(t as i32),
         drawn.as_ref(),
         &sk::PixmapPaint::default(),
         sk::Transform::identity(),
@@ -134,10 +134,12 @@ fn draw_over(frame: &Frame, w: u32, h: u32, base: Matrix) -> Option<sk::Pixmap> 
     Some(out)
 }
 
-/// How far, in pixels, what the layers' effects of `frame` (drawn through
-/// `base`) take from reaches past its edges: their shadows' offsets and
-/// three deviations of their blurs, at most the larger side.
-fn overscan(frame: &Frame, base: Matrix, w: u32, h: u32) -> u32 {
+/// How far past each edge (left, top, right, bottom; pixels) of a `w` ×
+/// `h` pixmap `frame` is drawn into through `base`, for what its layers'
+/// effects take from there: as far as their shadows' offsets and three
+/// deviations of their blurs reach, where anything is drawn, at most the
+/// larger side.
+fn overscan(frame: &Frame, base: Matrix, w: u32, h: u32) -> [u32; 4] {
     let scale = base.a.hypot(base.b).max(base.c.hypot(base.d));
     let reach = frame
         .items
@@ -153,8 +155,75 @@ fn overscan(frame: &Frame, base: Matrix, w: u32, h: u32) -> u32 {
             }
             FrameEffect::Blur { sigma } => 3.0 * sigma * scale,
         })
-        .fold(0.0f64, f64::max);
-    (reach.ceil() as u32).min(w.max(h))
+        .fold(0.0f64, f64::max)
+        .min(f64::from(w.max(h)));
+    if reach <= 0.0 {
+        return [0; 4];
+    }
+    let Some(drawn) = drawn_bounds(&frame.items, base) else {
+        return [0; 4];
+    };
+    let past = |v: f64| v.clamp(0.0, reach).ceil() as u32;
+    [
+        past(-drawn.x),
+        past(-drawn.y),
+        past(drawn.x + drawn.width - f64::from(w)),
+        past(drawn.y + drawn.height - f64::from(h)),
+    ]
+}
+
+/// Where `items` draw through `base`, in pixels, at most (their layers'
+/// clips and effects aside).
+fn drawn_bounds(items: &[Item], base: Matrix) -> Option<Rect> {
+    let mut out: Option<Rect> = None;
+    for item in items {
+        let r = match item {
+            Item::Fill {
+                path, transform, ..
+            } => path.transformed(base * *transform).bounds(),
+            Item::Stroke {
+                path,
+                transform,
+                style,
+                ..
+            } => {
+                let m = base * *transform;
+                let scale = (m.a * m.d - m.b * m.c).abs().sqrt();
+                let reach = match style.join {
+                    LineJoin::Miter => style.miter_limit.max(1.0),
+                    _ => 1.0,
+                } * std::f64::consts::SQRT_2;
+                path.transformed(m)
+                    .bounds()
+                    .map(|b| b.grown(style.width * scale * reach / 2.0))
+            }
+            Item::Image {
+                rect, transform, ..
+            } => {
+                let mut p = Path::new();
+                p.move_to(dxn_vector_animation::Point::new(rect.x, rect.y));
+                p.line_to(dxn_vector_animation::Point::new(
+                    rect.x + rect.width,
+                    rect.y,
+                ));
+                p.line_to(dxn_vector_animation::Point::new(
+                    rect.x + rect.width,
+                    rect.y + rect.height,
+                ));
+                p.line_to(dxn_vector_animation::Point::new(
+                    rect.x,
+                    rect.y + rect.height,
+                ));
+                p.close();
+                p.transformed(base * *transform).bounds()
+            }
+            _ => None,
+        };
+        if let Some(r) = r {
+            out = Some(out.map_or(r, |o| o.union(r)));
+        }
+    }
+    out
 }
 
 /// Renders `frame` as a PNG.
