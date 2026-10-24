@@ -71,6 +71,32 @@ pub struct Rect {
 }
 
 impl Rect {
+    /// The smallest rectangle holding both.
+    pub fn union(self, other: Rect) -> Rect {
+        let (x0, y0) = (self.x.min(other.x), self.y.min(other.y));
+        let x1 = (self.x + self.width).max(other.x + other.width);
+        let y1 = (self.y + self.height).max(other.y + other.height);
+        Rect::new(x0, y0, x1 - x0, y1 - y0)
+    }
+
+    /// Where both are, if anywhere.
+    pub fn intersect(self, other: Rect) -> Option<Rect> {
+        let (x0, y0) = (self.x.max(other.x), self.y.max(other.y));
+        let x1 = (self.x + self.width).min(other.x + other.width);
+        let y1 = (self.y + self.height).min(other.y + other.height);
+        (x1 > x0 && y1 > y0).then(|| Rect::new(x0, y0, x1 - x0, y1 - y0))
+    }
+
+    /// Grown by `by` on every side.
+    pub fn grown(self, by: f64) -> Rect {
+        Rect::new(
+            self.x - by,
+            self.y - by,
+            self.width + 2.0 * by,
+            self.height + 2.0 * by,
+        )
+    }
+
     /// The rectangle at (`x`, `y`) of `width` × `height`.
     pub const fn new(x: f64, y: f64, width: f64, height: f64) -> Self {
         Rect {

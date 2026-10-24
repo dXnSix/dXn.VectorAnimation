@@ -11,7 +11,7 @@ use std::{collections::HashMap, sync::Arc};
 
 use dxn_vector_animation::{
     BlendMode, Color, FillRule, Frame, FrameEffect, FrameMask, FramePaint, GradientStop, ImageData,
-    Item, Layer, LineCap, LineJoin, MaskKind, Matrix, Path, PathEl, Spread, StrokeStyle,
+    Item, Layer, LineCap, LineJoin, MaskKind, Matrix, Path, PathEl, Rect, Spread, StrokeStyle,
 };
 use tiny_skia as sk;
 
@@ -93,6 +93,23 @@ pub fn render(frame: &Frame, options: &RenderOptions) -> Result<sk::Pixmap, Rend
         pixmap = out;
     }
     Ok(pixmap)
+}
+
+/// Renders `region` of `frame` (in its space) at `scale` pixels a unit,
+/// into a premultiplied RGBA pixmap of the region's size in pixels.
+pub fn render_region(frame: &Frame, region: Rect, scale: f64) -> Result<sk::Pixmap, RenderError> {
+    let px = |v: f64| (v * scale).round().clamp(0.0, f64::from(u32::MAX)) as u32;
+    let (w, h) = (px(region.width), px(region.height));
+    if w == 0 || h == 0 || u64::from(w) * u64::from(h) > MAX_PIXELS {
+        return Err(RenderError::Size(w, h));
+    }
+    let mut renderer = Renderer {
+        width: w,
+        height: h,
+        base: Matrix::scale(scale, scale) * Matrix::translate(-region.x, -region.y),
+        images: HashMap::new(),
+    };
+    renderer.draw(&frame.items).ok_or(RenderError::Size(w, h))
 }
 
 /// Renders `frame` as a PNG.

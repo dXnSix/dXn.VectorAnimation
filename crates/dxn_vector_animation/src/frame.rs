@@ -179,6 +179,124 @@ pub struct StrokeStyle {
     pub dash: Option<(Vec<f64>, f64)>,
 }
 
+impl Frame {
+    /// Where its items draw, at most, in its space: their outlines' bounds
+    /// (strokes as wide as they reach), grown as far as layers' blurs and
+    /// shadows spread (three deviations), within layers' clips and masks.
+    pub fn bounds(&self) -> Option<Rect> {
+        items_bounds(&self.items)
+    }
+}
+
+fn union(a: Option<Rect>, b: Option<Rect>) -> Option<Rect> {
+    match (a, b) {
+        (Some(a), Some(b)) => Some(a.union(b)),
+        (a, b) => a.or(b),
+    }
+}
+
+fn items_bounds(items: &[Item]) -> Option<Rect> {
+    // Open layers, and what each holds so far.
+    let mut stack: Vec<(Option<&Layer>, Option<Rect>)> = vec![(None, None)];
+    for item in items {
+        let drawn = match item {
+            Item::Fill {
+                path, transform, ..
+            } => path.transformed(*transform).bounds(),
+            Item::Stroke {
+                path,
+                transform,
+                style,
+                ..
+            } => path.transformed(*transform).bounds().map(|b| {
+                let scale = (transform.a * transform.d - transform.b * transform.c)
+                    .abs()
+                    .sqrt();
+                let reach = match style.join {
+                    LineJoin::Miter => style.miter_limit.max(1.0),
+                    _ => 1.0,
+                } * match style.cap {
+                    LineCap::Square => std::f64::consts::SQRT_2,
+                    _ => 1.0,
+                };
+                b.grown(style.width * scale * reach / 2.0)
+            }),
+            Item::Image {
+                rect, transform, ..
+            } => {
+                let mut p = Path::new();
+                p.move_to(Point::new(rect.x, rect.y));
+                p.line_to(Point::new(rect.x + rect.width, rect.y));
+                p.line_to(Point::new(rect.x + rect.width, rect.y + rect.height));
+                p.line_to(Point::new(rect.x, rect.y + rect.height));
+                p.close();
+                p.transformed(*transform).bounds()
+            }
+            Item::PushLayer(layer) => {
+                stack.push((Some(layer), None));
+                continue;
+            }
+            Item::PopLayer => {
+                if stack.len() < 2 {
+                    continue;
+                }
+                let Some((layer, inner)) = stack.pop() else {
+                    continue;
+                };
+                layer_bounds(layer, inner)
+            }
+        };
+        if let Some(top) = stack.last_mut() {
+            top.1 = union(top.1, drawn);
+        }
+    }
+    // Layers left open close as if closed.
+    while stack.len() > 1 {
+        let (layer, inner) = stack.pop()?;
+        let b = layer_bounds(layer, inner);
+        if let Some(top) = stack.last_mut() {
+            top.1 = union(top.1, b);
+        }
+    }
+    stack.pop().and_then(|(_, b)| b)
+}
+
+/// What `layer` holding `inner` draws: spread by its effects, within its
+/// clip and mask.
+fn layer_bounds(layer: Option<&Layer>, inner: Option<Rect>) -> Option<Rect> {
+    let mut b = inner?;
+    let Some(layer) = layer else {
+        return Some(b);
+    };
+    let mut shadows: Option<Rect> = None;
+    for effect in &layer.effects {
+        match *effect {
+            FrameEffect::Blur { sigma } => {
+                b = union(Some(b), shadows.take())?.grown(3.0 * sigma);
+            }
+            FrameEffect::DropShadow { offset, sigma, .. } => {
+                let s =
+                    Rect::new(b.x + offset.x, b.y + offset.y, b.width, b.height).grown(3.0 * sigma);
+                shadows = union(shadows, Some(s));
+            }
+        }
+    }
+    b = union(Some(b), shadows)?;
+    if let Some(clip) = &layer.clip {
+        let area = clip
+            .iter()
+            .filter_map(|c| c.path.transformed(c.transform).bounds())
+            .reduce(Rect::union)?;
+        b = b.intersect(area)?;
+    }
+    if let Some(mask) = &layer.mask
+        && !mask.inverted
+    {
+        b = b.intersect(items_bounds(&mask.items)?)?;
+    }
+    Some(b)
+}
+
 impl Scene {
     /// The scene at `time` (seconds of its timeline), as a display list.
     /// The time is not wrapped: looping and ping-pong are the player's.
