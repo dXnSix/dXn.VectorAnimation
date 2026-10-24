@@ -51,6 +51,7 @@ fn shadowed(transform: Vec<TransformOp>) -> Scene {
                         offset: AnimatedPoint::fixed(0.0, 4.0),
                         blur: Animated::Static(2.0),
                         knockout: true,
+                        hard: true,
                     }),
                 ],
                 children: vec![square()],
@@ -76,6 +77,7 @@ fn a_group_with_effects_draws_in_a_layer_of_them() {
                 offset: Point::new(0.0, 4.0),
                 sigma: 2.0,
                 knockout: true,
+                hard: true,
             },
         ]
     );

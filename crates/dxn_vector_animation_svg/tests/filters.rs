@@ -34,7 +34,16 @@ fn shadow(rgba: (f64, f64, f64, f64), dx: f64, dy: f64, blur: f64, knockout: boo
         offset: AnimatedPoint::fixed(dx, dy),
         blur: Animated::Static(blur),
         knockout,
+        hard: false,
     })
+}
+
+/// A shadow cast by the drawing's silhouette made all or nothing.
+fn hard(effect: Effect) -> Effect {
+    match effect {
+        Effect::DropShadow(s) => Effect::DropShadow(DropShadow { hard: true, ..s }),
+        other => other,
+    }
 }
 
 fn with_filter(filter: &str) -> String {
@@ -62,7 +71,7 @@ fn figmas_drop_shadow() {
     assert!(import.warnings.is_empty(), "{:?}", import.warnings);
     assert_eq!(
         effects(&import),
-        vec![shadow((0.0, 0.0, 0.0, 0.25), 0.0, 4.0, 2.0, true)]
+        vec![hard(shadow((0.0, 0.0, 0.0, 0.25), 0.0, 4.0, 2.0, true))]
     );
 }
 
@@ -85,8 +94,8 @@ fn figmas_two_drop_shadows_both_cast_by_the_drawing() {
     assert_eq!(
         effects(&import),
         vec![
-            shadow((1.0, 0.0, 0.0, 0.5), 2.0, 2.0, 1.0, false),
-            shadow((0.0, 0.0, 1.0, 0.3), 0.0, 8.0, 6.0, false),
+            hard(shadow((1.0, 0.0, 0.0, 0.5), 2.0, 2.0, 1.0, false)),
+            hard(shadow((0.0, 0.0, 1.0, 0.3), 0.0, 8.0, 6.0, false)),
         ]
     );
 }

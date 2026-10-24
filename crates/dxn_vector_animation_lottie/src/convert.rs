@@ -9,11 +9,11 @@ use std::{
 
 use dxn_vector_animation::{
     Animated, AnimatedPoint, BlendMode, Blur, Clip, ClipShape, Color, Dash, Direction, DropShadow,
-    Effect, EllipseStart, Error, Fill, FillRule, Geometry, Group, Image, ImageData, Keyframe,
-    Limits, LineCap, LineJoin, LinearGradient, LoopMode, Marker, Mask, MaskKind, Matrix,
+    Easing, Effect, EllipseStart, Error, Fill, FillRule, Geometry, Group, Image, ImageData,
+    Keyframe, Limits, LineCap, LineJoin, LinearGradient, LoopMode, Marker, Mask, MaskKind, Matrix,
     MotionPath, MotionRotate, Node, Paint, PaintOrder, Path, Point, RadialGradient, Rect,
     RectStart, Scene, Shape, ShapePath, Star, StarKind, Stroke, TimeMap, TimeRange, Timeline,
-    Track, TransformOp, Trim, TrimMode, outline::path_length,
+    Track, TransformOp, Trim, TrimMode, outline::path_length, transform::transform_at,
 };
 use serde_json::Value;
 
@@ -472,6 +472,7 @@ impl<'a> Converter<'a> {
                         },
                         blur: softness,
                         knockout: false,
+                        hard: false,
                     }));
                 }
                 Some(29) => {
@@ -1143,13 +1144,47 @@ impl<'a> Converter<'a> {
         let closed = still_position && even;
         let offset = match &offsets {
             Animated::Static(o) => *o,
-            Animated::Track(t) => {
-                if !closed {
-                    self.warn("a repeater's moving offset keeps its first value");
-                }
-                t.keyframes.first().map_or(0.0, |k| k.value)
-            }
+            Animated::Track(t) => t.keyframes.first().map_or(0.0, |k| k.value),
         };
+        // Otherwise a moving offset changes how many steps a copy takes:
+        // each copy's matrix, sampled frame by frame while anything moves.
+        let sampled_steps = !closed && matches!(offsets, Animated::Track(_));
+        let step_times = if sampled_steps {
+            let mut keys = offset_times.clone();
+            for key in ["p", "a", "s", "r"] {
+                keys.extend(key_times(tr.and_then(|t| t.get(key)), fr));
+            }
+            frame_times(&keys, fr, MAX_STEP_SAMPLES / count.max(1))
+        } else {
+            Vec::new()
+        };
+        // Each copy's matrix at each of those times: powers of a whole step
+        // (forwards or backwards), then the share of one.
+        let stepped: Vec<Vec<Matrix>> = step_times
+            .iter()
+            .map(|&t| {
+                let o = offsets.sample(t);
+                let units = [transform_at(&step(1.0), t), transform_at(&step(-1.0), t)];
+                let mut powers = [vec![Matrix::IDENTITY], vec![Matrix::IDENTITY]];
+                (0..count)
+                    .map(|k| {
+                        let j = k as f64 + o;
+                        let whole = j.trunc();
+                        let back = usize::from(whole < 0.0);
+                        let n = (whole.abs() as usize).min(MAX_STEPS);
+                        while powers[back].len() <= n {
+                            let last = powers[back][powers[back].len() - 1];
+                            powers[back].push(last * units[back]);
+                        }
+                        let mut m = powers[back][n];
+                        if j - whole != 0.0 {
+                            m = m * transform_at(&step(j - whole), t);
+                        }
+                        m
+                    })
+                    .collect()
+            })
+            .collect();
         let closed_form = |k: usize| -> Vec<TransformOp> {
             // Samples between the offset's keyframes: scales are powers.
             let mut times = Vec::new();
@@ -1189,11 +1224,21 @@ impl<'a> Converter<'a> {
             if closed {
                 return closed_form(k);
             }
+            if sampled_steps {
+                let keys = step_times
+                    .iter()
+                    .zip(&stepped)
+                    .map(|(&t, all)| Keyframe::new(t, all[k], Easing::Linear))
+                    .collect();
+                return vec![TransformOp::Matrix {
+                    matrix: Animated::Track(Track::new(keys)),
+                }];
+            }
             let j = k as f64 + offset;
             let whole = j.trunc();
             let mut ops = Vec::new();
             let unit = if whole < 0.0 { -1.0 } else { 1.0 };
-            for _ in 0..(whole.abs() as usize) {
+            for _ in 0..(whole.abs() as usize).min(MAX_STEPS) {
                 ops.extend(step(unit));
             }
             if j - whole != 0.0 {
@@ -1517,6 +1562,34 @@ fn count_nodes(node: &Node) -> usize {
 
 /// The most copies a repeater makes.
 const MAX_COPIES: usize = 1000;
+
+/// The most steps of its transform a repeater's copy takes (an offset
+/// past them is as far as they go).
+const MAX_STEPS: usize = 10_000;
+
+/// The most matrices a repeater whose offset moves samples, over all its
+/// copies.
+const MAX_STEP_SAMPLES: usize = 200_000;
+
+/// `keys` and the frames (`fr` a second) between the first and the last,
+/// at most `most` times in all (evenly apart beyond that).
+fn frame_times(keys: &[f64], fr: f64, most: usize) -> Vec<f64> {
+    let mut keys: Vec<f64> = keys.iter().copied().filter(|t| t.is_finite()).collect();
+    keys.sort_by(f64::total_cmp);
+    keys.dedup();
+    let (Some(&first), Some(&last)) = (keys.first(), keys.last()) else {
+        return vec![0.0];
+    };
+    let most = most.max(2);
+    let step = if fr > 0.0 { 1.0 / fr } else { 1.0 / 30.0 };
+    let frames = ((last - first) / step).ceil().max(1.0);
+    let n = (frames as usize).min(most.saturating_sub(keys.len()).max(1));
+    let mut times = keys;
+    times.extend((0..=n).map(|i| first + (last - first) * i as f64 / n as f64));
+    times.sort_by(f64::total_cmp);
+    times.dedup_by(|a, b| (*a - *b).abs() < 1e-9);
+    times
+}
 
 /// `a` with each value through `f`.
 fn map(a: &Animated<f64>, f: impl Fn(f64) -> f64) -> Animated<f64> {

@@ -972,6 +972,7 @@ impl<'a, 'input> Converter<'a, 'input> {
                     offset: AnimatedPoint::fixed(dx, dy),
                     blur: Animated::Static(sigma),
                     knockout: false,
+                    hard: false,
                 })),
                 filter::Function::Url(id) => {
                     let node = self

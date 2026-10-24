@@ -311,8 +311,9 @@ impl Renderer {
                     offset,
                     sigma,
                     knockout,
+                    hard,
                 } => {
-                    let Some(mut shadow) = silhouette(pixmap, color) else {
+                    let Some(mut shadow) = silhouette(pixmap, color, hard) else {
                         continue;
                     };
                     blur(&mut shadow, sigma * sx, sigma * sy);
@@ -539,12 +540,14 @@ fn sk_blend(b: BlendMode) -> sk::BlendMode {
     }
 }
 
-/// `pixmap`'s silhouette in `color`: its alpha times the color's.
-fn silhouette(pixmap: &sk::Pixmap, color: Color) -> Option<sk::Pixmap> {
+/// `pixmap`'s silhouette in `color`: its alpha times the color's; `hard`,
+/// its alpha times 127 first (all or nothing but at its faintest).
+fn silhouette(pixmap: &sk::Pixmap, color: Color, hard: bool) -> Option<sk::Pixmap> {
     let mut out = sk::Pixmap::new(pixmap.width(), pixmap.height())?;
     let c = color.clamped();
+    let k = if hard { 127.0 } else { 1.0 };
     for (o, p) in out.pixels_mut().iter_mut().zip(pixmap.pixels()) {
-        let a = f64::from(p.alpha()) / 255.0 * c.a;
+        let a = (f64::from(p.alpha()) / 255.0 * k).min(1.0) * c.a;
         let channel = |v: f64| (v * a * 255.0).round().clamp(0.0, 255.0) as u8;
         let alpha = (a * 255.0).round().clamp(0.0, 255.0) as u8;
         if let Some(px) = sk::PremultipliedColorU8::from_rgba(

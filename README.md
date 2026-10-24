@@ -67,8 +67,9 @@ core and the importers build for WebAssembly; a build that plays compiled scenes
   does, and through matrix decomposition when they differ.
 - **Geometry.** Paths morph between keyframes of the same commands; rectangles, ellipses and stars stay
   parametric; motion paths and trims measure arc length.
-- **Effects.** Groups cast drop shadows (color, offset, blur, knocked out under the drawing or not) and blur
-  (Gaussian), each value animated; consecutive shadows are all cast by the drawing. The reference renderer
+- **Effects.** Groups cast drop shadows (color, offset, blur, knocked out under the drawing or not, cast by
+  its coverage or by its silhouette made all or nothing as Figma's are) and blur (Gaussian), each value
+  animated; consecutive shadows are all cast by the drawing. The reference renderer
   blurs as SVG suggests, with three box blurs along each axis.
 - **Two ways to play.** Sample the scene at any time, or read its tracks and drive them with a native
   animation system (what the NSH player does: its UI thread plays the tracks without per-frame work in Rust).
@@ -114,8 +115,8 @@ core and the importers build for WebAssembly; a build that plays compiled scenes
   tangents as motion paths (auto-orient included), and the layer effects Drop Shadow and Gaussian Blur
   (converted as lottie-web converts them).
 - Repeaters, as lottie-web repeats: copies through the repeater's transform once more each (the offset
-  moving too where the copies only turn and scale), faded from the start opacity to the end one, above or
-  below.
+  moving too: in closed form where the copies only turn and scale, as each copy's matrix sampled frame by
+  frame otherwise), faded from the start opacity to the end one, above or below.
 - Text layers drawn with the file's glyphs (`chars`), laid out as lottie-web lays them out: glyphs at a
   hundredth of the size advanced by their widths and the tracking, lines justified, box text wrapped at
   spaces, keyframed documents in turn.

@@ -79,6 +79,7 @@ fn shadows_and_blurs_spread() {
             offset: Point::new(10.0, 0.0),
             sigma: 2.0,
             knockout: false,
+            hard: false,
         }],
         None,
         vec![fill(square(20.0, 20.0, 10.0))],

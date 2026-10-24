@@ -121,6 +121,31 @@ fn a_moving_offset_turns_the_copies() {
 }
 
 #[test]
+fn a_moving_offset_moves_copies_that_step_anywhere() {
+    // Stepping 20 right (not a turn about the anchor), the offset going 0
+    // to 2 in a second: whole steps and shares of one, all along.
+    let offset = r#"{"a":1,"k":[{"t":0,"s":[0],"o":{"x":[0],"y":[0]},"i":{"x":[1],"y":[1]}},{"t":10,"s":[2]}]}"#;
+    let import = read(&format!(
+        "{SQUARE},{RED},{}",
+        repeater(&still(2.0), offset, 1, STEP_RIGHT)
+    ));
+    assert!(import.warnings.is_empty(), "{:?}", import.warnings);
+    for (t, first) in [
+        (0.0, 0.0),
+        (0.25, 10.0),
+        (0.5, 20.0),
+        (0.8, 32.0),
+        (1.0, 40.0),
+    ] {
+        let xs: Vec<f64> = fills(&import.scene, t).iter().map(|f| f.0).collect();
+        assert!(
+            (xs[0] - first).abs() < 1e-6 && (xs[1] - first - 20.0).abs() < 1e-6,
+            "at {t}: {xs:?}"
+        );
+    }
+}
+
+#[test]
 fn outlines_styled_after_the_repeater_repeat_too() {
     let import = read(&format!(
         "{SQUARE},{},{RED}",

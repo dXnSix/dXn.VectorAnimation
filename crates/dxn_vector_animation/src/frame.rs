@@ -95,6 +95,8 @@ pub enum FrameEffect {
         sigma: f64,
         /// Hidden where the layer draws.
         knockout: bool,
+        /// Cast by the layer's coverage made all or nothing.
+        hard: bool,
     },
     /// The layer blurred.
     Blur {
@@ -361,6 +363,7 @@ fn sample_group(group: &Group, time: f64, parent: Matrix, out: &mut Vec<Item>, d
                     offset: Point::new(m.a * dx + m.c * dy, m.b * dx + m.d * dy),
                     sigma: sigma(shadow.blur.sample(time)),
                     knockout: shadow.knockout,
+                    hard: shadow.hard,
                 }
             }
             Effect::Blur(blur) => FrameEffect::Blur {

@@ -105,6 +105,7 @@ fn a_shadow_falls_under_the_drawing() {
         offset: Point::new(10.0, 20.0),
         sigma: 0.0,
         knockout: false,
+        hard: false,
     };
     let p = render(&frame(vec![shadow], red), &RenderOptions::default()).unwrap();
     // The drawing on top, its shadow beside it, half opaque blue.
@@ -123,6 +124,7 @@ fn a_knocked_out_shadow_hides_under_a_see_through_drawing() {
         offset: Point::new(5.0, 5.0),
         sigma: 0.0,
         knockout,
+        hard: false,
     };
     let behind = render(
         &frame(vec![shadow(false)], clear_red),
@@ -149,6 +151,7 @@ fn shadows_one_after_another_are_cast_by_the_drawing() {
         offset: Point::new(dx, 0.0),
         sigma: 0.0,
         knockout: false,
+        hard: false,
     };
     let p = render(
         &frame(vec![shadow(10.0), shadow(20.0)], red),
@@ -160,4 +163,28 @@ fn shadows_one_after_another_are_cast_by_the_drawing() {
     assert!((alpha(&p, 65, 50) - 0.75).abs() < 0.01);
     assert!((alpha(&p, 75, 50) - 0.5).abs() < 0.01);
     assert_eq!(alpha(&p, 85, 50), 0.0);
+}
+
+#[test]
+fn a_hard_shadow_is_cast_in_full_by_a_see_through_drawing() {
+    // A drawing a tenth opaque: its silhouette all or nothing, as Figma's.
+    let faint = Color::rgba(1.0, 0.0, 0.0, 0.1);
+    let shadow = |hard| FrameEffect::DropShadow {
+        color: Color::rgba(0.0, 0.0, 0.0, 0.5),
+        offset: Point::new(10.0, 0.0),
+        sigma: 0.0,
+        knockout: true,
+        hard,
+    };
+    let soft = render(
+        &frame(vec![shadow(false)], faint),
+        &RenderOptions::default(),
+    )
+    .unwrap();
+    let hard = render(&frame(vec![shadow(true)], faint), &RenderOptions::default()).unwrap();
+    // Beside the drawing: a twentieth, or the shadow's full half.
+    assert!((alpha(&soft, 65, 50) - 0.05).abs() < 0.01);
+    assert!((alpha(&hard, 65, 50) - 0.5).abs() < 0.01);
+    // Under it, knocked out either way.
+    assert!((alpha(&hard, 55, 50) - 0.1).abs() < 0.01);
 }

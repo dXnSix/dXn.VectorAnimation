@@ -227,6 +227,11 @@ pub struct DropShadow {
     /// shadows not shown behind transparent areas).
     #[cfg_attr(feature = "serde", serde(default))]
     pub knockout: bool,
+    /// Cast by the drawing's silhouette made all or nothing: anything
+    /// drawn at all casts the full shadow (Figma's `hardAlpha`, the
+    /// coverage times 127).
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub hard: bool,
 }
 
 /// A Gaussian blur of a group's drawing.

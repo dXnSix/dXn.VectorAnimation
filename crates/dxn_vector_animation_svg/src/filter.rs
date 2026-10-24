@@ -221,6 +221,7 @@ pub(crate) fn element(node: XmlNode) -> Result<Vec<Effect>, String> {
             offset: AnimatedPoint::fixed(s.dx, s.dy),
             blur: Animated::Static(sigma),
             knockout: s.knockout,
+            hard: s.hard,
         }));
     }
     if blur > 0.0 {
@@ -412,6 +413,7 @@ pub(crate) fn animated(keys: &[Keyframe<Vec<Function>>]) -> Option<Vec<Effect>> 
                     },
                     blur: track(&|f| part(f).2, i),
                     knockout: false,
+                    hard: false,
                 }));
             }
             Function::Url(_) => return None,
