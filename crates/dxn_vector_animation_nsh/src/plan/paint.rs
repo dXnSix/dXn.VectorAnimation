@@ -18,8 +18,9 @@
 use std::sync::Arc;
 
 use dxn_vector_animation::{
-    Animated, AnimatedPoint, BlendMode, FillRule, GradientStop, GradientUnits, Keyframe, LineCap,
-    LineJoin, Matrix, Paint as ScenePaint, Path, Point, Shape, Stroke, Track, outline::trim_paths,
+    Animated, AnimatedPoint, BlendMode, Easing, FillRule, GradientStop, GradientUnits, Keyframe,
+    LineCap, LineJoin, Matrix, Paint as ScenePaint, Path, Point, Shape, Stroke, Track,
+    outline::trim_paths,
 };
 
 use super::{
@@ -98,7 +99,75 @@ fn stops_of(list: &[GradientStop]) -> StopList {
     list.iter().map(|s| (s.offset, pack(s.color))).collect()
 }
 
-fn stop_motion(stops: &Animated<Vec<GradientStop>>) -> Result<Stops, Unsupported> {
+/// How far a stop may move between two samples of stops that move and
+/// change color, in lengths of the gradient.
+const STOP_STEP: f64 = 0.02;
+
+/// The most gradients sampled stops fade between.
+const SAMPLED_STOPS: usize = 64;
+
+/// Stops that move as bands cannot show (changing colors too, or in a
+/// radial gradient) as gradients sampled over time, each faded in and out
+/// around its time (weights that add up to one): exact at the samples,
+/// sampled closely enough that no stop moves more than [`STOP_STEP`]
+/// between two.
+fn sampled_stops(
+    keys: &[Keyframe<Vec<GradientStop>>],
+) -> Result<Vec<(StopList, Animated<f64>)>, Unsupported> {
+    let track = Track {
+        keyframes: keys.to_vec(),
+    };
+    // Each sample's time, and whether the stops hold from it to the next.
+    let mut samples: Vec<(f64, bool)> = Vec::new();
+    for w in keys.windows(2) {
+        let (a, b) = (&w[0], &w[1]);
+        let hold = matches!(a.easing, Easing::Hold);
+        let travel = a
+            .value
+            .iter()
+            .zip(&b.value)
+            .map(|(p, q)| (p.offset - q.offset).abs())
+            .fold(0.0, f64::max);
+        let n = if hold || b.time <= a.time {
+            1
+        } else {
+            ((travel / STOP_STEP).ceil() as usize).clamp(4, SAMPLED_STOPS)
+        };
+        for m in 0..n {
+            samples.push((a.time + (b.time - a.time) * m as f64 / n as f64, hold));
+        }
+    }
+    if let Some(last) = keys.last() {
+        samples.push((last.time, false));
+    }
+    if samples.len() > SAMPLED_STOPS {
+        return unsupported("gradient stops that move far as they change");
+    }
+    let weight = |q: usize| {
+        let key = |i: usize, v: f64| {
+            let easing = if samples[i].1 {
+                Easing::Hold
+            } else {
+                Easing::Linear
+            };
+            Keyframe::new(samples[i].0, v, easing)
+        };
+        let mut list = Vec::new();
+        if q > 0 {
+            list.push(key(q - 1, 0.0));
+        }
+        list.push(key(q, 1.0));
+        if q + 1 < samples.len() {
+            list.push(key(q + 1, 0.0));
+        }
+        Animated::Track(Track::new(list))
+    };
+    Ok((0..samples.len())
+        .map(|q| (stops_of(&track.sample(samples[q].0)), weight(q)))
+        .collect())
+}
+
+fn stop_motion(stops: &Animated<Vec<GradientStop>>, bands: bool) -> Result<Stops, Unsupported> {
     let keys = match stops {
         Animated::Static(list) => return Ok(Stops::Still(stops_of(list))),
         Animated::Track(t) => &t.keyframes,
@@ -136,13 +205,13 @@ fn stop_motion(stops: &Animated<Vec<GradientStop>>) -> Result<Stops, Unsupported
                 })
                 .collect(),
         )),
-        (true, false) => Ok(Stops::Moving(
+        (true, false) if bands => Ok(Stops::Moving(
             first.value.iter().map(|s| pack(s.color)).collect(),
             (0..first.value.len())
                 .map(|n| track(&|_, stops| stops[n].offset))
                 .collect(),
         )),
-        (true, true) => unsupported("gradient stops whose colors and places both change"),
+        (true, _) => Ok(Stops::Fading(sampled_stops(keys)?)),
     }
 }
 
@@ -186,7 +255,7 @@ impl Compiler {
                         (b.x - a.x).hypot(b.y - a.y)
                     })
                     .fold(f64::INFINITY, f64::min);
-                let stops = stop_motion(&g.stops)?;
+                let stops = stop_motion(&g.stops, true)?;
                 if (moving || matches!(stops, Stops::Moving(..)))
                     && (shortest.is_nan() || shortest <= 1e-9)
                 {
@@ -294,7 +363,7 @@ impl Compiler {
                 };
                 let place =
                     moving.then(|| self.radial_place(&g.center, &g.focal, &g.radius, k, time));
-                match stop_motion(&g.stops)? {
+                match stop_motion(&g.stops, false)? {
                     Stops::Still(stops) => Ok(Painting::One {
                         gradient: if moving { unit(stops) } else { own(stops) },
                         m,
@@ -311,6 +380,7 @@ impl Compiler {
                         m,
                         place,
                     }),
+                    // Asked for no bands, moving stops come sampled.
                     Stops::Moving(..) => unsupported("a radial gradient whose stops move"),
                 }
             }

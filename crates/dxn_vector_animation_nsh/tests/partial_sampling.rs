@@ -9,8 +9,8 @@ mod common;
 use common::{differing_by, plan_pixels, reference_pixels};
 use dxn_vector_animation::{
     Animated, AnimatedPoint, BlendMode, Clip, ClipShape, Color, Direction, Easing, Fill, Geometry,
-    Group, Keyframe, LoopMode, Matrix, Node, Paint, RectStart, Scene, Shape, ShapePath, Star,
-    StarKind, Timeline, Track, TransformOp,
+    Group, Keyframe, LoopMode, Matrix, Node, Paint, Path, PathEl, Point, RectStart, Scene, Shape,
+    ShapePath, Star, StarKind, Timeline, Track, TransformOp, Trim, TrimMode,
 };
 use dxn_vector_animation_nsh::plan::{self, Unit};
 
@@ -63,7 +63,7 @@ fn rect(x: f64, y: f64, w: f64, h: f64, color: Color) -> Node {
     })
 }
 
-/// A turning star: what the graph does not draw.
+/// A turning star.
 fn star_geometry(x: f64, y: f64) -> Geometry {
     Geometry::Star(Star {
         kind: StarKind::Star,
@@ -78,12 +78,47 @@ fn star_geometry(x: f64, y: f64) -> Geometry {
     })
 }
 
+/// A turning star, trimmed: what the graph does not draw (a trim of an
+/// outline that moves).
 fn star(x: f64, y: f64, color: Color) -> Node {
     Node::shape(Shape {
         paths: vec![ShapePath::new(star_geometry(x, y))],
         fill: fill(color),
+        trim: Some(Trim {
+            start: Animated::Static(0.0),
+            end: track(&[(0.0, 0.3), (2.0, 1.0)]),
+            offset: Animated::Static(0.0),
+            mode: TrimMode::Combined,
+        }),
         ..Default::default()
     })
+}
+
+/// A triangle turning into a diamond of curves: in a clip, what the graph
+/// does not draw (its commands change).
+fn morphing(x: f64, y: f64) -> Geometry {
+    let p = Point::new;
+    let triangle = Path(vec![
+        PathEl::MoveTo(p(x, y - 30.0)),
+        PathEl::LineTo(p(x + 30.0, y + 25.0)),
+        PathEl::LineTo(p(x - 30.0, y + 25.0)),
+        PathEl::Close,
+    ]);
+    let curve = |a: Point, b: Point| PathEl::CubicTo(a, b, b);
+    let diamond = Path(vec![
+        PathEl::MoveTo(p(x, y - 35.0)),
+        curve(p(x + 20.0, y - 20.0), p(x + 35.0, y)),
+        curve(p(x + 20.0, y + 20.0), p(x, y + 35.0)),
+        curve(p(x - 20.0, y + 20.0), p(x - 35.0, y)),
+        curve(p(x - 20.0, y - 20.0), p(x, y - 35.0)),
+        PathEl::Close,
+    ]);
+    Geometry::Path {
+        path: Animated::Track(Track::new(vec![
+            Keyframe::new(0.0, triangle, Easing::Linear),
+            Keyframe::new(2.0, diamond, Easing::Linear),
+        ])),
+    }
 }
 
 fn group(children: Vec<Node>) -> Group {
@@ -131,7 +166,10 @@ fn a_star_alone_is_sampled_between_canvases() {
         rect(40.0, 40.0, 55.0, 30.0, BLUE),
     ]);
     let plan = plan::compile(&s, Matrix::IDENTITY).expect("the rest plays on the graph");
-    assert_eq!(plan.sampled, vec!["an animated star".to_owned()]);
+    assert_eq!(
+        plan.sampled,
+        vec!["a trim or box of a moving outline".to_owned()]
+    );
     assert_eq!(kinds(&plan.units), (2, 1, 0));
     assert_plan_matches(&s, TIMES, 100, 100);
 }
@@ -227,8 +265,9 @@ fn drawing_resumes_within_the_groups_after_a_part() {
 
 #[test]
 fn a_group_set_up_with_what_the_graph_cannot_express_is_sampled_whole() {
-    // Clipped by a turning star: the group's setup fails, the group is
-    // sampled with all it holds, and nothing it began stays behind.
+    // Clipped by a morph between different commands: the group's setup
+    // fails, the group is sampled with all it holds, and nothing it began
+    // stays behind.
     let mut clipped = group(vec![
         rect(0.0, 0.0, 100.0, 100.0, BLUE),
         rect(20.0, 20.0, 30.0, 30.0, RED),
@@ -238,7 +277,7 @@ fn a_group_set_up_with_what_the_graph_cannot_express_is_sampled_whole() {
     }];
     clipped.clip = Some(Clip {
         shapes: vec![ClipShape {
-            geometry: star_geometry(50.0, 50.0),
+            geometry: morphing(50.0, 50.0),
             transform: Vec::new(),
             rule: Default::default(),
         }],

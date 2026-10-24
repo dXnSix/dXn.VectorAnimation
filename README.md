@@ -82,25 +82,34 @@ The view is the animation's own size unless the app sizes it.
 - **Transforms, motion paths and matrices.** Transform lists are canvas transforms of animated values; motion
   paths are lookups of the path sampled by length; animated matrices animate their decomposition; skews are
   sampled.
+- **Outlines that move.** A path morphing between keyframes of the same commands is a track per coordinate.
+  One morphing between different commands switches halfway, as the reference does: a copy of the shape for
+  each run of the same commands, shown only in its time. Stars and rectangles with elliptical corners have
+  their points sampled over time (120 times a second, at least 24 a segment, keeping only the samples a
+  straight line between their neighbours does not stand for), each coordinate a lookup of the time; a star
+  whose number of points changes is a contour for each number, moved far out of sight outside its time.
 - **Trims and dash patterns that move.** Where only one end of the drawn part moves (drawing on or off), the
   part is a dash pattern as long as the outline, moved along it. Where both move (spinners, trims carried round
   by their offset, Figma's path trims, dash lengths that change), the part is a path of its own whose points
   the graph moves: each segment cut where the part starts and ends, from lookups of the outline sampled by
-  length.
+  length. A dash pattern of several dashes, or repeating along the outline, is such a part for each dash of
+  each repetition that reaches the outline (up to 64).
 - **Gradients that move.** NSH's canvas gradients are still, so a gradient whose ends move is a still one
   placed by a transform the graph moves (a radial one too, while its focal point keeps its place within the
   circle). One whose colors change is its keyframes' gradients faded into one another; a linear one whose
   stops move (Figma's shines) is a gradient of its own between each two stops, in bands the graph moves.
+  Stops that move while their colors change, and stops of a radial gradient that move, are gradients sampled
+  over time (no stop moving more than 2% of the gradient between two samples) faded into one another.
   Paints of several gradients draw on a canvas of their own: faded keyframes add up within a clip of the
   shape, and bands of opaque colors color the shape drawn once, each from its first stop over the one before
   (bands whose edges met showed seams on Android). A stroke so painted clips to its outline.
-- **What the graph cannot express** (gradient stops whose colors and places both change, radial gradients
-  whose stops move, dash patterns of several dashes that move, animated stars, paths morphing between
-  different commands) is sampled frame by frame on the engine thread instead, that part alone: a canvas of its
-  own drawing the part within copies of the groups it is in (their clips, masks and transforms; the layers it
-  is drawn in fade and blend it), the rest of the scene still on the graph. Sampled siblings with nothing
-  drawn between share one canvas. A group whose own transform, clip or mask the graph cannot express is
-  sampled whole. The reasons are logged.
+- **What the graph cannot express** (gradient stops that change in number, trims of outlines that move,
+  moving trims of fills, more than 64 moving dashes, outlines changing their commands more than 32 times)
+  is sampled frame by frame on the engine thread instead, that part alone: a canvas of its own drawing the
+  part within copies of the groups it is in (their clips, masks and transforms; the layers it is drawn in
+  fade and blend it), the rest of the scene still on the graph. Sampled siblings with nothing drawn between
+  share one canvas. A group whose own transform, clip or mask the graph cannot express is sampled whole. The
+  reasons are logged. None of the 53 corpus files has a part sampled.
 - **The web** plays it the same way: NSH's web runtime replays canvases with Canvas 2D and runs the animation
   graph on the browser's frames.
 

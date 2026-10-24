@@ -294,6 +294,20 @@ impl Graph {
         }
     }
 
+    /// 1 on `x` from `from` up to `to` (from the start when there is no
+    /// `from`, to the end when there is no `to`), 0 outside, jumping just
+    /// before each.
+    pub fn window(&mut self, x: Num, from: Option<f64>, to: Option<f64>) -> Num {
+        match (from, to) {
+            (None, None) => Num::Const(1.0),
+            (Some(a), None) => self.lookup(x, &[a - JUMP, a], &[0.0, 1.0]),
+            (None, Some(b)) => self.lookup(x, &[b - JUMP, b], &[1.0, 0.0]),
+            (Some(a), Some(b)) => {
+                self.lookup(x, &[a - JUMP, a, b - JUMP, b], &[0.0, 1.0, 1.0, 0.0])
+            }
+        }
+    }
+
     /// The sum of `items`, as a balanced tree (the native graph evaluates
     /// recursively, to a fixed depth).
     pub fn sum(&mut self, items: &[Num]) -> Num {

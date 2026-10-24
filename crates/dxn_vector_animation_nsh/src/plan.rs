@@ -13,9 +13,9 @@ use std::sync::Arc;
 
 use dxn_vector_animation::{
     Animated, BlendMode, Clip, Dash, Direction, Fill, FillRule, Frame, FramePaint, Geometry, Group,
-    ImageData, Item, LineCap, LineJoin, Mask, Matrix, MotionPath, MotionRotate, Node,
+    ImageData, Item, Keyframe, LineCap, LineJoin, Mask, Matrix, MotionPath, MotionRotate, Node,
     Paint as ScenePaint, PaintOrder, Path, PathEl, Point, Rect, Scene, Shape, ShapePath, Stroke,
-    TimeMap, TimeRange, TransformOp, Trim, TrimMode,
+    TimeMap, TimeRange, Track, TransformOp, Trim, TrimMode,
     outline::{geometry_path, path_length, trim_paths},
     transform::{decompose, point_along, unwrap_angles},
 };
@@ -34,6 +34,200 @@ use paint::Painting;
 const FAR: f64 = 5.0e4;
 
 /// [`FAR`] in the scene's lengths, drawn through `base`.
+/// The coordinates of `p`'s points, in order.
+fn coords(p: &Path) -> Vec<f64> {
+    p.elements()
+        .iter()
+        .flat_map(|el| match *el {
+            PathEl::MoveTo(a) | PathEl::LineTo(a) => vec![a.x, a.y],
+            PathEl::QuadTo(c, a) => vec![c.x, c.y, a.x, a.y],
+            PathEl::CubicTo(c1, c2, a) => vec![c1.x, c1.y, c2.x, c2.y, a.x, a.y],
+            PathEl::Close => vec![],
+        })
+        .collect()
+}
+
+/// The commands of `p` with the coordinates `nums`, in order.
+fn path_ops(p: &Path, nums: Vec<Num>) -> Vec<Op> {
+    let mut it = nums.into_iter();
+    let mut next = || it.next().unwrap_or(Num::Const(0.0));
+    p.elements()
+        .iter()
+        .map(|el| match el {
+            PathEl::MoveTo(_) => Op::MoveTo(next(), next()),
+            PathEl::LineTo(_) => Op::LineTo(next(), next()),
+            PathEl::QuadTo(..) => Op::QuadTo([next(), next(), next(), next()]),
+            PathEl::CubicTo(..) => Op::CubicTo([next(), next(), next(), next(), next(), next()]),
+            PathEl::Close => Op::Close,
+        })
+        .collect()
+}
+
+/// The runs of `track`: its keyframes split where their commands change.
+fn runs(track: &Track<Path>) -> Vec<&[Keyframe<Path>]> {
+    track
+        .keyframes
+        .chunk_by(|a, b| a.value.same_structure(&b.value))
+        .collect()
+}
+
+/// When `track` switches from the commands of one run to the next: where
+/// its eased progress between them passes halfway, as the reference
+/// switches (found by bisection; at the later keyframe for a hold).
+fn switches(track: &Track<Path>) -> Vec<f64> {
+    runs(track)
+        .windows(2)
+        .filter_map(|w| {
+            let (a, b) = (w[0].last()?, w[1].first()?);
+            let (mut lo, mut hi) = (a.time, b.time);
+            for _ in 0..60 {
+                let mid = (lo + hi) / 2.0;
+                if track.sample(mid).same_structure(&b.value) {
+                    hi = mid;
+                } else {
+                    lo = mid;
+                }
+            }
+            Some(hi)
+        })
+        .collect()
+}
+
+/// The times the paths of `s` switch commands, ascending, those closer
+/// than a millisecond one.
+fn morph_switches(s: &Shape) -> Vec<f64> {
+    let mut all: Vec<f64> = s
+        .paths
+        .iter()
+        .flat_map(|p| match &p.geometry {
+            Geometry::Path {
+                path: Animated::Track(track),
+            } => switches(track),
+            _ => Vec::new(),
+        })
+        .collect();
+    all.sort_by(f64::total_cmp);
+    all.dedup_by(|b, a| *b - *a < 1e-3);
+    all
+}
+
+/// The keyframes of `track` with the commands it has from `from` on (from
+/// the start when there is no `from`).
+fn run_at(track: &Track<Path>, from: Option<f64>) -> Track<Path> {
+    let at = from.map_or(0, |t| {
+        switches(track).iter().filter(|s| **s <= t + 1e-3).count()
+    });
+    let runs = runs(track);
+    let run = runs.get(at).or(runs.last()).copied().unwrap_or_default();
+    Track {
+        keyframes: run.to_vec(),
+    }
+}
+
+/// The keyframe times of everything `geometry`'s outline depends on.
+fn key_times(geometry: &Geometry) -> Vec<f64> {
+    let mut times = Vec::new();
+    let mut add = |a: &Animated<f64>| times.extend(a.keyframes().iter().map(|k| k.time));
+    match geometry {
+        Geometry::Path { path } => {
+            times.extend(path.keyframes().iter().map(|k| k.time));
+        }
+        Geometry::Rect {
+            center,
+            size,
+            radius,
+            ..
+        } => {
+            for a in [&center.x, &center.y, &size.x, &size.y, &radius.x, &radius.y] {
+                add(a);
+            }
+        }
+        Geometry::Ellipse { center, radius, .. } => {
+            for a in [&center.x, &center.y, &radius.x, &radius.y] {
+                add(a);
+            }
+        }
+        Geometry::Star(star) => {
+            for a in [
+                &star.center.x,
+                &star.center.y,
+                &star.points,
+                &star.outer_radius,
+                &star.inner_radius,
+                &star.outer_roundness,
+                &star.inner_roundness,
+                &star.rotation,
+            ] {
+                add(a);
+            }
+        }
+    }
+    times.sort_by(f64::total_cmp);
+    times.dedup();
+    times
+}
+
+/// How many dashes of a pattern whose lengths move may reach the outline:
+/// each is a part the graph moves.
+const MOVING_DASHES: usize = 64;
+
+/// A run of a sampled outline's samples of the same commands: from when
+/// (none for the first), and the samples.
+type Window = (Option<f64>, Vec<(f64, Path)>);
+
+/// How many runs of different commands a sampled outline may have: each
+/// is a contour of its own.
+const OUTLINE_WINDOWS: usize = 32;
+
+/// How many times a second, at least, a sampled outline is sampled.
+const OUTLINE_RATE: f64 = 120.0;
+
+/// The times an outline moving between keyframes at `keys` is sampled at:
+/// each segment evenly (at least 24 times, [`OUTLINE_RATE`] a second),
+/// and just before its end, where a hold jumps.
+fn outline_times(keys: &[f64]) -> Vec<f64> {
+    let mut times = Vec::new();
+    for w in keys.windows(2) {
+        let (a, b) = (w[0], w[1]);
+        let n = ((b - a) * OUTLINE_RATE).ceil().max(24.0) as usize;
+        times.extend((0..n).map(|k| a + (b - a) * k as f64 / n as f64));
+        times.push(b - (b - a) * 1e-4);
+    }
+    times.extend(keys.last());
+    times
+}
+
+/// The samples (`times`, `values`) without those a straight line between
+/// their neighbors kept stands for within `tolerance`.
+fn simplified(times: &[f64], values: &[f64], tolerance: f64) -> (Vec<f64>, Vec<f64>) {
+    let n = times.len();
+    if values.iter().all(|v| (v - values[0]).abs() <= tolerance) {
+        return (vec![times[0]], vec![values[0]]);
+    }
+    let mut keep = vec![0];
+    let mut from = 0;
+    for i in 1..n.saturating_sub(1) {
+        // Whether a line from the last sample kept to the one after `i`
+        // passes all between within the tolerance.
+        let to = i + 1;
+        let line = |k: usize| {
+            let u = (times[k] - times[from]) / (times[to] - times[from]);
+            values[from] + (values[to] - values[from]) * u
+        };
+        if (from + 1..to).any(|k| (values[k] - line(k)).abs() > tolerance) {
+            keep.push(i);
+            from = i;
+        }
+    }
+    if n > 1 {
+        keep.push(n - 1);
+    }
+    (
+        keep.iter().map(|&k| times[k]).collect(),
+        keep.iter().map(|&k| values[k]).collect(),
+    )
+}
+
 fn far(base: Matrix) -> f64 {
     let scale = (base.a * base.d - base.b * base.c).abs().sqrt();
     if scale > 0.0 { FAR / scale } else { FAR }
@@ -948,17 +1142,6 @@ impl Compiler {
                     return unsupported("a path morphing between different commands");
                 }
                 // Each coordinate a track of its own.
-                let coords = |p: &Path| -> Vec<f64> {
-                    p.elements()
-                        .iter()
-                        .flat_map(|el| match *el {
-                            PathEl::MoveTo(a) | PathEl::LineTo(a) => vec![a.x, a.y],
-                            PathEl::QuadTo(c, a) => vec![c.x, c.y, a.x, a.y],
-                            PathEl::CubicTo(c1, c2, a) => vec![c1.x, c1.y, c2.x, c2.y, a.x, a.y],
-                            PathEl::Close => vec![],
-                        })
-                        .collect()
-                };
                 let per_key: Vec<Vec<f64>> = keys.iter().map(|k| coords(&k.value)).collect();
                 let mut nums = Vec::with_capacity(per_key[0].len());
                 for j in 0..per_key[0].len() {
@@ -972,22 +1155,7 @@ impl Compiler {
                     ));
                     nums.push(self.g.track(&a, time, |v| v));
                 }
-                let mut it = nums.into_iter();
-                let mut next = || it.next().unwrap_or(Num::Const(0.0));
-                Ok(first
-                    .value
-                    .elements()
-                    .iter()
-                    .map(|el| match el {
-                        PathEl::MoveTo(_) => Op::MoveTo(next(), next()),
-                        PathEl::LineTo(_) => Op::LineTo(next(), next()),
-                        PathEl::QuadTo(..) => Op::QuadTo([next(), next(), next(), next()]),
-                        PathEl::CubicTo(..) => {
-                            Op::CubicTo([next(), next(), next(), next(), next(), next()])
-                        }
-                        PathEl::Close => Op::Close,
-                    })
-                    .collect())
+                Ok(path_ops(&first.value, nums))
             }
             Geometry::Rect {
                 center,
@@ -996,7 +1164,7 @@ impl Compiler {
                 ..
             } => {
                 if radius.x != radius.y {
-                    return unsupported("an animated rectangle with elliptical corners");
+                    return self.sampled_outline(geometry, time);
                 }
                 let (cx, cy) = (
                     self.g.track(&center.x, time, |v| v),
@@ -1030,8 +1198,93 @@ impl Compiler {
                     *direction == Direction::CounterClockwise,
                 )])
             }
-            Geometry::Star(_) => unsupported("an animated star"),
+            Geometry::Star(_) => self.sampled_outline(geometry, time),
         }
+    }
+
+    /// The outline of `geometry`, its points sampled over its keyframes'
+    /// times, each coordinate a lookup of the time: for outlines whose
+    /// points move as the graph does not compute (stars, elliptical
+    /// corners). Where its commands change (a star gaining points), each
+    /// run of the same commands is a contour of its own, moved far out of
+    /// sight outside its time.
+    fn sampled_outline(
+        &mut self,
+        geometry: &Geometry,
+        time: NodeId,
+    ) -> Result<Vec<Op>, Unsupported> {
+        let times = outline_times(&key_times(geometry));
+        let paths: Vec<Path> = times.iter().map(|&t| geometry_path(geometry, t)).collect();
+        if paths.is_empty() {
+            return Ok(static_path(&geometry_path(geometry, 0.0)));
+        }
+        // Runs of samples of the same commands: from when, and the samples
+        // (the switch's ends found by bisection, the run's first and last).
+        let mut windows: Vec<Window> = Vec::new();
+        for (i, (&t, path)) in times.iter().zip(&paths).enumerate() {
+            match windows.last_mut() {
+                Some((_, run)) if run.last().is_some_and(|(_, p)| p.same_structure(path)) => {
+                    run.push((t, path.clone()));
+                }
+                _ if i == 0 => windows.push((None, vec![(t, path.clone())])),
+                _ => {
+                    let before = &paths[i - 1];
+                    let (mut lo, mut hi) = (times[i - 1], t);
+                    for _ in 0..60 {
+                        let mid = (lo + hi) / 2.0;
+                        if geometry_path(geometry, mid).same_structure(before) {
+                            lo = mid;
+                        } else {
+                            hi = mid;
+                        }
+                    }
+                    if let Some((_, run)) = windows.last_mut() {
+                        run.push((lo, geometry_path(geometry, lo)));
+                    }
+                    let first = geometry_path(geometry, hi);
+                    let mut run = vec![(hi, first)];
+                    if t > hi {
+                        run.push((t, path.clone()));
+                    }
+                    windows.push((Some(hi), run));
+                }
+            }
+        }
+        if windows.len() > OUTLINE_WINDOWS {
+            return unsupported("an outline whose commands change many times");
+        }
+        let tolerance = self.tolerance();
+        let far = self.far();
+        let mut ops = Vec::new();
+        for w in 0..windows.len() {
+            let (from, run) = &windows[w];
+            let to = windows.get(w + 1).and_then(|next| next.0);
+            let ts: Vec<f64> = run.iter().map(|(t, _)| *t).collect();
+            let columns: Vec<Vec<f64>> = run.iter().map(|(_, p)| coords(p)).collect();
+            let mut nums = Vec::with_capacity(columns[0].len());
+            for j in 0..columns[0].len() {
+                let values: Vec<f64> = columns.iter().map(|c| c[j]).collect();
+                let (inputs, outputs) = simplified(&ts, &values, tolerance);
+                nums.push(match outputs.as_slice() {
+                    [one] => Num::Const(*one),
+                    _ => self.g.lookup(Num::Node(time), &inputs, &outputs),
+                });
+            }
+            let contour = path_ops(&run[0].1, nums);
+            if windows.len() == 1 {
+                return Ok(contour);
+            }
+            // The path takes its points where the transform puts them as
+            // they come.
+            let shown = self.g.window(Num::Node(time), *from, to);
+            let away = self.g.math(MathOp::Mul, shown, Num::Const(-far));
+            let away = self.g.math(MathOp::Add, away, Num::Const(far));
+            ops.push(Op::Save);
+            ops.push(Op::Translate(away, Num::Const(0.0)));
+            ops.extend(contour);
+            ops.push(Op::Restore);
+        }
+        Ok(ops)
     }
 
     /// The path operations of a shape's outline, its transform moving its
@@ -1149,6 +1402,10 @@ impl Compiler {
     }
 
     fn shape(&mut self, s: &Shape, time: NodeId) -> Result<(), Unsupported> {
+        let switches = morph_switches(s);
+        if !switches.is_empty() {
+            return self.shape_windows(s, &switches, time);
+        }
         let alpha = self.open().alpha;
         let fill = match &s.fill {
             Some(fill) => self.fill(s, fill, time, alpha)?,
@@ -1174,6 +1431,39 @@ impl Compiler {
             } else {
                 self.draw(ops);
             }
+        }
+        Ok(())
+    }
+
+    /// A shape whose paths morph between different commands, which switch
+    /// halfway (as the reference morphs them) at `switches`: a copy for
+    /// each time between switches, shown only then, each path's keyframes
+    /// there those of the commands it has then.
+    fn shape_windows(
+        &mut self,
+        s: &Shape,
+        switches: &[f64],
+        time: NodeId,
+    ) -> Result<(), Unsupported> {
+        let outer = self.open().alpha;
+        for w in 0..=switches.len() {
+            let from = w.checked_sub(1).map(|i| switches[i]);
+            let to = switches.get(w).copied();
+            let shown = self.g.window(Num::Node(time), from, to);
+            let mut copy = s.clone();
+            for p in &mut copy.paths {
+                if let Geometry::Path {
+                    path: Animated::Track(track),
+                } = &mut p.geometry
+                {
+                    *track = run_at(track, from);
+                }
+            }
+            let alpha = self.mul(outer, shown);
+            self.open().alpha = alpha;
+            let done = self.shape(&copy, time);
+            self.open().alpha = outer;
+            done?;
         }
         Ok(())
     }
@@ -1396,9 +1686,10 @@ impl Compiler {
         Ok(ops)
     }
 
-    /// A dash pattern whose lengths move, of one dash and one gap, where
-    /// only the dash the pattern starts with reaches the outline: on each
-    /// contour, its part from `-offset` to `dash - offset`.
+    /// A dash pattern whose lengths move: on each contour, each dash of
+    /// each repetition of the pattern that reaches it, a part from where
+    /// the dash starts (`-offset` and the lengths before it) to where it
+    /// ends, both moved by the graph.
     fn moving_dash(
         &mut self,
         s: &Shape,
@@ -1407,30 +1698,64 @@ impl Compiler {
         alpha: Num,
         style: &[Op],
     ) -> Result<Vec<Op>, Unsupported> {
-        let (on, off) = match dash.array.as_slice() {
-            [d] => (d, d),
-            [d, g] => (d, g),
-            _ => return unsupported("an animated dash pattern of several dashes"),
+        // An odd list repeats to an even one.
+        let pattern: Vec<&Animated<f64>> = if dash.array.len() % 2 == 1 {
+            dash.array.iter().chain(&dash.array).collect()
+        } else {
+            dash.array.iter().collect()
         };
         let paths = static_paths(s)?;
         let contours: Vec<span::Run> = paths.iter().flat_map(span::contours).collect();
         let longest = contours.iter().map(|r| r.end - r.start).fold(0.0, f64::max);
-        let times = sample_times(&[on, off, &dash.offset]);
-        let mut ends = Vec::with_capacity(times.len());
+        let mut tracks = pattern.clone();
+        tracks.push(&dash.offset);
+        let times = sample_times(&tracks);
+        // Where dash `k` of repetition `c` starts and ends at `t`.
+        let place = |t: f64, c: i64, k: usize| {
+            let lengths: Vec<f64> = pattern.iter().map(|a| a.sample(t).max(0.0)).collect();
+            let period: f64 = lengths.iter().sum();
+            let a = c as f64 * period + lengths[..k].iter().sum::<f64>() - dash.offset.sample(t);
+            (a, a + lengths[k])
+        };
+        // The dashes that reach an outline at some time.
+        let mut dashes = std::collections::BTreeSet::new();
         for &t in &times {
-            let (d, g) = (on.sample(t).max(0.0), off.sample(t).max(0.0));
-            let o = dash.offset.sample(t);
-            // The next dash starts past the end, the one before ended
-            // before the start.
-            if d + g <= 0.0 || o > d + g - longest || o < -g {
-                return unsupported("an animated dash pattern repeating along the outline");
+            let period: f64 = pattern.iter().map(|a| a.sample(t).max(0.0)).sum();
+            if period <= 0.0 {
+                return unsupported("an animated dash pattern of no length");
             }
-            ends.push((-o, d - o));
+            let o = dash.offset.sample(t);
+            let first = ((o - period) / period).floor() as i64;
+            let last = ((longest + o) / period).ceil() as i64;
+            for c in first..=last {
+                for k in (0..pattern.len()).step_by(2) {
+                    let (a, b) = place(t, c, k);
+                    if b >= 0.0 && a <= longest {
+                        dashes.insert((c, k));
+                    }
+                }
+            }
+            if dashes.len() > MOVING_DASHES {
+                return unsupported("an animated dash pattern of many dashes along the outline");
+            }
         }
-        let a = self.g.track(&dash.offset, time, |o| -o);
-        let d = self.g.track(on, time, |v| v);
-        let b = self.g.math(MathOp::Add, d, a);
-        Ok(self.parts(&contours, (a, b), &ends, true, alpha, style))
+        let lengths: Vec<Num> = pattern
+            .iter()
+            .map(|a| self.g.track(a, time, |v| v.max(0.0)))
+            .collect();
+        let period = self.g.sum(&lengths);
+        let offset = self.g.track(&dash.offset, time, |o| -o);
+        let mut ops = Vec::new();
+        for (c, k) in dashes {
+            let before = self.g.sum(&lengths[..k]);
+            let repeats = self.g.math(MathOp::Mul, period, Num::Const(c as f64));
+            let start = self.g.math(MathOp::Add, repeats, before);
+            let a = self.g.math(MathOp::Add, start, offset);
+            let b = self.g.math(MathOp::Add, a, lengths[k]);
+            let ends: Vec<(f64, f64)> = times.iter().map(|&t| place(t, c, k)).collect();
+            ops.extend(self.parts(&contours, (a, b), &ends, true, alpha, style));
+        }
+        Ok(ops)
     }
 
     /// The stroke of the parts of `runs` from `a` to `b` (`ends`: their

@@ -8,8 +8,8 @@ mod common;
 use common::assert_plan_matches as loose;
 use dxn_vector_animation::{
     Animated, AnimatedPoint, Color, Direction, Easing, EllipseStart, Geometry, Group, Keyframe,
-    LineCap, LineJoin, LoopMode, Matrix, Node, Paint, Path, Point, RectStart, Scene, Shape,
-    ShapePath, Stroke, Timeline, Track, Trim, TrimMode,
+    LineCap, LineJoin, LoopMode, Node, Paint, Path, Point, RectStart, Scene, Shape, ShapePath,
+    Stroke, Timeline, Track, Trim, TrimMode,
 };
 
 /// A ring spinner as svg-spinners draws one: a dash growing while its
@@ -203,29 +203,6 @@ fn trim_across_open_outlines_one_after_another() {
         trim,
     );
     assert_plan_matches(&scene(vec![line]), TIMES, 100, 100);
-}
-
-#[test]
-fn a_dash_pattern_that_repeats_is_sampled() {
-    let mut s = dxn_vector_animation_svg::read(RING.as_bytes())
-        .unwrap()
-        .scene;
-    // Shorter gaps: the second dash reaches the ring.
-    let Node::Group(g) = &mut s.root.children[0] else {
-        panic!("a group");
-    };
-    let Node::Shape(shape) = &mut g.children[0] else {
-        panic!("a shape");
-    };
-    let dash = shape.stroke.as_mut().unwrap().dash.as_mut().unwrap();
-    dash.array[1] = Animated::Static(20.0);
-    let plan = dxn_vector_animation_nsh::plan::compile(&s, Matrix::IDENTITY).unwrap();
-    assert!(
-        plan.sampled.iter().any(|why| why.contains("repeating")),
-        "{:?}",
-        plan.sampled
-    );
-    assert_plan_matches(&s, TIMES, 100, 100);
 }
 
 /// The ring spinner in a player.

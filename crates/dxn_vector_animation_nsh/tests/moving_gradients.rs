@@ -358,26 +358,6 @@ fn transformed_gradient_on_a_stroke() {
     assert_plan_matches(&scene(vec![ring]));
 }
 
-#[test]
-fn stops_whose_colors_and_places_both_change_are_sampled() {
-    let paint = linear(
-        AnimatedPoint::fixed(0.0, 0.0),
-        AnimatedPoint::fixed(100.0, 0.0),
-        stop_track(vec![
-            (0.0, stops(&[(0.0, RED), (1.0, BLUE)])),
-            (2.0, stops(&[(0.5, GOLD), (1.0, BLUE)])),
-        ]),
-    );
-    let s = scene(vec![filled(rect(0.0, 0.0, 100.0, 100.0), paint, 1.0)]);
-    let plan = dxn_vector_animation_nsh::plan::compile(&s, Matrix::IDENTITY).unwrap();
-    assert!(
-        plan.sampled.iter().any(|why| why.contains("both change")),
-        "{:?}",
-        plan.sampled
-    );
-    assert_plan_matches(&s);
-}
-
 /// The coin in a player, as a compiled scene.
 #[nsh_core::ui::prelude::component]
 fn Coin() -> impl nsh_core::ui::prelude::IntoElement {
