@@ -4,11 +4,16 @@
 //! one another; a linear one whose stops move is a gradient of its own
 //! between each two neighbouring stops, in bands the graph moves.
 //!
-//! Paints of several gradients are added up (`lighter`) in a canvas of
-//! their own, within a clip of the shape (a stroke's outline, for a
-//! stroke). The platforms' canvases agree on additions and clips; they do
-//! not agree on composite operations that clear what lies outside the
-//! drawing (`destination-in`).
+//! Paints of several gradients draw on a canvas of their own. Faded
+//! keyframes, and bands of colors that are not opaque, are added up
+//! (`lighter`) within a clip of the shape (a stroke's outline, for a
+//! stroke). Bands of opaque colors color the shape drawn once
+//! (`source-atop`), each from its first stop on over the one before, where
+//! that one shows the color it starts with: no two edges meet, so no seam
+//! shows (Android's anti-aliasing of edges that meet does not add up), and
+//! the shape's edge is covered once. The platforms' canvases agree on
+//! additions, `source-atop` and clips; they do not agree on composite
+//! operations that clear what lies outside the drawing (`destination-in`).
 
 use std::sync::Arc;
 
@@ -22,10 +27,6 @@ use super::{
     static_paths, unsupported,
 };
 use crate::graph::{MathOp, NodeId, Num, Paint, pack};
-
-/// How far the bands of [`Painting::Bands`] reach across the shape, in its
-/// lengths.
-const REACH: f64 = 1.0e5;
 
 /// The narrowest band, in lengths of the gradient (narrower is a jump).
 const NARROWEST: f64 = 1.0e-4;
@@ -52,20 +53,32 @@ pub(super) enum Painting {
     },
     /// A linear gradient whose stops move, along the unit gradient's x:
     /// before the first stop and past the last their colors, between each
-    /// two stops a gradient of their two, out to `reach`.
+    /// two stops a gradient of their two, out to `reach` (in the unit
+    /// gradient's lengths, which change with the gradient's).
     Bands {
         colors: Vec<u32>,
         edges: Vec<Num>,
         m: Matrix,
         place: [Num; 6],
-        reach: f64,
+        reach: Num,
     },
 }
 
+/// Whether every color is opaque (`0xRRGGBBAA`).
+fn opaque(colors: &[u32]) -> bool {
+    colors.iter().all(|c| c & 0xff == 0xff)
+}
+
 impl Painting {
-    /// Whether it adds gradients up, in a canvas of its own.
+    /// Whether it draws more than one gradient, in a canvas of its own.
     pub(super) fn alone(&self) -> bool {
         !matches!(self, Painting::One { .. })
+    }
+
+    /// Whether it colors the shape drawn first (opaque bands), rather than
+    /// painting within a clip of it.
+    pub(super) fn masked(&self) -> bool {
+        matches!(self, Painting::Bands { colors, .. } if opaque(colors))
     }
 }
 
@@ -194,6 +207,12 @@ impl Compiler {
                     })
                 };
                 let place = self.linear_place(&g.start, &g.end, time);
+                // As far out as everything is, however long the gradient.
+                let (far, sm) = (self.far(), scale_of(m).max(1e-9));
+                let reach = self.g.sampled(&times, time, |t| {
+                    let (a, b) = (g.start.sample(t), g.end.sample(t));
+                    far / ((b.x - a.x).hypot(b.y - a.y) * sm).max(1e-9)
+                });
                 Ok(match stops {
                     Stops::Still(stops) if moving => Painting::One {
                         gradient: unit(stops),
@@ -224,7 +243,7 @@ impl Compiler {
                             .collect(),
                         m,
                         place,
-                        reach: (REACH / (shortest * scale_of(m)).max(1e-9)).max(2.0),
+                        reach,
                     },
                 })
             }
@@ -366,7 +385,7 @@ impl Compiler {
             } => {
                 // The path is built already: the transforms move the
                 // gradient only.
-                ops.extend(huge_rect());
+                ops.extend(huge_rect(self.far()));
                 ops.push(Op::GlobalAlpha(alpha));
                 place(&mut ops, *m, p.as_ref());
                 ops.push(Op::FillGradient(gradient.clone()));
@@ -377,7 +396,7 @@ impl Compiler {
                 m,
                 place: p,
             } => {
-                ops.extend(huge_rect());
+                ops.extend(huge_rect(self.far()));
                 place(&mut ops, *m, p.as_ref());
                 ops.push(Op::Blend(BlendMode::Add));
                 for (gradient, weight) in gradients {
@@ -395,17 +414,24 @@ impl Compiler {
                 reach,
             } => {
                 place(&mut ops, *m, Some(p));
-                ops.push(Op::Blend(BlendMode::Add));
-                ops.push(Op::GlobalAlpha(alpha));
+                // Opaque bands color the shape, from their first stop on.
+                let over = opaque(colors);
+                if over {
+                    ops.push(Op::Atop);
+                    ops.push(Op::GlobalAlpha(Num::Const(1.0)));
+                } else {
+                    ops.push(Op::Blend(BlendMode::Add));
+                    ops.push(Op::GlobalAlpha(alpha));
+                }
                 let r = *reach;
+                let back = self.g.math(MathOp::Mul, r, Num::Const(-1.0));
                 let band = |ops: &mut Vec<Op>, from: Num, to: Num| {
-                    let c = Num::Const;
                     ops.extend([
                         Op::BeginPath,
-                        Op::MoveTo(from, c(-r)),
-                        Op::LineTo(to, c(-r)),
-                        Op::LineTo(to, c(r)),
-                        Op::LineTo(from, c(r)),
+                        Op::MoveTo(from, back),
+                        Op::LineTo(to, back),
+                        Op::LineTo(to, r),
+                        Op::LineTo(from, r),
                         Op::Close,
                     ]);
                 };
@@ -413,12 +439,12 @@ impl Compiler {
                     ops.push(Op::Restore);
                     return ops;
                 };
-                band(&mut ops, Num::Const(-r), first);
+                band(&mut ops, back, if over { r } else { first });
                 ops.push(Op::FillColor(Paint::Const(colors[0])));
                 ops.push(Op::Fill(FillRule::NonZero));
                 for (i, pair) in edges.windows(2).enumerate() {
                     let (from, to) = (pair[0], pair[1]);
-                    band(&mut ops, from, to);
+                    band(&mut ops, from, if over { r } else { to });
                     let width = self.g.math(MathOp::Sub, to, from);
                     let width = self.g.above(width, NARROWEST);
                     let width = self.g.math(MathOp::Add, width, Num::Const(NARROWEST));
@@ -440,9 +466,12 @@ impl Compiler {
                     ops.push(Op::Fill(FillRule::NonZero));
                     ops.push(Op::Restore);
                 }
-                band(&mut ops, last, Num::Const(r));
-                ops.push(Op::FillColor(Paint::Const(colors[colors.len() - 1])));
-                ops.push(Op::Fill(FillRule::NonZero));
+                // Opaque, the last band pads with its color already.
+                if !over {
+                    band(&mut ops, last, r);
+                    ops.push(Op::FillColor(Paint::Const(colors[colors.len() - 1])));
+                    ops.push(Op::Fill(FillRule::NonZero));
+                }
             }
         }
         ops.push(Op::Restore);
@@ -513,7 +542,13 @@ impl Compiler {
         }
         let mut ops = vec![Op::Save, Op::BeginPath];
         ops.extend(static_path(&outline));
-        ops.push(Op::Clip(FillRule::NonZero));
+        if painting.masked() {
+            ops.push(Op::GlobalAlpha(alpha));
+            ops.push(Op::FillColor(Paint::Const(0x0000_00ff)));
+            ops.push(Op::Fill(FillRule::NonZero));
+        } else {
+            ops.push(Op::Clip(FillRule::NonZero));
+        }
         ops.extend(self.plane(painting, alpha));
         ops.push(Op::Restore);
         Ok((ops, painting.alone()))

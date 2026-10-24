@@ -296,6 +296,50 @@ fn shine_whose_stops_sweep_across() {
 }
 
 #[test]
+fn opaque_bands_overlap_instead_of_meeting() {
+    // Edges of bands that meet leave a seam where a platform's
+    // anti-aliasing does not add up (Android's): opaque bands color the
+    // shape drawn once, each over the one before.
+    use dxn_vector_animation_nsh::plan::{Op, Unit};
+    let plan = dxn_vector_animation_nsh::plan::compile(&coin_scene(), Matrix::IDENTITY).unwrap();
+    let ops: Vec<&Op> = plan
+        .units
+        .iter()
+        .flat_map(|u| match u {
+            Unit::Canvas(ops) => ops.iter().collect::<Vec<_>>(),
+            Unit::Layer { .. } => Vec::new(),
+        })
+        .collect();
+    assert!(ops.iter().any(|op| matches!(op, Op::Atop)));
+    assert!(
+        !ops.iter()
+            .any(|op| matches!(op, Op::Blend(dxn_vector_animation::BlendMode::Add)))
+    );
+}
+
+#[test]
+fn what_stands_for_everything_stays_within_reach() {
+    // Cairo (the Linux canvas) places nothing past about ±8 million device
+    // pixels: the bands of a gradient whose length changes a hundredfold,
+    // drawn large, stay well within that.
+    let light = Color::rgba(1.0, 0.91, 0.64, 1.0);
+    let sweep = stop_track(vec![
+        (0.0, stops(&[(0.2, GOLD), (0.3, light), (0.4, GOLD)])),
+        (2.0, stops(&[(0.6, GOLD), (0.7, light), (0.8, GOLD)])),
+    ]);
+    let paint = linear(
+        point(&[(0.0, 50.0, 50.0), (2.0, 10.0, 10.0)]),
+        point(&[(0.0, 50.5, 50.5), (2.0, 90.0, 90.0)]),
+        sweep,
+    );
+    let s = scene(vec![filled(ellipse(50.0, 50.0, 40.0), paint, 1.0)]);
+    for t in [0.0, 0.5, 1.0, 2.0] {
+        let widest = common::widest_point(&s, t, 1200, 1200);
+        assert!(widest < 2.0e6, "at t = {t}: {widest} device pixels out");
+    }
+}
+
+#[test]
 fn transformed_gradient_on_a_stroke() {
     // As svg-loaders' tail spin: a gradient in the stroke's bounding box.
     let paint = Paint::LinearGradient(LinearGradient {

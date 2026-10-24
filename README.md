@@ -9,8 +9,8 @@ primitives: canvases whose numbers and colors NSH's native animation graph moves
 JavaScript and no engine work per frame.
 
 > **Status: phase 1.** The component, playback, the TSX and Rust APIs and an example app, checked headless
-> (`nsh test`), against 53 real animation files, and frame by frame in the iOS simulator and in Chrome;
-> not yet on Android, Windows, Linux or GPUI.
+> (`nsh test`), against 53 real animation files, and frame by frame in the iOS simulator, Chrome, the
+> Android emulator, and GTK and GPUI on Linux; not yet on Windows, nor GPUI on macOS.
 
 ## Usage
 
@@ -91,8 +91,9 @@ The view is the animation's own size unless the app sizes it.
   placed by a transform the graph moves (a radial one too, while its focal point keeps its place within the
   circle). One whose colors change is its keyframes' gradients faded into one another; a linear one whose
   stops move (Figma's shines) is a gradient of its own between each two stops, in bands the graph moves.
-  Paints of several gradients are added up on a canvas of their own, within a clip of the shape; a stroke so
-  painted clips to its outline.
+  Paints of several gradients draw on a canvas of their own: faded keyframes add up within a clip of the
+  shape, and bands of opaque colors color the shape drawn once, each from its first stop over the one before
+  (bands whose edges met showed seams on Android). A stroke so painted clips to its outline.
 - **What the graph cannot express** (gradient stops whose colors and places both change, radial gradients
   whose stops move, dash patterns of several dashes that move, animated stars, paths morphing between
   different commands) is sampled frame by frame on the engine thread
@@ -114,8 +115,10 @@ composites. This workspace's own builds and tests take the dXnSix fork of NSH (`
 
 Paths built under a transform (shapes whose outlines move apart from their stroke, clips and masks of moving
 shapes) rely on Canvas 2D's rule that a path's points are placed as they are added. The player composites
-only with `lighter` and source-over: the platforms' canvases differ on operations that clear what lies
-outside the drawing (`destination-in`).
+only with source-over, `lighter` and `source-atop`: the platforms' canvases differ on operations that clear
+what lies outside the drawing (`destination-in`). Rectangles that stand for everything reach 50,000 points
+past the view, not further: cairo (the Linux canvas) cannot place points past about ±8 million device
+pixels. Each canvas restores all it saves, as NSH's web runtime keeps one context from drawing to drawing.
 
 ## Development
 
@@ -141,8 +144,8 @@ version); an `nsh` built from a checkout needs that checkout's crates: a local, 
 
 1. **Done:** the component with canvases, warped time and playback; the TSX and Rust APIs; the example app;
    moving trims, dash patterns and gradients on the graph; the iOS simulator and the web.
-2. Android, Windows, Linux and GPUI; soft masks on the graph; sampling one canvas instead of the whole
-   scene; views with bound transforms for groups that only move or fade.
+2. Windows, and GPUI on macOS; soft masks on the graph; sampling one canvas instead of the whole scene;
+   views with bound transforms for groups that only move or fade.
 
 ## License
 

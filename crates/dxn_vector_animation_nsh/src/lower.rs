@@ -238,6 +238,7 @@ pub(crate) fn painter(ops: &[Op], nodes: &Nodes) -> Painter {
             Op::LineDashOffset(o) => CanvasOp::LineDashOffset(n(&mut p, *o)),
             Op::GlobalAlpha(a) => CanvasOp::GlobalAlpha(n(&mut p, *a)),
             Op::Blend(b) => CanvasOp::Composite(composite(*b)),
+            Op::Atop => CanvasOp::Composite(Composite::SourceAtop),
             Op::Image(data, rect) => {
                 use base64::Engine;
                 let uri = format!(

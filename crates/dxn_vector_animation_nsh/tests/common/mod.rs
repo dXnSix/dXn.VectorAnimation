@@ -67,6 +67,27 @@ pub fn assert_plan_matches(scene: &Scene, times: &[f64], w: u32, h: u32) {
     }
 }
 
+/// How far out any path point of `scene`'s plan lies at `time`, in device
+/// pixels of a `w` × `h` view.
+pub fn widest_point(scene: &Scene, time: f64, w: u32, h: u32) -> f64 {
+    fn walk(list: &[Unit], g: &Graph, t: f64, w: u32, h: u32) -> f64 {
+        list.iter()
+            .map(|unit| match unit {
+                Unit::Canvas(ops) => {
+                    let mut p = sk::Pixmap::new(w, h).unwrap();
+                    let mut replay = Replay::new(g, t, w, h);
+                    replay.run(ops, &mut p);
+                    replay.widest.get()
+                }
+                Unit::Layer { units, .. } => walk(units, g, t, w, h),
+            })
+            .fold(0.0, f64::max)
+    }
+    let base = dxn_vector_animation_nsh::fit(scene, f64::from(w), f64::from(h), Default::default());
+    let plan = plan::compile(scene, base).expect("the scene compiles");
+    walk(&plan.units, &plan.graph, time, w, h)
+}
+
 fn units(list: &[Unit], g: &Graph, t: f64, w: u32, h: u32) -> sk::Pixmap {
     let mut out = sk::Pixmap::new(w, h).unwrap();
     for unit in list {
@@ -119,6 +140,7 @@ struct State {
     dash_offset: f64,
     clip: Option<sk::Mask>,
     blend: BlendMode,
+    atop: bool,
 }
 
 struct Replay<'g> {
@@ -130,6 +152,8 @@ struct Replay<'g> {
     stack: Vec<State>,
     /// The current path, in device space.
     path: Path,
+    /// How far out a path point went, in device pixels.
+    widest: std::cell::Cell<f64>,
 }
 
 impl<'g> Replay<'g> {
@@ -152,9 +176,11 @@ impl<'g> Replay<'g> {
                 dash_offset: 0.0,
                 clip: None,
                 blend: BlendMode::Normal,
+                atop: false,
             },
             stack: Vec::new(),
             path: Path::new(),
+            widest: std::cell::Cell::new(0.0),
         }
     }
 
@@ -163,7 +189,10 @@ impl<'g> Replay<'g> {
     }
 
     fn pt(&self, x: Num, y: Num) -> Point {
-        self.state.ctm.apply(Point::new(self.n(x), self.n(y)))
+        let p = self.state.ctm.apply(Point::new(self.n(x), self.n(y)));
+        self.widest
+            .set(self.widest.get().max(p.x.abs()).max(p.y.abs()));
+        p
     }
 
     fn concat(&mut self, m: Matrix) {
@@ -252,7 +281,11 @@ impl<'g> Replay<'g> {
                 Op::LineDash(d) => self.state.dash = d.clone(),
                 Op::LineDashOffset(o) => self.state.dash_offset = self.n(*o),
                 Op::GlobalAlpha(a) => self.state.alpha = self.n(*a).clamp(0.0, 1.0),
-                Op::Blend(b) => self.state.blend = *b,
+                Op::Blend(b) => {
+                    self.state.blend = *b;
+                    self.state.atop = false;
+                }
+                Op::Atop => self.state.atop = true,
                 Op::Image(..) => {}
             }
         }
@@ -306,7 +339,11 @@ impl<'g> Replay<'g> {
         Some(sk::Paint {
             shader,
             anti_alias: true,
-            blend_mode: sk_blend(self.state.blend),
+            blend_mode: if self.state.atop {
+                sk::BlendMode::SourceAtop
+            } else {
+                sk_blend(self.state.blend)
+            },
             ..Default::default()
         })
     }

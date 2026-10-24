@@ -27,9 +27,17 @@ mod paint;
 
 use paint::Painting;
 
-/// A rectangle far larger than any scene: what an inverted mask shows
-/// outside its shapes.
-const HUGE: f64 = 1.0e6;
+/// How far out the rectangles that stand for everything reach (what an
+/// inverted mask shows outside its shapes, what a paint covers), in the
+/// view's points: past any screen, and within what cairo (the Linux
+/// canvas) can place, about ±8 million device pixels.
+const FAR: f64 = 5.0e4;
+
+/// [`FAR`] in the scene's lengths, drawn through `base`.
+fn far(base: Matrix) -> f64 {
+    let scale = (base.a * base.d - base.b * base.c).abs().sqrt();
+    if scale > 0.0 { FAR / scale } else { FAR }
+}
 
 /// One recorded drawing operation (HTML Canvas 2D semantics: a path is
 /// built in device space as its operations come, so a transform set while
@@ -94,6 +102,9 @@ pub enum Op {
     GlobalAlpha(Num),
     /// `globalCompositeOperation` (a blend mode).
     Blend(BlendMode),
+    /// `globalCompositeOperation = "source-atop"`: what follows colors
+    /// what the canvas holds, keeping its coverage.
+    Atop,
     /// `drawImage(image, x, y, w, h)`.
     Image(Arc<ImageData>, Rect),
 }
@@ -308,7 +319,7 @@ fn frame_items(items: &[Item], base: Matrix, alpha: &mut Vec<f64>, ops: &mut Vec
                         ops.push(Op::BeginPath);
                         ops.push(Op::Save);
                         ops.push(Op::Transform(consts(base)));
-                        ops.extend(huge_rect());
+                        ops.extend(huge_rect(far(base)));
                         ops.push(Op::Restore);
                     } else {
                         ops.push(Op::BeginPath);
@@ -402,13 +413,14 @@ fn static_path(path: &Path) -> Vec<Op> {
         .collect()
 }
 
-fn huge_rect() -> Vec<Op> {
+/// A square reaching `h` every way: everything.
+fn huge_rect(h: f64) -> Vec<Op> {
     let c = Num::Const;
     vec![
-        Op::MoveTo(c(-HUGE), c(-HUGE)),
-        Op::LineTo(c(HUGE), c(-HUGE)),
-        Op::LineTo(c(HUGE), c(HUGE)),
-        Op::LineTo(c(-HUGE), c(HUGE)),
+        Op::MoveTo(c(-h), c(-h)),
+        Op::LineTo(c(h), c(-h)),
+        Op::LineTo(c(h), c(h)),
+        Op::LineTo(c(-h), c(h)),
         Op::Close,
     ]
 }
@@ -440,6 +452,11 @@ impl Compiler {
             let canvas = std::mem::take(&mut open.canvas);
             open.units.push(Unit::Canvas(closed(canvas)));
         }
+    }
+
+    /// [`FAR`] in the scene's lengths.
+    fn far(&self) -> f64 {
+        far(self.base)
     }
 
     /// How far drawn geometry may stray, in scene lengths: a twentieth of
@@ -890,7 +907,7 @@ impl Compiler {
         self.mask_outlines(&mask.content, time, &mut added, &mut later, depth)?;
         let mut ops = vec![Op::BeginPath];
         if mask.inverted {
-            ops.extend(huge_rect());
+            ops.extend(huge_rect(self.far()));
         }
         ops.extend(added);
         ops.push(Op::Clip(if mask.inverted {
@@ -901,7 +918,7 @@ impl Compiler {
         for (blend, outline) in later {
             ops.push(Op::BeginPath);
             if blend == BlendMode::DestinationOut {
-                ops.extend(huge_rect());
+                ops.extend(huge_rect(self.far()));
             }
             ops.extend(outline);
             ops.push(Op::Clip(if blend == BlendMode::DestinationOut {
@@ -1048,7 +1065,14 @@ impl Compiler {
                     ops.push(Op::Fill(fill.rule));
                 }
                 painting => {
-                    ops.push(Op::Clip(fill.rule));
+                    if painting.masked() {
+                        // The shape once, colored over by the paint.
+                        ops.push(Op::GlobalAlpha(a));
+                        ops.push(Op::FillColor(Paint::Const(0x0000_00ff)));
+                        ops.push(Op::Fill(fill.rule));
+                    } else {
+                        ops.push(Op::Clip(fill.rule));
+                    }
                     ops.extend(self.plane(&painting, a));
                     alone = painting.alone();
                 }
@@ -1317,8 +1341,9 @@ impl Compiler {
                 };
                 // The path takes its points where the transform puts them
                 // as they come.
-                let away = self.g.math(MathOp::Mul, shown, Num::Const(-HUGE));
-                let away = self.g.math(MathOp::Add, away, Num::Const(HUGE));
+                let far = self.far();
+                let away = self.g.math(MathOp::Mul, shown, Num::Const(-far));
+                let away = self.g.math(MathOp::Add, away, Num::Const(far));
                 path.push(Op::Save);
                 path.push(Op::Translate(away, Num::Const(0.0)));
                 path.extend(part);
