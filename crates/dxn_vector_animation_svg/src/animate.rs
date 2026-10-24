@@ -116,7 +116,8 @@ fn unroll(
         PlayDirection::Alternate => i % 2 == 1,
         PlayDirection::AlternateReverse => i.is_multiple_of(2),
     };
-    let delay = spec.delay.max(0.0);
+    // A negative delay starts part-way through.
+    let delay = spec.delay;
     let count = match spec.iterations {
         Iterations::Count(n) => n.ceil().max(0.0) as usize,
         Iterations::Infinite => (((total - delay) / spec.duration).ceil().max(1.0)) as usize,

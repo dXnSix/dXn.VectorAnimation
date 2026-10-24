@@ -141,14 +141,3 @@ fn visibility_steps_as_css_interpolates_it() {
     assert!(shown(0.7), "and until the end of one starting visible");
     assert!(!shown(0.8));
 }
-
-#[test]
-fn smil_is_reported() {
-    let svg = r#"<svg width="10" height="10" xmlns="http://www.w3.org/2000/svg"><rect width="5" height="5"><animate attributeName="width" values="5;10" dur="1s"/></rect></svg>"#;
-    let import = dxn_vector_animation_svg::read(svg.as_bytes()).unwrap();
-    assert!(
-        import.warnings.iter().any(|w| w.contains("SMIL")),
-        "{:?}",
-        import.warnings
-    );
-}

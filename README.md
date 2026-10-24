@@ -7,8 +7,8 @@ reads animated SVG and Lottie into one scene model: groups, shapes, paints and m
 constants or keyframe tracks on a timeline. A renderer either samples the scene at a moment
 (`Scene::frame_at(t)` gives a flat display list) or maps the tracks onto an animation system of its own.
 
-> **Status: phase 1.** The scene model, Figma Motion's animated SVG, Lottie, the reference renderer and the
-> CLI. SMIL, dotLottie archives and repeaters come next ([Roadmap](#roadmap)).
+> **Status: phase 1.** The scene model, Figma Motion's animated SVG (CSS and SMIL), Lottie, the reference
+> renderer and the CLI. dotLottie archives and repeaters come next ([Roadmap](#roadmap)).
 
 ## Why
 
@@ -45,7 +45,7 @@ vector-animation render button.svg --fps 30 --width 600 --background white
 | Crate | What it is |
 |---|---|
 | `dxn_vector_animation` | The scene model, keyframe tracks and easings, the timeline, path geometry, interpolation, sampling (`Scene::frame_at`), the limits that bound untrusted files, and (feature `serde`) the compiled scene format |
-| `dxn_vector_animation_svg` | Reads SVG: the static document and CSS animations (the subset Figma Motion writes) |
+| `dxn_vector_animation_svg` | Reads SVG: the static document, CSS animations (the subset Figma Motion writes) and SMIL |
 | `dxn_vector_animation_lottie` | Reads Lottie JSON |
 | `dxn_vector_animation_render` | A reference CPU renderer on tiny-skia: golden tests, poster frames, the CLI's images |
 | `dxn_vector_animation_cli` | The `vector-animation` command: `inspect`, `validate`, `compile` (SVG or Lottie into a scene file), `render` (PNG frames) |
@@ -85,7 +85,15 @@ core and the importers build for WebAssembly; a build that plays compiled scenes
   `transform-box`, `translate`, `rotate`, `scale`, `opacity`, motion along a path (`offset-path`,
   `offset-distance`, `offset-rotate`, `offset-anchor`), fill and stroke colors and opacities, stroke width
   and dashes, and `d`.
-- Left out with a warning: text (export it as outlines), filters, patterns, SMIL.
+- SMIL, which Figma Motion writes for what CSS cannot animate (`width`, `height`, path `d`): `<animate>`,
+  `<set>`, `<animateColor>`, `<animateTransform>` (additive or replacing the attribute) and `<animateMotion>`
+  (a `path`, an `<mpath>`, points; `rotate`, `keyPoints`), with `values`, `from` / `to` / `by`, `keyTimes`,
+  `keySplines`, every `calcMode`, `dur`, `repeatCount`, `repeatDur` and `fill`. Begins are offsets (negative
+  ones too) or other animations' begins and ends; animations that start one another in a cycle become the
+  timeline's loop, and several animations of one attribute apply in the order they began. Shapes' geometry
+  animates (`x`, `y`, `width`, `height`, `rx`, `ry`, `cx`, `cy`, `r`, line ends, `points`).
+- Left out with a warning: text (export it as outlines), filters and what animates them, patterns, SMIL
+  begins on events, `end` times and `accumulate`.
 
 **Lottie** (`dxn_vector_animation_lottie`)
 
@@ -118,8 +126,8 @@ Tests are grouped by feature, one file each in a crate's `tests/` (`cargo test -
 ## Roadmap
 
 1. **Done:** the scene model, Figma Motion's SVG subset, Lottie, the reference renderer and the CLI.
-2. SMIL, dotLottie archives, repeaters, filters (drop shadows and blurs), Lottie text as shapes; checking
-   against real Figma Motion exports.
+2. dotLottie archives, repeaters, filters (drop shadows and blurs), Lottie text as shapes, CSS selectors
+   beyond simple ones.
 
 ## License
 

@@ -19,6 +19,7 @@ use roxmltree::Node as XmlNode;
 use crate::{
     animate::{TimelineSpan, property_keyframes},
     css::{Stylesheet, parse_declarations},
+    smil::{self, Smil},
     values::{
         self, AnimationSpec, TransformFn, angle, color, fraction, length, list_matrix, number,
         transform_list,
@@ -74,6 +75,20 @@ const ANIMATABLE: &[&str] = &[
     "stroke-dasharray",
     "d",
     "visibility",
+    "x",
+    "y",
+    "width",
+    "height",
+    "rx",
+    "ry",
+    "cx",
+    "cy",
+    "r",
+    "x1",
+    "y1",
+    "x2",
+    "y2",
+    "points",
 ];
 
 /// The winning declarations of one element: property → value.
@@ -144,6 +159,13 @@ pub(crate) struct Converter<'a, 'input> {
     depth: usize,
     nodes: usize,
     declared: HashMap<roxmltree::NodeId, Declared>,
+    /// The document's SMIL animations, their begin times, and which
+    /// animate each element.
+    smil: Vec<Smil>,
+    smil_timing: smil::Timing,
+    smil_targets: HashMap<roxmltree::NodeId, Vec<usize>>,
+    /// The SMIL animations whose element was drawn.
+    smil_used: std::collections::HashSet<usize>,
 }
 
 impl<'a, 'input> Converter<'a, 'input> {
@@ -201,14 +223,25 @@ impl<'a, 'input> Converter<'a, 'input> {
             depth: 0,
             nodes: 0,
             declared: HashMap::new(),
+            smil: Vec::new(),
+            smil_timing: smil::Timing::default(),
+            smil_targets: HashMap::new(),
+            smil_used: std::collections::HashSet::new(),
         };
-        if doc.descendants().any(|n| {
-            matches!(
-                n.tag_name().name(),
-                "animate" | "animateTransform" | "animateMotion" | "animateColor" | "set"
-            )
-        }) {
-            converter.warn("SMIL animation (<animate>, <animateTransform>, <animateMotion>, <set>) is left out: those elements show their static values");
+        // SMIL: its elements, and when each begins.
+        let mut smil_warnings = Vec::new();
+        converter.smil = smil::collect(
+            doc,
+            &converter.ids,
+            &|n| n.attribute("d").map(path_data),
+            &mut |w| smil_warnings.push(w),
+        );
+        for w in smil_warnings {
+            converter.warn(w);
+        }
+        converter.smil_timing = smil::resolve(&converter.smil, limits.max_duration);
+        for (i, a) in converter.smil.iter().enumerate() {
+            converter.smil_targets.entry(a.target).or_default().push(i);
         }
         // The timeline every animation fits in.
         for node in doc.descendants().filter(|n| n.is_element()) {
@@ -216,6 +249,18 @@ impl<'a, 'input> Converter<'a, 'input> {
                 converter.span.add(&spec);
             }
         }
+        let smil_span = (
+            converter.smil_timing.duration,
+            converter.smil_timing.endless,
+        );
+        if converter.smil_timing.cyclic && converter.span.duration <= smil_span.0 {
+            // A cycle of SMIL animations is the loop.
+            converter.span.duration = smil_span.0;
+        } else {
+            converter.smil_timing.cyclic = false;
+            converter.span.duration = converter.span.duration.max(smil_span.0);
+        }
+        converter.span.endless |= smil_span.1;
         if converter.span.duration > limits.max_duration {
             return Err(Error::Limit {
                 what: "seconds of timeline",
@@ -243,6 +288,21 @@ impl<'a, 'input> Converter<'a, 'input> {
         };
         if fit != Matrix::IDENTITY {
             root_group.transform.insert(0, TransformOp::matrix(fit));
+        }
+        let unused: Vec<String> = converter
+            .smil
+            .iter()
+            .enumerate()
+            .filter(|(i, _)| !converter.smil_used.contains(i))
+            .map(|(_, a)| {
+                format!(
+                    "SMIL animation of `{}` on <{}> is left out",
+                    a.attribute, a.target_tag
+                )
+            })
+            .collect();
+        for w in unused {
+            converter.warn(w);
         }
         let scene = Scene {
             width,
@@ -690,12 +750,20 @@ impl<'a, 'input> Converter<'a, 'input> {
         style: &Style,
     ) -> HashMap<String, Vec<Keyframe<String>>> {
         let specs = self.animation_specs(node);
-        if specs.is_empty() {
+        let smil = self
+            .smil_targets
+            .get(&node.id())
+            .cloned()
+            .unwrap_or_default();
+        if specs.is_empty() && smil.is_empty() {
             return HashMap::new();
         }
         let base = |name: &str| -> String {
             if let Some(v) = declared.get(name) {
                 return v.clone();
+            }
+            if let Some(v) = node.attribute(name) {
+                return v.to_owned();
             }
             match name {
                 "opacity" | "fill-opacity" | "stroke-opacity" => "1".into(),
@@ -707,9 +775,42 @@ impl<'a, 'input> Converter<'a, 'input> {
                 _ => String::new(),
             }
         };
-        let tracks = property_keyframes(&specs, &self.sheet, &base, self.span.duration);
+        let mut tracks = property_keyframes(&specs, &self.sheet, &base, self.span.duration);
+        let from_css: Vec<String> = tracks.keys().cloned().collect();
+        // SMIL animations (several of one attribute merged by when each
+        // began); CSS animations win.
+        let mut groups: Vec<(String, Vec<usize>)> = Vec::new();
+        for i in smil {
+            self.smil_used.insert(i);
+            let a = &self.smil[i];
+            let key = match a.kind {
+                smil::Kind::Transform(_) => format!("smil-transform:{i}"),
+                smil::Kind::Motion { .. } => format!("smil-motion:{i}"),
+                _ => a.attribute.clone(),
+            };
+            if from_css.contains(&key) {
+                continue;
+            }
+            match groups.iter_mut().find(|g| g.0 == key) {
+                Some(g) => g.1.push(i),
+                None => groups.push((key, vec![i])),
+            }
+        }
+        for (key, members) in groups {
+            let first = &self.smil[members[0]];
+            let start = match first.kind {
+                smil::Kind::Transform(_) | smil::Kind::Motion { .. } => first.identity(),
+                _ => base(&first.attribute),
+            };
+            let anims: Vec<(&Smil, &[f64])> = members
+                .iter()
+                .map(|&i| (&self.smil[i], self.smil_timing.instances[i].as_slice()))
+                .collect();
+            let keys = smil::keyframes(&anims, self.span.duration, self.smil_timing.cyclic, &start);
+            tracks.insert(key, keys);
+        }
         for name in tracks.keys() {
-            if !ANIMATABLE.contains(&name.as_str()) {
+            if !ANIMATABLE.contains(&name.as_str()) && !name.starts_with("smil-") {
                 self.warn(format!("animation of `{name}` is left out"));
             }
         }
@@ -822,7 +923,7 @@ impl<'a, 'input> Converter<'a, 'input> {
         fallback: T,
     ) -> Animated<T> {
         let mut out = Vec::with_capacity(keys.len());
-        for k in keys {
+        for k in keys.iter().filter(|k| k.time.is_finite()) {
             match parse(&k.value) {
                 Some(v) => out.push(Keyframe::new(k.time, v, k.easing.clone())),
                 None => {
@@ -924,9 +1025,44 @@ impl<'a, 'input> Converter<'a, 'input> {
             }
         }
         ops.extend(self.motion_ops(declared, animations, origin, reference));
+        // SMIL: motion outside the transform attribute, transforms after it
+        // (a `replace` one instead of it).
+        let mut smil_keys: Vec<(usize, bool)> = animations
+            .keys()
+            .filter_map(|k| {
+                k.strip_prefix("smil-transform:")
+                    .map(|i| (i, false))
+                    .or_else(|| k.strip_prefix("smil-motion:").map(|i| (i, true)))
+                    .and_then(|(i, motion)| i.parse().ok().map(|i| (i, motion)))
+            })
+            .collect();
+        smil_keys.sort_unstable();
+        for &(i, motion) in &smil_keys {
+            if !motion {
+                continue;
+            }
+            let (path, rotate) = match &self.smil[i].kind {
+                smil::Kind::Motion { path, rotate, .. } => (path.clone(), *rotate),
+                _ => continue,
+            };
+            let Some(keys) = animations.get(&format!("smil-motion:{i}")) else {
+                continue;
+            };
+            let progress = self.track(keys, "animateMotion", number, 0.0);
+            ops.push(TransformOp::Motion(MotionPath {
+                path,
+                progress,
+                rotate,
+            }));
+        }
+        let replaced = !animations.contains_key("transform")
+            && smil_keys
+                .iter()
+                .any(|&(i, motion)| !motion && !self.smil[i].additive);
         // transform
         let base_list = declared
             .get("transform")
+            .filter(|_| !replaced)
             .and_then(|v| transform_list(v, box_size))
             .unwrap_or_default();
         match animations.get("transform") {
@@ -956,6 +1092,25 @@ impl<'a, 'input> Converter<'a, 'input> {
                     self.warn("a transform it cannot read (3D functions?) is left out");
                 }
                 ops.extend(static_ops(&base_list));
+            }
+        }
+        for &(i, motion) in &smil_keys {
+            if motion {
+                continue;
+            }
+            let Some(keys) = animations.get(&format!("smil-transform:{i}")) else {
+                continue;
+            };
+            let lists: Option<Vec<Keyframe<Vec<TransformFn>>>> = keys
+                .iter()
+                .map(|k| {
+                    transform_list(&k.value, box_size)
+                        .map(|l| Keyframe::new(k.time, l, k.easing.clone()))
+                })
+                .collect();
+            match lists {
+                Some(lists) if !lists.is_empty() => ops.extend(animated_list_ops(&lists)),
+                _ => self.warn("an <animateTransform> with values it cannot read is left out"),
             }
         }
         let ops = simplify(ops);
@@ -1200,6 +1355,15 @@ impl<'a, 'input> Converter<'a, 'input> {
         let diag = (vw * vw + vh * vh).sqrt() / 2f64.sqrt();
         let attr =
             |name: &str, reference: f64| node.attribute(name).and_then(|v| length(v, reference));
+        let moving = [
+            "x", "y", "width", "height", "rx", "ry", "cx", "cy", "r", "x1", "y1", "x2", "y2",
+            "points",
+        ]
+        .iter()
+        .any(|a| animations.contains_key(*a));
+        if moving {
+            return self.moving_geometry(node, animations);
+        }
         match node.tag_name().name() {
             "rect" => {
                 let (x, y) = (attr("x", vw).unwrap_or(0.0), attr("y", vh).unwrap_or(0.0));
@@ -1287,6 +1451,124 @@ impl<'a, 'input> Converter<'a, 'input> {
                     }),
                     None => (!base.is_empty()).then(|| Geometry::path(base)),
                 }
+            }
+            _ => None,
+        }
+    }
+
+    /// A length attribute: its keyframes when animated, else its value
+    /// (`default` without one).
+    fn length_track(
+        &mut self,
+        node: XmlNode<'a, 'input>,
+        animations: &HashMap<String, Vec<Keyframe<String>>>,
+        name: &str,
+        reference: f64,
+        default: f64,
+    ) -> Animated<f64> {
+        let fixed = node
+            .attribute(name)
+            .and_then(|v| length(v, reference))
+            .unwrap_or(default);
+        match animations.get(name) {
+            Some(keys) => self.track(keys, name, |v| length(v, reference), fixed),
+            None => Animated::Static(fixed),
+        }
+    }
+
+    /// The outline of a shape element whose geometry attributes animate
+    /// (SMIL `<animate>` of `width`, `r`, `points`, ...).
+    fn moving_geometry(
+        &mut self,
+        node: XmlNode<'a, 'input>,
+        animations: &HashMap<String, Vec<Keyframe<String>>>,
+    ) -> Option<Geometry> {
+        let (vw, vh) = (self.view.width, self.view.height);
+        let diag = (vw * vw + vh * vh).sqrt() / 2f64.sqrt();
+        let mut len = |name: &str, reference: f64, default: f64| {
+            self.length_track(node, animations, name, reference, default)
+        };
+        let point = |x: &Animated<f64>, y: &Animated<f64>| AnimatedPoint {
+            x: x.clone(),
+            y: y.clone(),
+        };
+        match node.tag_name().name() {
+            "rect" => {
+                let (x, y) = (len("x", vw, 0.0), len("y", vh, 0.0));
+                let (w, h) = (len("width", vw, 0.0), len("height", vh, 0.0));
+                let has = |n: &str| node.attribute(n).is_some() || animations.contains_key(n);
+                let rx = len("rx", vw, 0.0);
+                let ry = len("ry", vh, 0.0);
+                let (rx, ry) = match (has("rx"), has("ry")) {
+                    (true, false) => (rx.clone(), rx),
+                    (false, true) => (ry.clone(), ry),
+                    _ => (rx, ry),
+                };
+                Some(Geometry::Rect {
+                    center: AnimatedPoint {
+                        x: combine(&[&x, &w], |v| v[0] + v[1] / 2.0),
+                        y: combine(&[&y, &h], |v| v[0] + v[1] / 2.0),
+                    },
+                    size: point(&w, &h),
+                    radius: point(&rx, &ry),
+                    direction: Direction::Clockwise,
+                    start: RectStart::TopLeft,
+                })
+            }
+            "circle" | "ellipse" => {
+                let (cx, cy) = (len("cx", vw, 0.0), len("cy", vh, 0.0));
+                let (rx, ry) = if node.tag_name().name() == "circle" {
+                    let r = len("r", diag, 0.0);
+                    (r.clone(), r)
+                } else {
+                    (len("rx", vw, 0.0), len("ry", vh, 0.0))
+                };
+                Some(Geometry::Ellipse {
+                    center: point(&cx, &cy),
+                    radius: point(&rx, &ry),
+                    direction: Direction::Clockwise,
+                    start: EllipseStart::Right,
+                })
+            }
+            "line" => {
+                let parts = [
+                    len("x1", vw, 0.0),
+                    len("y1", vh, 0.0),
+                    len("x2", vw, 0.0),
+                    len("y2", vh, 0.0),
+                ];
+                let refs: Vec<&Animated<f64>> = parts.iter().collect();
+                Some(Geometry::Path {
+                    path: combine(&refs, |v| {
+                        let mut p = Path::new();
+                        p.move_to(Point::new(v[0], v[1]));
+                        p.line_to(Point::new(v[2], v[3]));
+                        p
+                    }),
+                })
+            }
+            "polyline" | "polygon" => {
+                let closed = node.tag_name().name() == "polygon";
+                let parse = move |v: &str| -> Option<Path> {
+                    let mut p = Path::new();
+                    for (i, (x, y)) in svgtypes::PointsParser::from(v).enumerate() {
+                        if i == 0 {
+                            p.move_to(Point::new(x, y));
+                        } else {
+                            p.line_to(Point::new(x, y));
+                        }
+                    }
+                    if closed && !p.is_empty() {
+                        p.close();
+                    }
+                    Some(p)
+                };
+                let base = node.attribute("points").and_then(parse).unwrap_or_default();
+                let path = match animations.get("points") {
+                    Some(keys) => self.track(keys, "points", parse, base),
+                    None => Animated::Static(base),
+                };
+                Some(Geometry::Path { path })
             }
             _ => None,
         }
@@ -1624,6 +1906,65 @@ fn visibility_track(keys: &[Keyframe<String>]) -> Animated<f64> {
     Animated::from_keyframes(frames, 1.0)
 }
 
+/// `f` of several tracks as one: keyframe by keyframe when they share
+/// their keyframe times and easings (or all but one are constant), else
+/// sampled finely between every keyframe time of any.
+fn combine<T: Interpolate + PartialEq>(
+    tracks: &[&Animated<f64>],
+    f: impl Fn(&[f64]) -> T,
+) -> Animated<T> {
+    const SAMPLES: usize = 12;
+    let at = |t: f64| f(&tracks.iter().map(|a| a.sample(t)).collect::<Vec<_>>());
+    let moving: Vec<&[Keyframe<f64>]> = tracks
+        .iter()
+        .map(|a| a.keyframes())
+        .filter(|k| !k.is_empty())
+        .collect();
+    let Some(first) = moving.first() else {
+        return Animated::Static(at(0.0));
+    };
+    let same = moving.iter().all(|k| {
+        k.len() == first.len()
+            && k.iter()
+                .zip(first.iter())
+                .all(|(a, b)| a.time == b.time && a.easing == b.easing)
+    });
+    if same {
+        return Animated::from_keyframes(
+            first
+                .iter()
+                .map(|k| Keyframe::new(k.time, at(k.time), k.easing.clone()))
+                .collect(),
+            at(0.0),
+        );
+    }
+    let mut times: Vec<f64> = moving
+        .iter()
+        .flat_map(|k| k.iter().map(|f| f.time))
+        .collect();
+    times.sort_by(f64::total_cmp);
+    times.dedup();
+    let mut frames = Vec::new();
+    for w in times.windows(2) {
+        for i in 0..SAMPLES {
+            let t = w[0] + (w[1] - w[0]) * i as f64 / SAMPLES as f64;
+            frames.push(Keyframe::new(
+                t,
+                at(t),
+                dxn_vector_animation::Easing::Linear,
+            ));
+        }
+    }
+    if let Some(&last) = times.last() {
+        frames.push(Keyframe::new(
+            last,
+            at(last),
+            dxn_vector_animation::Easing::Linear,
+        ));
+    }
+    Animated::from_keyframes(frames, at(0.0))
+}
+
 /// Elements drawn only where something refers to them.
 fn is_reference_only(node: XmlNode<'_, '_>) -> bool {
     matches!(
@@ -1827,7 +2168,7 @@ fn css_path_function(v: &str) -> Option<Path> {
     Some(path_data(data))
 }
 
-fn path_data(d: &str) -> Path {
+pub(crate) fn path_data(d: &str) -> Path {
     let mut path = Path::new();
     for seg in svgtypes::SimplifyingPathParser::from(d) {
         let Ok(seg) = seg else { break };

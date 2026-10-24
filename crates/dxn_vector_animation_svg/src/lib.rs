@@ -17,6 +17,7 @@
 mod animate;
 mod convert;
 mod css;
+mod smil;
 mod values;
 
 use dxn_vector_animation::{Error, Import, Limits};
