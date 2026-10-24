@@ -215,3 +215,28 @@ fn a_shadow_cast_from_past_the_frame_falls_into_it() {
         assert!(c.blue() > 250 && c.alpha() > 250, "at y {y}: {c:?}");
     }
 }
+
+#[test]
+fn a_region_blurs_as_the_whole_frame_does() {
+    // The square near the region's edge: its blur spreads past the edge
+    // and back, as in the whole frame.
+    let red = Color::rgba(1.0, 0.0, 0.0, 1.0);
+    let f = frame(vec![FrameEffect::Blur { sigma: 3.0 }], red);
+    let whole = render(&f, &RenderOptions::default()).unwrap();
+    let region = dxn_vector_animation_render::render_region(
+        &f,
+        dxn_vector_animation::Rect::new(30.0, 30.0, 32.0, 32.0),
+        1.0,
+    )
+    .unwrap();
+    for (x, y) in [(10, 10), (31, 16), (16, 31), (29, 29)] {
+        let (a, b) = (
+            whole.pixel(30 + x, 30 + y).unwrap(),
+            region.pixel(x, y).unwrap(),
+        );
+        assert!(
+            a.alpha().abs_diff(b.alpha()) <= 1,
+            "at {x}, {y}: {a:?} against {b:?}"
+        );
+    }
+}

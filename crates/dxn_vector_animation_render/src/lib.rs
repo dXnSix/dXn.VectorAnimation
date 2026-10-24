@@ -137,8 +137,9 @@ fn draw_over(frame: &Frame, w: u32, h: u32, base: Matrix) -> Option<sk::Pixmap> 
 /// How far past each edge (left, top, right, bottom; pixels) of a `w` ×
 /// `h` pixmap `frame` is drawn into through `base`, for what its layers'
 /// effects take from there: as far as their shadows' offsets and three
-/// deviations of their blurs reach, where anything is drawn, at most the
-/// larger side.
+/// deviations of their blurs reach, past each edge anything is drawn
+/// within that reach of (a blur spreads it past the edge and back), at
+/// most the larger side.
 fn overscan(frame: &Frame, base: Matrix, w: u32, h: u32) -> [u32; 4] {
     let scale = base.a.hypot(base.b).max(base.c.hypot(base.d));
     let reach = frame
@@ -163,12 +164,12 @@ fn overscan(frame: &Frame, base: Matrix, w: u32, h: u32) -> [u32; 4] {
     let Some(drawn) = drawn_bounds(&frame.items, base) else {
         return [0; 4];
     };
-    let past = |v: f64| v.clamp(0.0, reach).ceil() as u32;
+    let near = |v: f64| if v > -reach { reach.ceil() as u32 } else { 0 };
     [
-        past(-drawn.x),
-        past(-drawn.y),
-        past(drawn.x + drawn.width - f64::from(w)),
-        past(drawn.y + drawn.height - f64::from(h)),
+        near(-drawn.x),
+        near(-drawn.y),
+        near(drawn.x + drawn.width - f64::from(w)),
+        near(drawn.y + drawn.height - f64::from(h)),
     ]
 }
 
