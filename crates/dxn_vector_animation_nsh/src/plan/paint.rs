@@ -107,10 +107,12 @@ const STOP_STEP: f64 = 0.02;
 const SAMPLED_STOPS: usize = 64;
 
 /// Stops that move as bands cannot show (changing colors too, or in a
-/// radial gradient) as gradients sampled over time, each faded in and out
-/// around its time (weights that add up to one): exact at the samples,
-/// sampled closely enough that no stop moves more than [`STOP_STEP`]
-/// between two.
+/// radial gradient), or change in number, as gradients sampled over time,
+/// each faded in and out around its time (weights that add up to one):
+/// exact at the samples, sampled closely enough that no stop moves more
+/// than [`STOP_STEP`] between two; where they change in number, the stops
+/// held until they switch (halfway, as the reference switches them) and
+/// then the new ones.
 fn sampled_stops(
     keys: &[Keyframe<Vec<GradientStop>>],
 ) -> Result<Vec<(StopList, Animated<f64>)>, Unsupported> {
@@ -121,6 +123,22 @@ fn sampled_stops(
     let mut samples: Vec<(f64, bool)> = Vec::new();
     for w in keys.windows(2) {
         let (a, b) = (&w[0], &w[1]);
+        if a.value.len() != b.value.len() {
+            let (mut lo, mut hi) = (a.time, b.time);
+            for _ in 0..60 {
+                let mid = (lo + hi) / 2.0;
+                if track.sample(mid).len() == b.value.len() {
+                    hi = mid;
+                } else {
+                    lo = mid;
+                }
+            }
+            samples.push((a.time, true));
+            if hi < b.time {
+                samples.push((hi, true));
+            }
+            continue;
+        }
         let hold = matches!(a.easing, Easing::Hold);
         let travel = a
             .value
@@ -179,7 +197,7 @@ fn stop_motion(stops: &Animated<Vec<GradientStop>>, bands: bool) -> Result<Stops
         return Ok(Stops::Still(stops_of(&first.value)));
     }
     if keys.iter().any(|k| k.value.len() != first.value.len()) {
-        return unsupported("gradient stops that change in number");
+        return Ok(Stops::Fading(sampled_stops(keys)?));
     }
     let differ = |f: &dyn Fn(&GradientStop, &GradientStop) -> bool| {
         keys.iter()

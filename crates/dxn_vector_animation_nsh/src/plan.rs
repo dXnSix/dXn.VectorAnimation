@@ -66,6 +66,32 @@ fn path_ops(p: &Path, nums: Vec<Num>) -> Vec<Op> {
         .collect()
 }
 
+/// The numbers of a path operation, where it has only numbers.
+fn op_values(op: &Op) -> Vec<f64> {
+    let v = |n: &Num| match n {
+        Num::Const(c) => *c,
+        Num::Node(_) => 0.0,
+    };
+    match op {
+        Op::MoveTo(x, y) | Op::LineTo(x, y) => vec![v(x), v(y)],
+        Op::QuadTo(a) => a.iter().map(v).collect(),
+        Op::CubicTo(a) => a.iter().map(v).collect(),
+        _ => Vec::new(),
+    }
+}
+
+/// `op` with its numbers taken from `values`, in order.
+fn with_values(op: &Op, values: &mut impl Iterator<Item = Num>) -> Op {
+    let mut next = || values.next().unwrap_or(Num::Const(0.0));
+    match op {
+        Op::MoveTo(..) => Op::MoveTo(next(), next()),
+        Op::LineTo(..) => Op::LineTo(next(), next()),
+        Op::QuadTo(_) => Op::QuadTo([next(), next(), next(), next()]),
+        Op::CubicTo(_) => Op::CubicTo([next(), next(), next(), next(), next(), next()]),
+        other => other.clone(),
+    }
+}
+
 /// Whether `node` holds a group with effects (in its masks too).
 pub fn has_effects(node: &Node) -> bool {
     match node {
@@ -1909,11 +1935,19 @@ impl Compiler {
                 }
             }
             Some(trim) => {
-                let paths = static_paths(s)?;
+                let Ok(paths) = static_paths(s) else {
+                    ops.extend(self.sampled_trim(s, trim, time)?);
+                    return Ok(ops);
+                };
                 if trim.start.is_animated() || trim.end.is_animated() || trim.offset.is_animated() {
-                    return unsupported("a moving trim of a fill");
+                    // The trimmed outline as the graph moves it, filled.
+                    for (runs, ends, ab) in self.moving_trim_runs(&paths, trim, time) {
+                        let path = self.part_path(&runs, ab, &ends, false);
+                        ops.extend(path.into_iter().skip(1));
+                    }
+                } else {
+                    ops.extend(static_path(&trim_paths(&paths, trim, 0.0)));
                 }
-                ops.extend(static_path(&trim_paths(&paths, trim, 0.0)));
             }
         }
         Ok(ops)
@@ -2010,7 +2044,10 @@ impl Compiler {
             if stroke.dash.is_some() {
                 return unsupported("a moving trim of a dashed stroke");
             }
-            return Ok((self.moving_trim(s, trim, time, a, &style)?, false));
+            // Along an outline that moves, the outline's sampled part.
+            if static_paths(s).is_ok() {
+                return Ok((self.moving_trim(s, trim, time, a, &style)?, false));
+            }
         }
         if let Some(dash) = &stroke.dash
             && dash.array.iter().any(Animated::is_animated)
@@ -2054,6 +2091,196 @@ impl Compiler {
         style: &[Op],
     ) -> Result<Vec<Op>, Unsupported> {
         let paths = static_paths(s)?;
+        let mut ops = Vec::new();
+        for (runs, ends, ab) in self.moving_trim_runs(&paths, trim, time) {
+            ops.extend(self.parts(&runs, ab, &ends, false, alpha, style));
+        }
+        Ok(ops)
+    }
+
+    /// A trim (moving or not) of outlines that move, as path operations
+    /// (after a `beginPath`): sampled as the outlines are, each run of each
+    /// trimmed outline with every segment kept (outside the part a point
+    /// where it ends, the run moved away while none of it shows).
+    fn sampled_trim(
+        &mut self,
+        s: &Shape,
+        trim: &Trim,
+        time: NodeId,
+    ) -> Result<Vec<Op>, Unsupported> {
+        if !morph_switches(s).is_empty() {
+            return unsupported("a trim of an outline whose commands change");
+        }
+        let mut keys: Vec<f64> = s
+            .paths
+            .iter()
+            .flat_map(|p| key_times(&p.geometry))
+            .collect();
+        for p in &s.paths {
+            for op in &p.transform {
+                if let TransformOp::Translate { x, y }
+                | TransformOp::Scale { x, y }
+                | TransformOp::Skew { x, y } = op
+                {
+                    keys.extend(x.keyframes().iter().map(|k| k.time));
+                    keys.extend(y.keyframes().iter().map(|k| k.time));
+                }
+                if let TransformOp::Rotate { degrees } = op {
+                    keys.extend(degrees.keyframes().iter().map(|k| k.time));
+                }
+            }
+        }
+        for a in [&trim.start, &trim.end, &trim.offset] {
+            keys.extend(a.keyframes().iter().map(|k| k.time));
+        }
+        keys.sort_by(f64::total_cmp);
+        keys.dedup();
+        if keys.len() < 2 {
+            keys = vec![0.0, self.stage.timeline.duration.max(1e-3)];
+        }
+        let times = outline_times(&keys);
+        let paths_at = |t: f64| -> Vec<Path> {
+            s.paths
+                .iter()
+                .map(|p| {
+                    let m = dxn_vector_animation::transform::transform_at(&p.transform, t);
+                    geometry_path(&p.geometry, t).transformed(m)
+                })
+                .collect()
+        };
+        // The part, as fractions of the outline, at each time; past the
+        // end it goes on from the start, the outline twice.
+        let mut parts: Vec<(f64, f64)> = times
+            .iter()
+            .map(|&t| {
+                let (a, b) = (trim.start.sample(t), trim.end.sample(t));
+                let (lo, hi) = (a.min(b).clamp(0.0, 1.0), a.max(b).clamp(0.0, 1.0));
+                let o = trim.offset.sample(t);
+                (lo + o, hi + o)
+            })
+            .collect();
+        let inside = parts.iter().all(|&(f, _)| (0.0..=1.0).contains(&f));
+        let wraps = !inside || parts.iter().any(|&(_, t)| t > 1.0);
+        if !inside {
+            for (f, t) in &mut parts {
+                let wrapped = f.rem_euclid(1.0);
+                (*f, *t) = (wrapped, wrapped + (*t - *f));
+            }
+        }
+        let count = match trim.mode {
+            TrimMode::EachPath => s.paths.len(),
+            TrimMode::Combined => 1,
+        };
+        let tolerance = self.tolerance();
+        let far = self.far();
+        let mut scratch = Graph::default();
+        let mut ops = Vec::new();
+        for group in 0..count {
+            // Each sample's runs, ends and parts of runs.
+            let mut samples: Vec<Vec<(Vec<Op>, bool)>> = Vec::with_capacity(times.len());
+            for (&t, &(f, to)) in times.iter().zip(&parts) {
+                let all = paths_at(t);
+                let chosen: Vec<&Path> = match trim.mode {
+                    TrimMode::EachPath => vec![&all[group]],
+                    TrimMode::Combined => all.iter().collect(),
+                };
+                let mut runs = span::runs(&chosen);
+                let total = runs.last().map_or(0.0, |r| r.end);
+                if wraps && total > 0.0 {
+                    runs = span::doubled(&runs, total);
+                }
+                let (a, b) = (f * total, to * total);
+                samples.push(
+                    runs.iter()
+                        .map(|run| {
+                            let shown = total > 0.0 && b.min(run.end) - a.max(run.start) > STEP;
+                            let part =
+                                run.span(&mut scratch, Num::Const(a), Num::Const(b), tolerance);
+                            (part, shown)
+                        })
+                        .collect(),
+                );
+            }
+            let Some(first) = samples.first() else {
+                continue;
+            };
+            let runs = first.len();
+            if samples.iter().any(|runs_t| {
+                runs_t.len() != runs
+                    || runs_t.iter().zip(first).any(|((a, _), (b, _))| {
+                        a.len() != b.len()
+                            || a.iter().zip(b).any(|(x, y)| {
+                                std::mem::discriminant(x) != std::mem::discriminant(y)
+                            })
+                    })
+            }) {
+                return unsupported("a trim of an outline whose runs change");
+            }
+            for r in 0..runs {
+                let shown: Vec<bool> = samples.iter().map(|runs_t| runs_t[r].1).collect();
+                if !shown.iter().any(|&v| v) {
+                    continue;
+                }
+                // Each number of the run's part, over the samples.
+                let columns: Vec<Vec<f64>> = samples
+                    .iter()
+                    .map(|runs_t| runs_t[r].0.iter().flat_map(op_values).collect())
+                    .collect();
+                let mut nums = Vec::with_capacity(columns[0].len());
+                for j in 0..columns[0].len() {
+                    let values: Vec<f64> = columns.iter().map(|c| c[j]).collect();
+                    let (inputs, outputs) = simplified(&times, &values, tolerance);
+                    nums.push(match outputs.as_slice() {
+                        [one] => Num::Const(*one),
+                        _ => self.g.lookup(Num::Node(time), &inputs, &outputs),
+                    });
+                }
+                let mut it = nums.into_iter();
+                let part: Vec<Op> = first[r]
+                    .0
+                    .iter()
+                    .map(|op| with_values(op, &mut it))
+                    .collect();
+                if shown.iter().all(|&v| v) {
+                    ops.extend(part);
+                    continue;
+                }
+                // Away while none of it shows: switching halfway between
+                // samples.
+                let (mut inputs, mut outputs) =
+                    (vec![times[0]], vec![f64::from(u8::from(!shown[0]))]);
+                for i in 1..times.len() {
+                    if shown[i] != shown[i - 1] {
+                        let at = (times[i - 1] + times[i]) / 2.0;
+                        inputs.extend([at, at + 1e-6]);
+                        outputs.extend([
+                            f64::from(u8::from(!shown[i - 1])),
+                            f64::from(u8::from(!shown[i])),
+                        ]);
+                    }
+                }
+                let hidden = self.g.lookup(Num::Node(time), &inputs, &outputs);
+                let away = self.g.math(MathOp::Mul, hidden, Num::Const(far));
+                ops.push(Op::Save);
+                ops.push(Op::Translate(away, Num::Const(0.0)));
+                ops.extend(part);
+                ops.push(Op::Restore);
+            }
+        }
+        Ok(ops)
+    }
+
+    /// The runs of each outline (each path's, or all paths' one after
+    /// another) a moving trim of `paths` draws a part of, each with the
+    /// part's ends over time (lengths along them) and as the graph moves
+    /// them.
+    #[allow(clippy::type_complexity)]
+    fn moving_trim_runs(
+        &mut self,
+        paths: &[Path],
+        trim: &Trim,
+        time: NodeId,
+    ) -> Vec<(Vec<span::Run>, Vec<(f64, f64)>, (Num, Num))> {
         let groups: Vec<Vec<&Path>> = match trim.mode {
             TrimMode::EachPath => paths.iter().map(|p| vec![p]).collect(),
             TrimMode::Combined => vec![paths.iter().collect()],
@@ -2097,7 +2324,7 @@ impl Compiler {
             }
         }
         let to = self.g.math(MathOp::Add, from, length);
-        let mut ops = Vec::new();
+        let mut out = Vec::new();
         for group in groups {
             let mut runs = span::runs(&group);
             let total = runs.last().map_or(0.0, |r| r.end);
@@ -2111,9 +2338,9 @@ impl Compiler {
             let b = self.g.math(MathOp::Mul, to, Num::Const(total));
             let ends: Vec<(f64, f64)> =
                 parts.iter().map(|&(f, t)| (f * total, t * total)).collect();
-            ops.extend(self.parts(&runs, (a, b), &ends, false, alpha, style));
+            out.push((runs, ends, (a, b)));
         }
-        Ok(ops)
+        out
     }
 
     /// A dash pattern whose lengths move: on each contour, each dash of
@@ -2188,6 +2415,68 @@ impl Compiler {
         Ok(ops)
     }
 
+    /// The part of `runs` from `a` to `b` (as at `ends`, over time), as a
+    /// path (a `beginPath` first): stroked with `style`, see
+    /// [`Self::parts`].
+    fn part_path(
+        &mut self,
+        runs: &[span::Run],
+        (a, b): (Num, Num),
+        ends: &[(f64, f64)],
+        dots: bool,
+    ) -> Vec<Op> {
+        let on = |run: &span::Run, a: f64, b: f64| {
+            if dots {
+                b >= run.start && a <= run.end
+            } else {
+                b.min(run.end) - a.max(run.start) > STEP
+            }
+        };
+        let (a_max, b_min) = (
+            min_max(ends.iter().map(|e| e.0)).1,
+            min_max(ends.iter().map(|e| e.1)).0,
+        );
+        let mut path = vec![Op::BeginPath];
+        for run in runs
+            .iter()
+            .filter(|r| ends.iter().any(|&(a, b)| on(r, a, b)))
+        {
+            if a_max <= run.start && b_min >= run.end {
+                path.extend(run.ops());
+                continue;
+            }
+            let tolerance = self.tolerance();
+            let part = run.span(&mut self.g, a, b, tolerance);
+            if ends.iter().all(|&(a, b)| on(run, a, b)) {
+                path.extend(part);
+                continue;
+            }
+            let shown = if dots {
+                let touched = self.g.step(b, run.start - STEP, true);
+                let reached = self.g.step(a, run.end + STEP, false);
+                self.g.math(MathOp::Mul, touched, reached)
+            } else {
+                // The part's length on the run.
+                let past = self.g.above(b, run.end);
+                let short = self.g.below(a, run.start);
+                let to = self.g.math(MathOp::Sub, b, past);
+                let from = self.g.math(MathOp::Add, a, short);
+                let length = self.g.math(MathOp::Sub, to, from);
+                self.g.step(length, 0.0, true)
+            };
+            // The path takes its points where the transform puts them
+            // as they come.
+            let far = self.far();
+            let away = self.g.math(MathOp::Mul, shown, Num::Const(-far));
+            let away = self.g.math(MathOp::Add, away, Num::Const(far));
+            path.push(Op::Save);
+            path.push(Op::Translate(away, Num::Const(0.0)));
+            path.extend(part);
+            path.push(Op::Restore);
+        }
+        path
+    }
+
     /// The stroke of the parts of `runs` from `a` to `b` (`ends`: their
     /// values at sampled times), one path of them all. A run the part
     /// always covers is still; a lone run where only one end of the part
@@ -2238,40 +2527,7 @@ impl Compiler {
             path.push(Op::LineDash(vec![dash, dash]));
             path.push(Op::LineDashOffset(offset));
         } else {
-            for run in live {
-                if a_max <= run.start && b_min >= run.end {
-                    path.extend(run.ops());
-                    continue;
-                }
-                let tolerance = self.tolerance();
-                let part = run.span(&mut self.g, a, b, tolerance);
-                if ends.iter().all(|&(a, b)| on(run, a, b)) {
-                    path.extend(part);
-                    continue;
-                }
-                let shown = if dots {
-                    let touched = self.g.step(b, run.start - STEP, true);
-                    let reached = self.g.step(a, run.end + STEP, false);
-                    self.g.math(MathOp::Mul, touched, reached)
-                } else {
-                    // The part's length on the run.
-                    let past = self.g.above(b, run.end);
-                    let short = self.g.below(a, run.start);
-                    let to = self.g.math(MathOp::Sub, b, past);
-                    let from = self.g.math(MathOp::Add, a, short);
-                    let length = self.g.math(MathOp::Sub, to, from);
-                    self.g.step(length, 0.0, true)
-                };
-                // The path takes its points where the transform puts them
-                // as they come.
-                let far = self.far();
-                let away = self.g.math(MathOp::Mul, shown, Num::Const(-far));
-                let away = self.g.math(MathOp::Add, away, Num::Const(far));
-                path.push(Op::Save);
-                path.push(Op::Translate(away, Num::Const(0.0)));
-                path.extend(part);
-                path.push(Op::Restore);
-            }
+            path = self.part_path(runs, (a, b), ends, dots);
         }
         let mut ops = vec![Op::Save];
         ops.extend(path);

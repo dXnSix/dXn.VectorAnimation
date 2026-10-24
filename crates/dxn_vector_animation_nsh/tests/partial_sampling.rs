@@ -78,11 +78,15 @@ fn star_geometry(x: f64, y: f64) -> Geometry {
     })
 }
 
-/// A turning star, trimmed: what the graph does not draw (a trim of an
-/// outline that moves).
+/// A turning star gaining points, trimmed: what the graph does not draw
+/// (a trim of an outline whose segments change).
 fn star(x: f64, y: f64, color: Color) -> Node {
+    let mut geometry = star_geometry(x, y);
+    if let Geometry::Star(s) = &mut geometry {
+        s.points = track(&[(0.0, 5.0), (2.0, 7.0)]);
+    }
     Node::shape(Shape {
-        paths: vec![ShapePath::new(star_geometry(x, y))],
+        paths: vec![ShapePath::new(geometry)],
         fill: fill(color),
         trim: Some(Trim {
             start: Animated::Static(0.0),
@@ -168,7 +172,7 @@ fn a_star_alone_is_sampled_between_canvases() {
     let plan = plan::compile(&s, Matrix::IDENTITY).expect("the rest plays on the graph");
     assert_eq!(
         plan.sampled,
-        vec!["a trim or box of a moving outline".to_owned()]
+        vec!["a trim of an outline whose runs change".to_owned()]
     );
     assert_eq!(kinds(&plan.units), (2, 1, 0));
     assert_plan_matches(&s, TIMES, 100, 100);
