@@ -188,3 +188,30 @@ fn a_hard_shadow_is_cast_in_full_by_a_see_through_drawing() {
     // Under it, knocked out either way.
     assert!((alpha(&hard, 55, 50) - 0.1).abs() < 0.01);
 }
+
+#[test]
+fn a_shadow_cast_from_past_the_frame_falls_into_it() {
+    // The square from 40 to 60 moved 50 down: from 90 to 110, half past
+    // the frame's bottom, its shadow 30 up casting all of it, past the edge
+    // too.
+    let red = Color::rgba(1.0, 0.0, 0.0, 1.0);
+    let mut f = frame(
+        vec![FrameEffect::DropShadow {
+            color: Color::rgba(0.0, 0.0, 1.0, 1.0),
+            offset: Point::new(0.0, -30.0),
+            sigma: 0.0,
+            knockout: false,
+            hard: false,
+        }],
+        red,
+    );
+    if let Item::Fill { transform, .. } = &mut f.items[1] {
+        *transform = Matrix::translate(0.0, 50.0);
+    }
+    let p = render(&f, &RenderOptions::default()).unwrap();
+    // From 60 to 80, where the part past the edge casts.
+    for y in [62, 70, 78] {
+        let c = p.pixel(50, y).unwrap();
+        assert!(c.blue() > 250 && c.alpha() > 250, "at y {y}: {c:?}");
+    }
+}

@@ -72,13 +72,7 @@ pub fn render(frame: &Frame, options: &RenderOptions) -> Result<sk::Pixmap, Rend
             1.0
         },
     );
-    let mut renderer = Renderer {
-        width: w,
-        height: h,
-        base,
-        images: HashMap::new(),
-    };
-    let mut pixmap = renderer.draw(&frame.items).ok_or(RenderError::Size(w, h))?;
+    let mut pixmap = draw_over(frame, w, h, base).ok_or(RenderError::Size(w, h))?;
     if let Some(bg) = options.background {
         let mut out = sk::Pixmap::new(w, h).ok_or(RenderError::Size(w, h))?;
         out.fill(sk_color(bg));
@@ -103,13 +97,64 @@ pub fn render_region(frame: &Frame, region: Rect, scale: f64) -> Result<sk::Pixm
     if w == 0 || h == 0 || u64::from(w) * u64::from(h) > MAX_PIXELS {
         return Err(RenderError::Size(w, h));
     }
+    let base = Matrix::scale(scale, scale) * Matrix::translate(-region.x, -region.y);
+    draw_over(frame, w, h, base).ok_or(RenderError::Size(w, h))
+}
+
+/// `frame`'s items drawn through `base` into a `w` × `h` pixmap, with room
+/// around it for what its layers' effects take from past its edges: the
+/// shadows and blurs of what is drawn there fall into it.
+fn draw_over(frame: &Frame, w: u32, h: u32, base: Matrix) -> Option<sk::Pixmap> {
+    let m = overscan(frame, base, w, h);
+    let (gw, gh) = (w + 2 * m, h + 2 * m);
+    let m = if u64::from(gw) * u64::from(gh) > MAX_PIXELS {
+        0
+    } else {
+        m
+    };
     let mut renderer = Renderer {
-        width: w,
-        height: h,
-        base: Matrix::scale(scale, scale) * Matrix::translate(-region.x, -region.y),
+        width: w + 2 * m,
+        height: h + 2 * m,
+        base: Matrix::translate(f64::from(m), f64::from(m)) * base,
         images: HashMap::new(),
     };
-    renderer.draw(&frame.items).ok_or(RenderError::Size(w, h))
+    let drawn = renderer.draw(&frame.items)?;
+    if m == 0 {
+        return Some(drawn);
+    }
+    let mut out = sk::Pixmap::new(w, h)?;
+    out.draw_pixmap(
+        -(m as i32),
+        -(m as i32),
+        drawn.as_ref(),
+        &sk::PixmapPaint::default(),
+        sk::Transform::identity(),
+        None,
+    );
+    Some(out)
+}
+
+/// How far, in pixels, what the layers' effects of `frame` (drawn through
+/// `base`) take from reaches past its edges: their shadows' offsets and
+/// three deviations of their blurs, at most the larger side.
+fn overscan(frame: &Frame, base: Matrix, w: u32, h: u32) -> u32 {
+    let scale = base.a.hypot(base.b).max(base.c.hypot(base.d));
+    let reach = frame
+        .items
+        .iter()
+        .filter_map(|item| match item {
+            Item::PushLayer(layer) => Some(&layer.effects),
+            _ => None,
+        })
+        .flatten()
+        .map(|effect| match *effect {
+            FrameEffect::DropShadow { offset, sigma, .. } => {
+                (offset.x.abs() + offset.y.abs() + 3.0 * sigma) * scale
+            }
+            FrameEffect::Blur { sigma } => 3.0 * sigma * scale,
+        })
+        .fold(0.0f64, f64::max);
+    (reach.ceil() as u32).min(w.max(h))
 }
 
 /// Renders `frame` as a PNG.
