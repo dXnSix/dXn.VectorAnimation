@@ -89,6 +89,7 @@ pub fn widest_point(scene: &Scene, time: f64, w: u32, h: u32) -> f64 {
                     let plan = plan::from_frame(&part.frame_at(t), base);
                     walk(&plan.units, &plan.graph, t, w, h, base)
                 }
+                Unit::Raster(_) => 0.0,
             })
             .fold(0.0, f64::max)
     }
@@ -111,6 +112,17 @@ fn units(list: &[Unit], g: &Graph, t: f64, w: u32, h: u32, base: Matrix) -> sk::
                 blend,
                 units: inner,
             } => (units(inner, g, t, w, h, base), g.num(*opacity, t), *blend),
+            // A part rasterized: the reference's pixels, as the player
+            // draws them.
+            Unit::Raster(part) => {
+                let view = plan::in_view(part, base, f64::from(w), f64::from(h));
+                let image = plan::raster(&view, t, 1.0).expect("it renders");
+                (
+                    sk::Pixmap::decode_png(&image.bytes).expect("a PNG"),
+                    1.0,
+                    BlendMode::Normal,
+                )
+            }
             // A part sampled frame by frame: its frame at `t`.
             Unit::Sampled(part) => {
                 let plan = plan::from_frame(&part.frame_at(t), base);
@@ -159,6 +171,8 @@ struct State {
     clip: Option<sk::Mask>,
     blend: BlendMode,
     atop: bool,
+    /// `shadowColor` (`0xRRGGBBAA`), `shadowBlur`, `shadowOffset`.
+    shadow: (u32, f64, (f64, f64)),
 }
 
 struct Replay<'g> {
@@ -195,6 +209,7 @@ impl<'g> Replay<'g> {
                 clip: None,
                 blend: BlendMode::Normal,
                 atop: false,
+                shadow: (0, 0.0, (0.0, 0.0)),
             },
             stack: Vec::new(),
             path: Path::new(),
@@ -304,6 +319,11 @@ impl<'g> Replay<'g> {
                     self.state.atop = false;
                 }
                 Op::Atop => self.state.atop = true,
+                Op::Shadow {
+                    color,
+                    blur,
+                    offset,
+                } => self.state.shadow = (*color, *blur, *offset),
                 Op::Image(data, rect) => self.image(data, *rect, out),
             }
         }
@@ -412,11 +432,61 @@ impl<'g> Replay<'g> {
         else {
             return;
         };
+        if self.state.shadow.0 & 0xff > 0 {
+            let mut shape = sk::Pixmap::new(self.w, self.h).unwrap();
+            let mut plain = paint.clone();
+            plain.blend_mode = sk::BlendMode::SourceOver;
+            shape.fill_path(
+                &path,
+                &plain,
+                sk_rule(rule),
+                sk::Transform::identity(),
+                None,
+            );
+            self.cast_shadow(&shape, out);
+        }
         out.fill_path(
             &path,
             &paint,
             sk_rule(rule),
             sk::Transform::identity(),
+            self.state.clip.as_ref(),
+        );
+    }
+
+    /// The shadow of `shape` (what a drawing paints) as Canvas 2D casts it:
+    /// its silhouette in the shadow color, blurred by half the shadow blur,
+    /// moved, with the composite operation and clip.
+    fn cast_shadow(&self, shape: &sk::Pixmap, out: &mut sk::Pixmap) {
+        let (color, blur, (dx, dy)) = self.state.shadow;
+        let c = dxn_vector_animation_nsh::graph::unpack(color);
+        let mut shadow = sk::Pixmap::new(self.w, self.h).unwrap();
+        for (o, p) in shadow.pixels_mut().iter_mut().zip(shape.pixels()) {
+            let a = f64::from(p.alpha()) / 255.0 * c.a;
+            let ch = |v: f64| ((v * a * 255.0).round() as u8).min((a * 255.0).round() as u8);
+            *o = sk::PremultipliedColorU8::from_rgba(
+                ch(c.r),
+                ch(c.g),
+                ch(c.b),
+                (a * 255.0).round() as u8,
+            )
+            .unwrap_or(sk::PremultipliedColorU8::TRANSPARENT);
+        }
+        box_blur3(&mut shadow, blur / 2.0);
+        out.draw_pixmap(
+            0,
+            0,
+            shadow.as_ref(),
+            &sk::PixmapPaint {
+                blend_mode: if self.state.atop {
+                    sk::BlendMode::SourceAtop
+                } else {
+                    sk_blend(self.state.blend)
+                },
+                quality: sk::FilterQuality::Bilinear,
+                ..Default::default()
+            },
+            sk::Transform::from_translate(dx as f32, dy as f32),
             self.state.clip.as_ref(),
         );
     }
@@ -453,6 +523,13 @@ impl<'g> Replay<'g> {
                 })
                 .flatten(),
         };
+        if self.state.shadow.0 & 0xff > 0 {
+            let mut shape = sk::Pixmap::new(self.w, self.h).unwrap();
+            let mut plain = paint.clone();
+            plain.blend_mode = sk::BlendMode::SourceOver;
+            shape.stroke_path(&path, &plain, &stroke, sk_transform(self.state.ctm), None);
+            self.cast_shadow(&shape, out);
+        }
         out.stroke_path(
             &path,
             &paint,
@@ -520,5 +597,91 @@ fn sk_blend(b: BlendMode) -> sk::BlendMode {
         BlendMode::DestinationIn => sk::BlendMode::DestinationIn,
         BlendMode::DestinationOut => sk::BlendMode::DestinationOut,
         _ => sk::BlendMode::SourceOver,
+    }
+}
+
+/// A Gaussian blur of deviation `sigma` (pixels) as three box blurs along
+/// each axis, SVG's way (as the reference blurs).
+fn box_blur3(pixmap: &mut sk::Pixmap, sigma: f64) {
+    if sigma <= 0.0 {
+        return;
+    }
+    // Small ones by a kernel of the Gaussian itself, as the reference.
+    let kernel: Vec<f32> = if sigma < 2.0 {
+        let r = (sigma * 3.0).ceil() as isize;
+        let w: Vec<f32> = (-r..=r)
+            .map(|k| (-((k * k) as f64) / (2.0 * sigma * sigma)).exp() as f32)
+            .collect();
+        let total: f32 = w.iter().sum();
+        w.into_iter().map(|v| v / total).collect()
+    } else {
+        Vec::new()
+    };
+    let (w, h) = (pixmap.width() as usize, pixmap.height() as usize);
+    let mut data: Vec<f32> = pixmap.data().iter().map(|&v| f32::from(v)).collect();
+    let d =
+        ((sigma * 3.0 * (2.0 * std::f64::consts::PI).sqrt() / 4.0 + 0.5).floor() as usize).max(1);
+    let pass = |data: &mut Vec<f32>, len: usize, count: usize, step: usize, stride: usize| {
+        let mut line = vec![0.0f32; len * 4];
+        let mut tmp = vec![0.0f32; len * 4];
+        for i in 0..count {
+            for x in 0..len {
+                let at = i * stride + x * step;
+                line[x * 4..x * 4 + 4].copy_from_slice(&data[at..at + 4]);
+            }
+            if !kernel.is_empty() {
+                let r = (kernel.len() / 2) as isize;
+                for x in 0..len {
+                    let mut acc = [0.0f32; 4];
+                    for (k, w) in kernel.iter().enumerate() {
+                        let j = x as isize + k as isize - r;
+                        if j >= 0 && (j as usize) < len {
+                            for c in 0..4 {
+                                acc[c] += line[j as usize * 4 + c] * w;
+                            }
+                        }
+                    }
+                    tmp[x * 4..x * 4 + 4].copy_from_slice(&acc);
+                }
+                std::mem::swap(&mut line, &mut tmp);
+            }
+            let boxes: Vec<(usize, usize)> = if !kernel.is_empty() {
+                Vec::new()
+            } else if d % 2 == 1 {
+                vec![(d, (d - 1) / 2); 3]
+            } else {
+                vec![(d, d / 2), (d, d / 2 - 1), (d + 1, d / 2)]
+            };
+            for (size, before) in boxes {
+                for x in 0..len {
+                    let mut acc = [0.0f32; 4];
+                    for k in 0..size {
+                        let j = x as isize + k as isize - before as isize;
+                        if j >= 0 && (j as usize) < len {
+                            for c in 0..4 {
+                                acc[c] += line[j as usize * 4 + c];
+                            }
+                        }
+                    }
+                    for c in 0..4 {
+                        tmp[x * 4 + c] = acc[c] / size as f32;
+                    }
+                }
+                std::mem::swap(&mut line, &mut tmp);
+            }
+            for x in 0..len {
+                let at = i * stride + x * step;
+                data[at..at + 4].copy_from_slice(&line[x * 4..x * 4 + 4]);
+            }
+        }
+    };
+    pass(&mut data, w, h, 4, w * 4);
+    pass(&mut data, h, w, w * 4, 4);
+    for (px, v) in pixmap.data_mut().chunks_mut(4).zip(data.chunks(4)) {
+        let a = v[3].round().clamp(0.0, 255.0);
+        px[3] = a as u8;
+        for c in 0..3 {
+            px[c] = v[c].round().clamp(0.0, a) as u8;
+        }
     }
 }

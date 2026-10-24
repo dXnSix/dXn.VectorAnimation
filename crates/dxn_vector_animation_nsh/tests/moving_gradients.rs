@@ -307,7 +307,7 @@ fn opaque_bands_overlap_instead_of_meeting() {
         .iter()
         .flat_map(|u| match u {
             Unit::Canvas(ops) => ops.iter().collect::<Vec<_>>(),
-            Unit::Layer { .. } | Unit::Sampled(_) => Vec::new(),
+            Unit::Layer { .. } | Unit::Sampled(_) | Unit::Raster(_) => Vec::new(),
         })
         .collect();
     assert!(ops.iter().any(|op| matches!(op, Op::Atop)));

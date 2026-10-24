@@ -150,7 +150,7 @@ const BLUE: Color = Color::rgba(0.16, 0.35, 0.86, 1.0);
 fn kinds(units: &[Unit]) -> (usize, usize, usize) {
     units.iter().fold((0, 0, 0), |(c, s, l), unit| match unit {
         Unit::Canvas(_) => (c + 1, s, l),
-        Unit::Sampled(_) => (c, s + 1, l),
+        Unit::Sampled(_) | Unit::Raster(_) => (c, s + 1, l),
         Unit::Layer { units, .. } => {
             let (ci, si, li) = kinds(units);
             (c + ci, s + si, l + li + 1)

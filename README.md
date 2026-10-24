@@ -85,8 +85,9 @@ The view is the animation's own size unless the app sizes it.
   away over the whole plane and then on one side of each outline, every edge drawn once; masks of shapes
   added over one another take away region by region of the plane their shapes cut it into (up to four
   shapes), where a faint seam can show along edges inside the mask. `destination-out` leaves what lies
-  outside its drawing alone, so the platforms agree on it. Gradient-filled mask shapes, and content drawn on
-  more than one canvas (layers within it), clip hard.
+  outside its drawing alone, so the platforms agree on it. A clip within the mask (an SVG mask's region) is one
+  more of its shapes. Gradient-filled mask shapes, and content drawn on more than one canvas (layers within
+  it), clip hard.
 - **Transforms, motion paths and matrices.** Transform lists are canvas transforms of animated values; motion
   paths are lookups of the path sampled by length; animated matrices animate their decomposition; skews are
   sampled.
@@ -111,6 +112,12 @@ The view is the animation's own size unless the app sizes it.
   Paints of several gradients draw on a canvas of their own: faded keyframes add up within a clip of the
   shape, and bands of opaque colors color the shape drawn once, each from its first stop over the one before
   (bands whose edges met showed seams on Android). A stroke so painted clips to its outline.
+- **Drop shadows and blurs.** A still drop shadow is a canvas under the content drawing it with the canvas's
+  shadow and then taking it away again (as opaque as it covers: the shadow hidden under it), the shadow's
+  opacity, which may move, the layer's. A shadow whose blur moves is several such canvases at blurs along its
+  way (each a share past the one before, up to ten), faded into one another as it moves. Blurs, shadows that
+  move otherwise, and shadows of content on more than one canvas are drawn as images the reference renderer
+  makes at the display's pixels: once where they do not move, frame by frame where they do.
 - **What the graph cannot express** (gradient stops that change in number, trims of outlines that move,
   moving trims of fills, more than 64 moving dashes, outlines changing their commands more than 32 times)
   is sampled frame by frame on the engine thread instead, that part alone: a canvas of its own drawing the

@@ -31,6 +31,65 @@ pub const DRAWN_ON: &str = r##"<svg xmlns="http://www.w3.org/2000/svg" width="10
   <path id="line" pathLength="1" d="M10 80 C 30 10, 70 10, 90 80 L 50 90" fill="none" stroke="#1060e0" stroke-width="6" stroke-linejoin="round"/>
 </svg>"##;
 
+/// Drop shadows as Figma exports them: a card's still one, and a disc's
+/// whose blur and opacity move (CSS `drop-shadow()` keyframes).
+pub const SHADOW: &str = r##"<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100" viewBox="0 0 100 100">
+  <style>
+    @keyframes lift { 0% { filter: drop-shadow(0px 3px 2px rgba(20, 0, 60, 0.2)); } 100% { filter: drop-shadow(0px 3px 10px rgba(20, 0, 60, 0.6)); } }
+    #disc { animation: lift 2s ease-in-out infinite alternate; }
+  </style>
+  <rect width="100" height="100" fill="#F4F1EA"/>
+  <g filter="url(#card)"><rect x="12" y="10" width="54" height="40" rx="6" fill="#F24822"/></g>
+  <g id="disc"><circle cx="56" cy="66" r="20" fill="#1E5AE6"/></g>
+  <defs>
+    <filter id="card" x="0" y="0" width="100" height="100" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+      <feFlood flood-opacity="0" result="BackgroundImageFix"/>
+      <feColorMatrix in="SourceAlpha" type="matrix" values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 127 0" result="hardAlpha"/>
+      <feOffset dx="2" dy="5"/>
+      <feGaussianBlur stdDeviation="3"/>
+      <feComposite in2="hardAlpha" operator="out"/>
+      <feColorMatrix type="matrix" values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0.35 0"/>
+      <feBlend mode="normal" in2="BackgroundImageFix" result="effect1_dropShadow"/>
+      <feBlend mode="normal" in="SourceGraphic" in2="effect1_dropShadow" result="shape"/>
+    </filter>
+  </defs>
+</svg>"##;
+
+/// Layer blurs: a still glow (drawn once) and a disc coming into focus.
+pub const BLUR: &str = r##"<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100" viewBox="0 0 100 100">
+  <style>
+    @keyframes focus { 0% { filter: blur(6px); } 100% { filter: blur(0px); } }
+    #disc { animation: focus 2s ease-in-out infinite alternate; }
+  </style>
+  <g filter="url(#glow)"><circle cx="34" cy="34" r="20" fill="#F5B800"/></g>
+  <g id="disc"><circle cx="62" cy="64" r="22" fill="#1E5AE6"/><rect x="50" y="56" width="24" height="16" fill="#FFFFFF"/></g>
+  <defs>
+    <filter id="glow" x="0" y="0" width="100" height="100" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+      <feFlood flood-opacity="0" result="BackgroundImageFix"/>
+      <feBlend mode="normal" in="SourceGraphic" in2="BackgroundImageFix" result="shape"/>
+      <feGaussianBlur stdDeviation="5" result="effect1_foregroundBlur"/>
+    </filter>
+  </defs>
+</svg>"##;
+
+/// Soft masks: a luminance mask of gray and white, and an alpha mask of a
+/// half-transparent disc, over moving content.
+pub const SOFT_MASK: &str = r##"<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100" viewBox="0 0 100 100">
+  <style>
+    @keyframes slide { 0% { transform: translateX(-20px); } 100% { transform: translateX(20px); } }
+    .slide { animation: slide 2s ease-in-out infinite alternate; }
+  </style>
+  <mask id="luma" maskUnits="userSpaceOnUse" x="0" y="0" width="100" height="100">
+    <rect x="5" y="5" width="90" height="40" fill="#808080"/>
+    <circle cx="50" cy="25" r="14" fill="#FFFFFF"/>
+  </mask>
+  <mask id="alpha" maskUnits="userSpaceOnUse" x="0" y="0" width="100" height="100" style="mask-type: alpha">
+    <circle cx="50" cy="75" r="22" fill="#000000" fill-opacity="0.5"/>
+  </mask>
+  <g mask="url(#luma)"><g class="slide"><rect x="20" y="0" width="60" height="50" fill="#F24822"/><rect x="45" y="10" width="10" height="30" fill="#1E5AE6"/></g></g>
+  <g mask="url(#alpha)"><g class="slide"><rect x="25" y="50" width="50" height="50" fill="#1E5AE6"/></g></g>
+</svg>"##;
+
 const GOLD: Color = Color::rgba(0.96, 0.72, 0.0, 1.0);
 const LIGHT: Color = Color::rgba(1.0, 0.91, 0.64, 1.0);
 const RED: Color = Color::rgba(0.9, 0.1, 0.1, 1.0);
@@ -339,5 +398,8 @@ pub fn built_in(fixtures: &std::path::Path) -> Result<Vec<(String, Scene)>, Stri
         ("shine".into(), shine()),
         ("sweep".into(), sweep()),
         ("fade".into(), fade()),
+        ("shadow".into(), svg(SHADOW.as_bytes())?),
+        ("blur".into(), svg(BLUR.as_bytes())?),
+        ("soft-mask".into(), svg(SOFT_MASK.as_bytes())?),
     ])
 }

@@ -98,12 +98,12 @@ fn interpolation(curve: Curve) -> Interpolation {
 }
 
 /// The elements of `units`, bottom first: canvases and layers the size of
-/// the view, over one another; `sampled` makes the canvas of a part drawn
-/// frame by frame.
+/// the view, over one another; `part` makes the canvas of a part sampled
+/// or rasterized.
 pub(crate) fn elements(
     units: &[Unit],
     nodes: &Nodes,
-    sampled: &dyn Fn(&Arc<dxn_vector_animation::Scene>) -> AnyElement,
+    part: &dyn Fn(&Unit) -> AnyElement,
 ) -> Vec<AnyElement> {
     units
         .iter()
@@ -112,7 +112,7 @@ pub(crate) fn elements(
                 let painter = painter(ops, nodes);
                 canvas(painter).absolute().size_full().into_element()
             }
-            Unit::Sampled(part) => sampled(part),
+            Unit::Sampled(_) | Unit::Raster(_) => part(unit),
             Unit::Layer {
                 opacity,
                 blend,
@@ -134,9 +134,7 @@ pub(crate) fn elements(
                 if let Some(mode) = blend_mode(*blend) {
                     layer = layer.mix_blend_mode(mode);
                 }
-                layer
-                    .children(elements(units, nodes, sampled))
-                    .into_element()
+                layer.children(elements(units, nodes, part)).into_element()
             }
         })
         .collect()
@@ -247,6 +245,16 @@ pub(crate) fn painter(ops: &[Op], nodes: &Nodes) -> Painter {
             Op::GlobalAlpha(a) => CanvasOp::GlobalAlpha(n(&mut p, *a)),
             Op::Blend(b) => CanvasOp::Composite(composite(*b)),
             Op::Atop => CanvasOp::Composite(Composite::SourceAtop),
+            Op::Shadow {
+                color,
+                blur,
+                offset,
+            } => {
+                p = p
+                    .op(CanvasOp::ShadowColor(Color(*color)))
+                    .op(CanvasOp::ShadowBlur(px(*blur as f32)));
+                CanvasOp::ShadowOffset(Point::new(px(offset.0 as f32), px(offset.1 as f32)))
+            }
             Op::Image(data, rect) => {
                 use base64::Engine;
                 let uri = format!(

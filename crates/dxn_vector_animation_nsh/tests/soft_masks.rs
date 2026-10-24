@@ -46,7 +46,7 @@ fn takes_away(units: &[Unit]) -> bool {
             .iter()
             .any(|op| matches!(op, Op::Blend(BlendMode::DestinationOut))),
         Unit::Layer { units, .. } => takes_away(units),
-        Unit::Sampled(_) => false,
+        Unit::Sampled(_) | Unit::Raster(_) => false,
     })
 }
 
@@ -366,4 +366,21 @@ fn a_stroked_mask_shape_shows_its_stroke() {
     });
     let s = masked(MaskKind::Alpha, false, vec![ring], content());
     assert_soft(&s);
+}
+
+#[test]
+fn an_svg_mask_clipped_to_its_region_is_soft() {
+    // SVG masks clip their content to the mask's region: one more shape.
+    let svg = r##"<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100" viewBox="0 0 100 100">
+  <mask id="m" maskUnits="userSpaceOnUse" x="0" y="0" width="100" height="100">
+    <rect x="5" y="5" width="90" height="40" fill="#808080"/>
+    <circle cx="50" cy="25" r="14" fill="#FFFFFF"/>
+  </mask>
+  <rect width="100" height="100" fill="#FFFFFF"/>
+  <g mask="url(#m)"><rect x="20" y="0" width="60" height="50" fill="#F24822"/></g>
+</svg>"##;
+    let scene = dxn_vector_animation_svg::read(svg.as_bytes())
+        .unwrap()
+        .scene;
+    assert_soft(&scene);
 }

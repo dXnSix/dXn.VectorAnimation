@@ -12,12 +12,12 @@
 use std::sync::Arc;
 
 use dxn_vector_animation::{
-    Animated, BlendMode, Clip, Dash, Direction, Fill, FillRule, Frame, FramePaint, Geometry, Group,
-    ImageData, Item, Keyframe, LineCap, LineJoin, Mask, Matrix, MotionPath, MotionRotate, Node,
-    Paint as ScenePaint, PaintOrder, Path, PathEl, Point, Rect, Scene, Shape, ShapePath, Stroke,
-    TimeMap, TimeRange, Track, TransformOp, Trim, TrimMode,
+    Animated, BlendMode, Clip, Color, Dash, Direction, Effect, Fill, FillRule, Frame, FramePaint,
+    Geometry, Group, ImageData, Item, Keyframe, LineCap, LineJoin, Mask, Matrix, MotionPath,
+    MotionRotate, Node, Paint as ScenePaint, PaintOrder, Path, PathEl, Point, Rect, Scene, Shape,
+    ShapePath, Stroke, TimeMap, TimeRange, Track, TransformOp, Trim, TrimMode,
     outline::{geometry_path, path_length, trim_paths},
-    transform::{decompose, point_along, unwrap_angles},
+    transform::{decompose, point_along, transform_at, unwrap_angles},
 };
 
 use crate::graph::{Curve, Expr, Graph, MathOp, NodeId, Num, Paint, STEP, TIME, pack};
@@ -62,6 +62,61 @@ fn path_ops(p: &Path, nums: Vec<Num>) -> Vec<Op> {
             PathEl::Close => Op::Close,
         })
         .collect()
+}
+
+/// Whether `node` holds a group with effects (in its masks too).
+pub fn has_effects(node: &Node) -> bool {
+    match node {
+        Node::Group(g) => {
+            !g.effects.is_empty()
+                || g.mask
+                    .as_ref()
+                    .is_some_and(|m| has_effects(&Node::Group(m.content.clone())))
+                || g.children.iter().any(has_effects)
+        }
+        _ => false,
+    }
+}
+
+/// Whether `scene` draws the same at every time: sampled at its keyframes'
+/// span, every frame alike.
+pub fn still(scene: &Scene) -> bool {
+    let d = scene.timeline.duration.max(0.0);
+    let first = scene.frame_at(0.0);
+    (1..=16).all(|k| scene.frame_at(d * f64::from(k) / 16.0) == first)
+}
+
+/// `scene` drawn through `base` into a `w` × `h` view, wrapped for
+/// [`raster`].
+pub fn in_view(scene: &Scene, base: Matrix, w: f64, h: f64) -> Scene {
+    Scene {
+        width: w,
+        height: h,
+        timeline: scene.timeline.clone(),
+        root: Group {
+            transform: vec![TransformOp::Matrix {
+                matrix: Animated::Static(base),
+            }],
+            children: vec![Node::Group(scene.root.clone())],
+            ..Group::new()
+        },
+    }
+}
+
+/// `view` (a scene [`in_view`]) at `time` as the reference renderer draws
+/// it, `ratio` pixels a point: a PNG.
+pub fn raster(view: &Scene, time: f64, ratio: f64) -> Option<Arc<ImageData>> {
+    let px = |v: f64| (v * ratio).round().clamp(1.0, 8192.0) as u32;
+    let options = dxn_vector_animation_render::RenderOptions {
+        width: Some(px(view.width)),
+        height: Some(px(view.height)),
+        ..Default::default()
+    };
+    let pixmap = dxn_vector_animation_render::render(&view.frame_at(time), &options).ok()?;
+    Some(Arc::new(ImageData {
+        mime: "image/png".into(),
+        bytes: pixmap.encode_png().ok()?,
+    }))
 }
 
 /// The runs of `track`: its keyframes split where their commands change.
@@ -300,6 +355,16 @@ pub enum Op {
     /// `globalCompositeOperation = "source-atop"`: what follows colors
     /// what the canvas holds, keeping its coverage.
     Atop,
+    /// `shadowColor`, `shadowBlur` and `shadowOffsetX` / `Y` (in the view's
+    /// points, whatever the transform), still.
+    Shadow {
+        /// Its color (`0xRRGGBBAA`); transparent for none.
+        color: u32,
+        /// Twice the standard deviation of its blur.
+        blur: f64,
+        /// How far it falls.
+        offset: (f64, f64),
+    },
     /// `drawImage(image, x, y, w, h)`.
     Image(Arc<ImageData>, Rect),
 }
@@ -338,6 +403,10 @@ pub enum Unit {
     /// sampled frame by frame: the part within copies of the groups it is
     /// in (their opacity and blending left to the layers it is drawn in).
     Sampled(Arc<Scene>),
+    /// Such a part with effects the canvas does not draw (blurs, shadows
+    /// that move), drawn as an image the reference renderer makes ([`raster`]):
+    /// once where it does not move, frame by frame where it does.
+    Raster(Arc<Scene>),
     /// A view the size of the view over the units below it.
     Layer {
         /// Its opacity.
@@ -399,6 +468,26 @@ struct Compiler {
     hard_masks: usize,
 }
 
+/// How far apart, at most, the blurs a moving shadow blur is drawn at are:
+/// a share of the smaller (or a length of the group, for small ones).
+const BLUR_STEP: f64 = 1.0;
+const BLUR_RATIO: f64 = 0.3;
+
+/// The most blurs a moving shadow blur is drawn at.
+const BLUR_LEVELS: usize = 10;
+
+/// A drop shadow as the canvas draws it.
+struct CanvasShadow {
+    /// Opaque (`0xRRGGBBAA`).
+    color: u32,
+    /// Its opacity.
+    alpha: Num,
+    /// Twice the deviation of its blur, in the view's points.
+    blur: f64,
+    /// In the view's points.
+    offset: (f64, f64),
+}
+
 /// Where the compiler was before a node: what drawing it is undone to.
 struct Mark {
     graph: usize,
@@ -420,6 +509,7 @@ fn shell(g: &Group) -> Group {
         blend: g.blend,
         clip: g.clip.clone(),
         mask: g.mask.clone(),
+        effects: g.effects.clone(),
         active: g.active,
         time: g.time.clone(),
         children: Vec::new(),
@@ -716,6 +806,146 @@ impl Compiler {
         }
     }
 
+    /// The drop shadows of `g` the canvas draws: still blurs, offsets and
+    /// colors (their opacity may move), in the view's points through the
+    /// group's transform as it starts; an error for effects it does not
+    /// draw (blurs, shadows that move), which are rasterized.
+    fn canvas_shadows(
+        &mut self,
+        g: &Group,
+        local: NodeId,
+    ) -> Result<Vec<CanvasShadow>, Unsupported> {
+        if g.effects.is_empty() {
+            return Ok(Vec::new());
+        }
+        let mut m = self.base;
+        for (ancestor, _) in &self.ancestors {
+            m = m * transform_at(&ancestor.transform, 0.0);
+        }
+        m = m * transform_at(&g.transform, 0.0);
+        let scale = (m.a * m.d - m.b * m.c).abs().sqrt();
+        let mut out = Vec::new();
+        for effect in &g.effects {
+            let Effect::DropShadow(shadow) = effect else {
+                return unsupported("a blur");
+            };
+            let (Some(&dx), Some(&dy)) = (shadow.offset.x.as_static(), shadow.offset.y.as_static())
+            else {
+                return unsupported("a drop shadow that moves");
+            };
+            // A blur that moves: shadows at blurs along its way, faded into
+            // one another as it moves.
+            let levels: Vec<(f64, Num)> = match &shadow.blur {
+                Animated::Static(b) => vec![(b.max(0.0), Num::Const(1.0))],
+                moving => {
+                    let times = sample_times(&[moving]);
+                    let (lo, hi) = min_max(times.iter().map(|&t| moving.sample(t).max(0.0)));
+                    // Each a step past the one before: a share of it, or
+                    // a length at least.
+                    let mut at = vec![lo];
+                    while let Some(&last) = at.last()
+                        && last < hi
+                    {
+                        if at.len() >= BLUR_LEVELS {
+                            return unsupported("a drop shadow whose blur moves far");
+                        }
+                        at.push((last + BLUR_STEP.max(last * BLUR_RATIO)).min(hi));
+                    }
+                    if at.len() < 2 {
+                        at.push(hi + BLUR_STEP);
+                    }
+                    let n = at.len() - 1;
+                    let blur = self.g.track(moving, local, |v| v.max(0.0));
+                    (0..=n)
+                        .map(|k| {
+                            let (inputs, outputs): (Vec<f64>, Vec<f64>) = match k {
+                                0 => (vec![at[0], at[1]], vec![1.0, 0.0]),
+                                k if k == n => (vec![at[n - 1], at[n]], vec![0.0, 1.0]),
+                                k => (vec![at[k - 1], at[k], at[k + 1]], vec![0.0, 1.0, 0.0]),
+                            };
+                            (at[k], self.g.lookup(blur, &inputs, &outputs))
+                        })
+                        .collect()
+                }
+            };
+            let colors: Vec<Color> = match &shadow.color {
+                Animated::Static(c) => vec![*c],
+                Animated::Track(t) => t.keyframes.iter().map(|k| k.value).collect(),
+            };
+            let Some(first) = colors.first().copied() else {
+                continue;
+            };
+            if colors
+                .iter()
+                .any(|c| (c.r, c.g, c.b) != (first.r, first.g, first.b))
+            {
+                return unsupported("a drop shadow changing color");
+            }
+            let alpha = match &shadow.color {
+                Animated::Static(c) => Num::Const(c.a.clamp(0.0, 1.0)),
+                Animated::Track(t) => {
+                    let a = Animated::Track(Track::new(
+                        t.keyframes
+                            .iter()
+                            .map(|k| Keyframe::new(k.time, k.value.a, k.easing.clone()))
+                            .collect(),
+                    ));
+                    self.g.track(&a, local, |v| v.clamp(0.0, 1.0))
+                }
+            };
+            for (blur, weight) in levels {
+                let alpha = self.mul(alpha, weight);
+                out.push(CanvasShadow {
+                    color: pack(first.with_opacity(1.0)) | 0xff,
+                    alpha,
+                    blur: 2.0 * blur * scale,
+                    offset: (m.a * dx + m.c * dy, m.b * dx + m.d * dy),
+                });
+            }
+        }
+        Ok(out)
+    }
+
+    /// The layer of `shadow` cast by `content` (a canvas's operations): the
+    /// content drawn with the shadow, then taken away (as opaque as it
+    /// covers, the shadow hidden under it), the shadow's opacity the
+    /// layer's.
+    fn shadow_unit(&mut self, content: &[Op], shadow: CanvasShadow) -> Unit {
+        let mut ops = vec![
+            Op::Save,
+            Op::Shadow {
+                color: shadow.color,
+                blur: shadow.blur,
+                offset: shadow.offset,
+            },
+        ];
+        ops.extend(content.iter().cloned());
+        ops.extend([
+            Op::Shadow {
+                color: 0,
+                blur: 0.0,
+                offset: (0.0, 0.0),
+            },
+            Op::Blend(BlendMode::DestinationOut),
+        ]);
+        for op in content {
+            ops.push(match op {
+                Op::FillColor(_) | Op::FillGradient(_) => Op::FillColor(Paint::Const(0x0000_00ff)),
+                Op::StrokeColor(_) | Op::StrokeGradient(_) => {
+                    Op::StrokeColor(Paint::Const(0x0000_00ff))
+                }
+                Op::GlobalAlpha(a) => Op::GlobalAlpha(self.g.step(*a, 0.0, true)),
+                other => other.clone(),
+            });
+        }
+        ops.push(Op::Restore);
+        Unit::Layer {
+            opacity: shadow.alpha,
+            blend: BlendMode::Normal,
+            units: vec![Unit::Canvas(ops)],
+        }
+    }
+
     /// Where it is now.
     fn mark(&mut self) -> Mark {
         let (layers, graph, context, ancestors) = (
@@ -765,13 +995,21 @@ impl Compiler {
     /// the part.
     fn sample(&mut self, node: &Node, joins: Option<usize>) -> usize {
         let depth = self.ancestors.len();
+        let raster = has_effects(node);
         let open = self.open();
         if let Some(i) = joins
             && i + 1 == open.units.len()
             && open.canvas.is_empty()
-            && let Some(Unit::Sampled(scene)) = open.units.get_mut(i)
+            && let Some(Unit::Sampled(scene) | Unit::Raster(scene)) = open.units.get(i)
+            && matches!(open.units[i], Unit::Raster(_)) == raster
         {
-            add_within(&mut Arc::make_mut(scene).root, depth - 1, node.clone());
+            let mut scene = scene.clone();
+            add_within(&mut Arc::make_mut(&mut scene).root, depth - 1, node.clone());
+            open.units[i] = if raster {
+                Unit::Raster(scene)
+            } else {
+                Unit::Sampled(scene)
+            };
             return i;
         }
         // The layers it is drawn in fade and blend it already.
@@ -799,7 +1037,11 @@ impl Compiler {
             ..self.stage.clone()
         };
         let open = self.open();
-        open.units.push(Unit::Sampled(Arc::new(scene)));
+        open.units.push(if raster {
+            Unit::Raster(Arc::new(scene))
+        } else {
+            Unit::Sampled(Arc::new(scene))
+        });
         open.units.len() - 1
     }
 
@@ -849,6 +1091,7 @@ impl Compiler {
             Some(map) => self.local_time(map, time),
             None => time,
         };
+        let mut shadows = self.canvas_shadows(g, local)?;
         let mut frame = vec![Op::Save];
         frame.extend(self.transform(&g.transform, local)?);
         if let Some(clip) = &g.clip {
@@ -868,7 +1111,9 @@ impl Compiler {
         if opacity.is(0.0) {
             return Ok(());
         }
-        let isolate = !g.blend.is_normal() || (!opacity.is(1.0) && drawables(g, 2) > 1);
+        let isolate = !g.blend.is_normal()
+            || (!opacity.is(1.0) && drawables(g, 2) > 1)
+            || !shadows.is_empty();
         let outer_alpha = self.open().alpha;
         if isolate {
             self.flush();
@@ -939,6 +1184,24 @@ impl Compiler {
             if !self.open().canvas.is_empty() {
                 let ops = self.soft_mask_ops(soft);
                 self.open().canvas.extend(ops);
+            }
+        }
+        if !shadows.is_empty() {
+            // Cast by one canvas of the content, drawn as it is.
+            let content = closed(self.open().canvas.clone());
+            let composited = content
+                .iter()
+                .any(|op| matches!(op, Op::Blend(_) | Op::Atop | Op::Shadow { .. }));
+            if self.open().units.len() != units || composited {
+                self.undo(start);
+                return unsupported("a drop shadow of more than one canvas");
+            }
+            if content.is_empty() {
+                shadows.clear();
+            }
+            for (i, shadow) in shadows.into_iter().enumerate() {
+                let unit = self.shadow_unit(&content, shadow);
+                self.open().units.insert(units + i, unit);
             }
         }
         self.ancestors.pop();

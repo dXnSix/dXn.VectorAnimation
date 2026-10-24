@@ -42,6 +42,8 @@ enum Tree {
         /// Its own mask (a chained matte): its kind, whether inverted, and
         /// what it composites.
         mask: Option<(MaskKind, bool, Box<Tree>)>,
+        /// Its clip: the index of its outline among the mask's shapes.
+        clip: Option<usize>,
     },
     /// A shape (its index among the mask's shapes): its luminance times its
     /// alpha, and its alpha, where it covers.
@@ -103,6 +105,7 @@ impl Compiler {
             opacity: Num::Const(1.0),
             children: vec![tree],
             mask: None,
+            clip: None,
         };
         if !mask.inverted
             && let Some(p) = self.product(&tree)
@@ -221,7 +224,10 @@ impl Compiler {
             }),
             Tree::Group { mask: Some(_), .. } => None,
             Tree::Group {
-                opacity, children, ..
+                opacity,
+                children,
+                clip,
+                ..
             } => {
                 // None while nothing shows yet.
                 let mut acc: Option<Product> = None;
@@ -262,6 +268,10 @@ impl Compiler {
                 });
                 p.luma = self.mul(p.luma, *opacity);
                 p.alpha = self.mul(p.alpha, *opacity);
+                // Nothing outside its clip.
+                if let Some(i) = clip {
+                    p.factors.push((*i, false, Num::Const(0.0)));
+                }
                 Some(p)
             }
         }
@@ -302,9 +312,6 @@ impl Compiler {
         if depth > 128 {
             return unsupported("masks nested too deep");
         }
-        if g.clip.is_some() {
-            return Ok(None);
-        }
         if !matches!(
             g.blend,
             BlendMode::Normal | BlendMode::DestinationIn | BlendMode::DestinationOut
@@ -323,6 +330,26 @@ impl Compiler {
         let opacity = self.mul(opacity, visible);
         let mut transforms = outer.to_vec();
         transforms.extend(self.transform(&g.transform, local)?);
+        // Its clip: one more shape, all or nothing.
+        let clip = match &g.clip {
+            Some(clip) => {
+                let mut ops = vec![Op::Save];
+                ops.extend(transforms.iter().cloned());
+                for shape in &clip.shapes {
+                    ops.push(Op::Save);
+                    ops.extend(self.transform(&shape.transform, local)?);
+                    ops.extend(self.geometry(&shape.geometry, local)?);
+                    ops.push(Op::Restore);
+                }
+                ops.push(Op::Restore);
+                outlines.push(Outline {
+                    ops,
+                    rule: clip.shapes.first().map_or(FillRule::NonZero, |s| s.rule),
+                });
+                Some(outlines.len() - 1)
+            }
+            None => None,
+        };
         let mask = match &g.mask {
             Some(m) => match self.mask_tree(&m.content, local, &transforms, outlines, depth + 1)? {
                 Some(tree) => Some((m.kind, m.inverted, Box::new(tree))),
@@ -396,6 +423,7 @@ impl Compiler {
             opacity,
             children,
             mask,
+            clip,
         }))
     }
 
@@ -469,8 +497,12 @@ impl Compiler {
                 opacity,
                 children,
                 mask,
+                clip,
                 ..
             } => {
+                if clip.is_some_and(|i| inside >> i & 1 == 0) {
+                    return (Num::Const(0.0), Num::Const(0.0));
+                }
                 let (mut l, mut a) = (Num::Const(0.0), Num::Const(0.0));
                 for child in children {
                     let blend = match child {

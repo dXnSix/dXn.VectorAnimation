@@ -340,11 +340,21 @@ pub fn VectorAnimation(
             && let Ok(plan) = plan::compile(&r.loaded.scene, base)
         {
             let nodes = Nodes::new(&plan.graph, time);
-            let part = move |part: &Arc<Scene>| {
-                let part = part.clone();
-                sampled(move |t| part.frame_at(t), base, clock, time)
+            let part = move |unit: &plan::Unit| match unit {
+                plan::Unit::Raster(part) => rastered(part, base, (w, h), clock, time),
+                plan::Unit::Sampled(part) => {
+                    let part = part.clone();
+                    sampled(move |t| part.frame_at(t), base, clock, time)
+                }
+                _ => view().into_element(),
             };
             return lower::elements(&plan.units, &nodes, &part);
+        }
+        if plan::has_effects(&dxn_vector_animation::Node::Group(
+            r.loaded.scene.root.clone(),
+        )) {
+            let scene = Arc::new(r.loaded.scene.clone());
+            return vec![rastered(&scene, base, (w, h), clock, time)];
         }
         let r = r.clone();
         vec![sampled(
@@ -370,6 +380,36 @@ fn sampled(
         let ops = match plan.units.first() {
             Some(plan::Unit::Canvas(ops)) => ops.clone(),
             _ => Vec::new(),
+        };
+        lower::painter(&ops, &Nodes::new(&empty, time))
+    })
+    .absolute()
+    .size_full()
+    .into_element()
+}
+
+/// A canvas drawing `scene` as the reference renderer draws it, at the
+/// display's pixels, into a view of `size`: once where it does not move,
+/// again as the clock moves where it does.
+fn rastered(
+    scene: &Arc<Scene>,
+    base: Matrix,
+    size: (f64, f64),
+    clock: Signal<f64>,
+    time: AnimatedValue,
+) -> AnyElement {
+    let view = plan::in_view(scene, base, size.0, size.1);
+    let still = plan::still(scene);
+    let empty = Graph::default();
+    canvas(move || {
+        let t = if still { 0.0 } else { clock.get() };
+        let ratio = f64::from(pixel_ratio()).max(1.0);
+        let ops = match plan::raster(&view, t, ratio) {
+            Some(image) => vec![plan::Op::Image(
+                image,
+                dxn_vector_animation::Rect::new(0.0, 0.0, size.0, size.1),
+            )],
+            None => Vec::new(),
         };
         lower::painter(&ops, &Nodes::new(&empty, time))
     })
