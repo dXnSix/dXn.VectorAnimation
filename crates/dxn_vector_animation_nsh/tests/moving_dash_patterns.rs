@@ -142,10 +142,11 @@ fn an_odd_list_repeats_to_an_even_one() {
 
 #[test]
 fn many_dashes_along_the_outline_are_still_sampled() {
+    // Some 280 dashes round the circle at their shortest.
     let s = dashed(
         vec![circle(45.0)],
         LineCap::Round,
-        vec![track(&[(0.0, 0.5), (2.0, 2.0)]), Animated::Static(2.0)],
+        vec![track(&[(0.0, 0.5), (2.0, 2.0)]), Animated::Static(0.5)],
         Animated::Static(0.0),
     );
     let plan = plan::compile(&s, Matrix::IDENTITY).unwrap();

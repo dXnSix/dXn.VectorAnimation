@@ -375,17 +375,20 @@ fn key_times(geometry: &Geometry) -> Vec<f64> {
     times
 }
 
-/// How many dashes of a pattern whose lengths move may reach the outline:
-/// each is a part the graph moves.
-const MOVING_DASHES: usize = 64;
+/// How many dashes of a pattern whose lengths move are drawn, at most:
+/// each is a part the graph moves round the outline.
+const MOVING_DASHES: usize = 256;
 
 /// A run of a sampled outline's samples of the same commands: from when
 /// (none for the first), and the samples.
 type Window = (Option<f64>, Vec<(f64, Path)>);
 
-/// How many runs of different commands a sampled outline may have: each
-/// is a contour of its own.
+/// How many different commands a sampled outline may have: each is a
+/// contour of its own.
 const OUTLINE_WINDOWS: usize = 32;
+
+/// How many times a sampled outline's commands may change.
+const OUTLINE_SWITCHES: usize = 1024;
 
 /// How many times a second, at least, a sampled outline is sampled.
 const OUTLINE_RATE: f64 = 120.0;
@@ -1685,15 +1688,34 @@ impl Compiler {
                 }
             }
         }
-        if windows.len() > OUTLINE_WINDOWS {
+        // Windows of the same commands share a contour: its points those of
+        // each window in turn, shown during any.
+        let mut contours: Vec<Vec<usize>> = Vec::new();
+        for w in 0..windows.len() {
+            let first = &windows[w].1[0].1;
+            match contours
+                .iter_mut()
+                .find(|c| windows[c[0]].1[0].1.same_structure(first))
+            {
+                Some(c) => c.push(w),
+                None => contours.push(vec![w]),
+            }
+        }
+        if contours.len() > OUTLINE_WINDOWS || windows.len() > OUTLINE_SWITCHES {
             return unsupported("an outline whose commands change many times");
         }
         let tolerance = self.tolerance();
         let far = self.far();
         let mut ops = Vec::new();
-        for w in 0..windows.len() {
-            let (from, run) = &windows[w];
-            let to = windows.get(w + 1).and_then(|next| next.0);
+        for list in &contours {
+            let run: Vec<(f64, Path)> = list
+                .iter()
+                .flat_map(|&w| windows[w].1.iter().cloned())
+                .collect();
+            let spans: Vec<(Option<f64>, Option<f64>)> = list
+                .iter()
+                .map(|&w| (windows[w].0, windows.get(w + 1).and_then(|next| next.0)))
+                .collect();
             let ts: Vec<f64> = run.iter().map(|(t, _)| *t).collect();
             let columns: Vec<Vec<f64>> = run.iter().map(|(_, p)| coords(p)).collect();
             let mut nums = Vec::with_capacity(columns[0].len());
@@ -1706,12 +1728,12 @@ impl Compiler {
                 });
             }
             let contour = path_ops(&run[0].1, nums);
-            if windows.len() == 1 {
+            if contours.len() == 1 {
                 return Ok(contour);
             }
             // The path takes its points where the transform puts them as
             // they come.
-            let shown = self.g.window(Num::Node(time), *from, to);
+            let shown = self.g.windows(Num::Node(time), &spans);
             let away = self.g.math(MathOp::Mul, shown, Num::Const(-far));
             let away = self.g.math(MathOp::Add, away, Num::Const(far));
             ops.push(Op::Save);
@@ -2367,50 +2389,51 @@ impl Compiler {
         let mut tracks = pattern.clone();
         tracks.push(&dash.offset);
         let times = sample_times(&tracks);
-        // Where dash `k` of repetition `c` starts and ends at `t`.
-        let place = |t: f64, c: i64, k: usize| {
+        let periods: Vec<f64> = times
+            .iter()
+            .map(|&t| pattern.iter().map(|a| a.sample(t).max(0.0)).sum())
+            .collect();
+        let (shortest, _) = min_max(periods.iter().copied());
+        if shortest <= 0.0 {
+            return unsupported("an animated dash pattern of no length");
+        }
+        // Each repetition a slot going round as the offset moves: from a
+        // period before the outline to past its end, where it wraps.
+        let slots = (longest / shortest).ceil() as usize + 2;
+        if slots * pattern.len() / 2 > MOVING_DASHES {
+            return unsupported("an animated dash pattern of many dashes along the outline");
+        }
+        // Where dash `k` of slot `c` starts and ends at `t`.
+        let place = |t: f64, c: usize, k: usize| {
             let lengths: Vec<f64> = pattern.iter().map(|a| a.sample(t).max(0.0)).collect();
             let period: f64 = lengths.iter().sum();
-            let a = c as f64 * period + lengths[..k].iter().sum::<f64>() - dash.offset.sample(t);
+            let at = c as f64 * period + lengths[..k].iter().sum::<f64>() - dash.offset.sample(t);
+            let a = (at + period).rem_euclid(slots as f64 * period) - period;
             (a, a + lengths[k])
         };
-        // The dashes that reach an outline at some time.
-        let mut dashes = std::collections::BTreeSet::new();
-        for &t in &times {
-            let period: f64 = pattern.iter().map(|a| a.sample(t).max(0.0)).sum();
-            if period <= 0.0 {
-                return unsupported("an animated dash pattern of no length");
-            }
-            let o = dash.offset.sample(t);
-            let first = ((o - period) / period).floor() as i64;
-            let last = ((longest + o) / period).ceil() as i64;
-            for c in first..=last {
-                for k in (0..pattern.len()).step_by(2) {
-                    let (a, b) = place(t, c, k);
-                    if b >= 0.0 && a <= longest {
-                        dashes.insert((c, k));
-                    }
-                }
-            }
-            if dashes.len() > MOVING_DASHES {
-                return unsupported("an animated dash pattern of many dashes along the outline");
-            }
-        }
         let lengths: Vec<Num> = pattern
             .iter()
             .map(|a| self.g.track(a, time, |v| v.max(0.0)))
             .collect();
         let period = self.g.sum(&lengths);
+        let round = self.g.math(MathOp::Mul, period, Num::Const(slots as f64));
         let offset = self.g.track(&dash.offset, time, |o| -o);
         let mut ops = Vec::new();
-        for (c, k) in dashes {
-            let before = self.g.sum(&lengths[..k]);
-            let repeats = self.g.math(MathOp::Mul, period, Num::Const(c as f64));
-            let start = self.g.math(MathOp::Add, repeats, before);
-            let a = self.g.math(MathOp::Add, start, offset);
-            let b = self.g.math(MathOp::Add, a, lengths[k]);
-            let ends: Vec<(f64, f64)> = times.iter().map(|&t| place(t, c, k)).collect();
-            ops.extend(self.parts(&contours, (a, b), &ends, true, alpha, style));
+        for c in 0..slots {
+            for k in (0..pattern.len()).step_by(2) {
+                let ends: Vec<(f64, f64)> = times.iter().map(|&t| place(t, c, k)).collect();
+                if !ends.iter().any(|&(a, b)| b >= 0.0 && a <= longest) {
+                    continue;
+                }
+                let before = self.g.sum(&lengths[..k]);
+                let repeats = self.g.math(MathOp::Mul, period, Num::Const(c as f64 + 1.0));
+                let start = self.g.math(MathOp::Add, repeats, before);
+                let at = self.g.math(MathOp::Add, start, offset);
+                let wrapped = self.g.math(MathOp::Mod, at, round);
+                let a = self.g.math(MathOp::Sub, wrapped, period);
+                let b = self.g.math(MathOp::Add, a, lengths[k]);
+                ops.extend(self.parts(&contours, (a, b), &ends, true, alpha, style));
+            }
         }
         Ok(ops)
     }

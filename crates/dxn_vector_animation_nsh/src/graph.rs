@@ -378,6 +378,32 @@ impl Graph {
         }
     }
 
+    /// 1 while `x` is within one of `windows` (each from, to; none for
+    /// all the way, in order, apart), as [`Self::window`] for each.
+    pub fn windows(&mut self, x: Num, windows: &[(Option<f64>, Option<f64>)]) -> Num {
+        if let [(from, to)] = windows {
+            return self.window(x, *from, *to);
+        }
+        let (mut inputs, mut outputs) = (Vec::new(), Vec::new());
+        for &(from, to) in windows {
+            match from {
+                Some(a) => {
+                    inputs.extend([a - JUMP, a]);
+                    outputs.extend([0.0, 1.0]);
+                }
+                None => {
+                    inputs.push(f64::NEG_INFINITY.max(-1e12));
+                    outputs.push(1.0);
+                }
+            }
+            if let Some(b) = to {
+                inputs.extend([b - JUMP, b]);
+                outputs.extend([1.0, 0.0]);
+            }
+        }
+        self.lookup(x, &inputs, &outputs)
+    }
+
     /// The sum of `items`, as a balanced tree (the native graph evaluates
     /// recursively, to a fixed depth).
     pub fn sum(&mut self, items: &[Num]) -> Num {
