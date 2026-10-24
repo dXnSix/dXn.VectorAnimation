@@ -1,0 +1,25 @@
+[package]
+name = "dxn_vector_animation_render"
+description = "A reference CPU renderer for dxn_vector_animation frames, on tiny-skia"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+readme = "../../README.md"
+keywords = ["animation", "rendering", "tiny-skia", "vector"]
+categories = ["graphics", "rendering"]
+
+[dependencies]
+dxn_vector_animation.workspace = true
+image.workspace = true
+thiserror.workspace = true
+tiny-skia.workspace = true
+
+[lints]
+workspace = true
+
+[dev-dependencies]
+dxn_vector_animation_lottie.workspace = true
+dxn_vector_animation_svg.workspace = true

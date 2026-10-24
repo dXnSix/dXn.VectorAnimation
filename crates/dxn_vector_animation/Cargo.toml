@@ -1,0 +1,30 @@
+[package]
+name = "dxn_vector_animation"
+description = "Animated vector graphics: one scene model for animated SVG and Lottie, sampled at any time or played by a native animation system"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+readme = "../../README.md"
+keywords = ["animation", "svg", "lottie", "vector", "motion"]
+categories = ["graphics", "multimedia"]
+
+[features]
+default = []
+# Serialization of scenes (the compiled `.vector-animation.json` format).
+serde = ["dep:serde", "dep:base64", "dep:serde_json"]
+
+[dependencies]
+base64 = { workspace = true, optional = true }
+kurbo.workspace = true
+serde = { workspace = true, optional = true }
+serde_json = { workspace = true, optional = true }
+thiserror.workspace = true
+
+[dev-dependencies]
+serde_json.workspace = true
+
+[lints]
+workspace = true

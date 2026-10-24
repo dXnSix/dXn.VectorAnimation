@@ -1,0 +1,35 @@
+<svg width="200" height="100" viewBox="0 0 200 100" fill="none" xmlns="http://www.w3.org/2000/svg">
+<style>
+#Button { animation: kf_Button_transform_0 2s linear infinite, kf_Button_opacity_0 2s linear infinite; transform-origin: 0 0; transform-box: view-box; }
+@keyframes kf_Button_transform_0 {
+  0% { transform: translateX(20px) translateY(30px) translateX(0px) translateY(0px) translate(10px, 5px) scaleX(0) scaleY(0) translate(-10px, -5px); }
+  50% { transform: translateX(20px) translateY(30px) translateX(0px) translateY(0px) translate(10px, 5px) scaleX(1.07) scaleY(1.07) translate(-10px, -5px); }
+  100% { transform: translateX(20px) translateY(30px) translateX(0px) translateY(0px) translate(10px, 5px) scaleX(1) scaleY(1) translate(-10px, -5px); }
+}
+@keyframes kf_Button_opacity_0 {
+  0% { opacity: 0; animation-timing-function: cubic-bezier(0.5, 0, 0.5, 1); }
+  50% { opacity: 1; animation-timing-function: linear; }
+  100% { opacity: 1; }
+}
+#One_tile { offset-path: path('M0 50 C 50 0 150 100 200 50'); offset-rotate: 0deg; offset-anchor: 0px 0px; animation: kf_One_tile_offset_distance_0 2s linear infinite; }
+@keyframes kf_One_tile_offset_distance_0 { 0% { offset-distance: 0%; } 100% { offset-distance: 100%; } }
+</style>
+<g id="Button" transform="translate(20 30)">
+<rect width="20" height="10" rx="2" fill="#FF0000"/>
+</g>
+<g id="One_tile">
+<circle r="4" fill="#0000FF"/>
+</g>
+<g mask="url(#mask0_23_3091)">
+<rect x="150" y="10" width="40" height="40" fill="url(#paint0_linear_23_3091)"/>
+</g>
+<defs>
+<mask id="mask0_23_3091" style="mask-type:alpha" maskUnits="userSpaceOnUse" x="150" y="10" width="40" height="40">
+<circle cx="170" cy="30" r="20" fill="#D9D9D9"/>
+</mask>
+<linearGradient id="paint0_linear_23_3091" x1="150" y1="10" x2="190" y2="50" gradientUnits="userSpaceOnUse">
+<stop stop-color="#FFE500"/>
+<stop offset="1" stop-color="#00C2FF" stop-opacity="0.5"/>
+</linearGradient>
+</defs>
+</svg>

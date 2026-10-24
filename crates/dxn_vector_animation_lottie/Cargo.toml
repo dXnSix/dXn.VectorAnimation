@@ -1,0 +1,24 @@
+[package]
+name = "dxn_vector_animation_lottie"
+description = "Reads Lottie animations into a dxn_vector_animation scene"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+readme = "../../README.md"
+keywords = ["animation", "lottie", "bodymovin", "vector"]
+categories = ["graphics", "parser-implementations"]
+
+[dependencies]
+base64.workspace = true
+dxn_vector_animation.workspace = true
+kurbo.workspace = true
+serde_json.workspace = true
+
+[lints]
+workspace = true
+
+[dev-dependencies]
+serde_json.workspace = true
