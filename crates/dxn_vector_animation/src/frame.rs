@@ -146,7 +146,8 @@ pub struct StrokeStyle {
     pub join: LineJoin,
     /// Where miters turn into bevels.
     pub miter_limit: f64,
-    /// Dash and gap lengths in turn, and where the pattern starts.
+    /// Dash and gap lengths in turn (an even number of them), and where
+    /// the pattern starts.
     pub dash: Option<(Vec<f64>, f64)>,
 }
 
@@ -266,7 +267,11 @@ fn sample_shape(shape: &Shape, time: f64, m: Matrix, out: &mut Vec<Item>) {
         }
         let paint = paint_at(&stroke.paint, time, stroke.opacity.sample(time), &path)?;
         let dash = stroke.dash.as_ref().and_then(|dash| {
-            let array: Vec<f64> = dash.array.iter().map(|d| d.sample(time).max(0.0)).collect();
+            let mut array: Vec<f64> = dash.array.iter().map(|d| d.sample(time).max(0.0)).collect();
+            // An odd list repeats, as SVG and Canvas 2D repeat it.
+            if array.len() % 2 == 1 {
+                array.extend_from_within(..);
+            }
             (!array.is_empty() && array.iter().sum::<f64>() > 0.0)
                 .then(|| (array, dash.offset.sample(time)))
         });
