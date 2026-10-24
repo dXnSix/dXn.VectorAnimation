@@ -304,7 +304,7 @@ impl<'g> Replay<'g> {
                     self.state.atop = false;
                 }
                 Op::Atop => self.state.atop = true,
-                Op::Image(..) => {}
+                Op::Image(data, rect) => self.image(data, *rect, out),
             }
         }
     }
@@ -364,6 +364,46 @@ impl<'g> Replay<'g> {
             },
             ..Default::default()
         })
+    }
+
+    /// An image as the reference decodes and places it, drawn with the
+    /// state's alpha, blend and clip.
+    fn image(
+        &mut self,
+        data: &std::sync::Arc<dxn_vector_animation::ImageData>,
+        rect: dxn_vector_animation::Rect,
+        out: &mut sk::Pixmap,
+    ) {
+        let frame = dxn_vector_animation::Frame {
+            width: f64::from(self.w),
+            height: f64::from(self.h),
+            items: vec![dxn_vector_animation::Item::Image {
+                data: data.clone(),
+                rect,
+                transform: self.state.ctm,
+            }],
+        };
+        let options = dxn_vector_animation_render::RenderOptions {
+            width: Some(self.w),
+            height: Some(self.h),
+            ..Default::default()
+        };
+        let Ok(image) = dxn_vector_animation_render::render(&frame, &options) else {
+            return;
+        };
+        let paint = sk::PixmapPaint {
+            opacity: self.state.alpha.clamp(0.0, 1.0) as f32,
+            blend_mode: sk_blend(self.state.blend),
+            ..Default::default()
+        };
+        out.draw_pixmap(
+            0,
+            0,
+            image.as_ref(),
+            &paint,
+            sk::Transform::identity(),
+            self.state.clip.as_ref(),
+        );
     }
 
     fn fill(&mut self, rule: FillRule, out: &mut sk::Pixmap) {

@@ -77,8 +77,16 @@ The view is the animation's own size unless the app sizes it.
   easings share a warped time (each segment eased from 0 to 1, added up); overshooting easings (Back) add
   each segment's change on its own.
 - **Canvases and layers.** Content between layers shares one canvas. A group faded over overlapping content,
-  or blended, is a layer (a view of its own, its opacity the view's). Masks become clips of their shapes'
-  outlines (exact for opaque mask shapes; soft masks clip hard).
+  or blended, is a layer (a view of its own, its opacity the view's). Masks of opaque shapes are clips of
+  their outlines. Soft masks (partly transparent shapes, luminance, chained mattes) draw the content on a
+  canvas of its own and then take away (`destination-out`) as much of it as the mask does not show, the
+  mask's value the graph's: its shapes' colors and opacities composited as the reference composites them
+  (added, intersected, subtracted). A mask of one shape intersected with or subtracted from by others takes
+  away over the whole plane and then on one side of each outline, every edge drawn once; masks of shapes
+  added over one another take away region by region of the plane their shapes cut it into (up to four
+  shapes), where a faint seam can show along edges inside the mask. `destination-out` leaves what lies
+  outside its drawing alone, so the platforms agree on it. Gradient-filled mask shapes, and content drawn on
+  more than one canvas (layers within it), clip hard.
 - **Transforms, motion paths and matrices.** Transform lists are canvas transforms of animated values; motion
   paths are lookups of the path sampled by length; animated matrices animate their decomposition; skews are
   sampled.
@@ -145,7 +153,9 @@ nsh test examples/gallery
 reference renderer's at many times; `tests/component.rs` runs the component on a headless engine.
 `tests/corpus.rs` does the same for every file of a folder (`DXN_CORPUS=<dir> cargo test --test corpus --
 --ignored --nocapture`); on 53 real files (Figma Motion SVG and Lottie exports among them) the native plans
-draw what the reference does, except masks of partial opacity or luminance, which clip hard.
+draw what the reference does to under 1.5% of the pixels at 200 pixels wide, except a timeline of hatching
+narrower than two pixels, whose edges anti-alias apart (13% at that size, 3% at 1,000 pixels). The replayer
+draws images as the reference decodes them.
 
 `nsh test` builds the example's runner with the NSH crates the crate resolves (crates.io's at the CLI's
 version); an `nsh` built from a checkout needs that checkout's crates: a local, uncommitted
@@ -183,8 +193,7 @@ a pixel of anti-aliasing is a larger share), except masks of partial opacity or 
 
 1. **Done:** the component with canvases, warped time and playback; the TSX and Rust APIs; the example app;
    moving trims, dash patterns and gradients on the graph; the iOS simulator and the web.
-2. Windows, and GPUI on macOS; soft masks on the graph; views with bound transforms for groups that only
-   move or fade.
+2. Windows, and GPUI on macOS; views with bound transforms for groups that only move or fade.
 
 ## License
 

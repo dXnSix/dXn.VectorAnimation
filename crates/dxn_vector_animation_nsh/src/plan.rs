@@ -23,6 +23,7 @@ use dxn_vector_animation::{
 use crate::graph::{Curve, Expr, Graph, MathOp, NodeId, Num, Paint, STEP, TIME, pack};
 use crate::span;
 
+mod mask;
 mod paint;
 
 use paint::Painting;
@@ -393,6 +394,9 @@ struct Compiler {
     stage: Scene,
     /// Why parts are sampled.
     sampled: Vec<String>,
+    /// Above zero while groups are compiled again with their soft masks
+    /// clipping hard (their content drew on more than one canvas).
+    hard_masks: usize,
 }
 
 /// Where the compiler was before a node: what drawing it is undone to.
@@ -455,6 +459,7 @@ pub fn compile(scene: &Scene, base: Matrix) -> Result<Plan, Unsupported> {
             root: Group::new(),
         },
         sampled: Vec::new(),
+        hard_masks: 0,
     };
     c.group(&scene.root, TIME, 0)?;
     c.flush();
@@ -832,6 +837,7 @@ impl Compiler {
         if depth > 128 {
             return unsupported("groups nested too deep");
         }
+        let start = self.mark();
         let visible = match g.active {
             Some(range) => self.visibility(range, time),
             None => Num::Const(1.0),
@@ -848,7 +854,13 @@ impl Compiler {
         if let Some(clip) = &g.clip {
             frame.extend(self.clip(clip, local)?);
         }
-        if let Some(mask) = &g.mask {
+        let soft = match &g.mask {
+            Some(mask) => self.soft_mask(mask, local, depth)?,
+            None => None,
+        };
+        if let Some(mask) = &g.mask
+            && soft.is_none()
+        {
             frame.extend(self.mask(mask, local, depth)?);
         }
         let opacity = self.g.track(&g.opacity, local, |o| o.clamp(0.0, 1.0));
@@ -871,7 +883,12 @@ impl Compiler {
         } else {
             let alpha = self.mul(outer_alpha, opacity);
             self.open().alpha = alpha;
+            // A soft mask takes away from the canvas: the content's own.
+            if soft.is_some() {
+                self.flush();
+            }
         }
+        let units = self.open().units.len();
         // The setup goes in the current canvas, or in the next one's prologue.
         if !self.open().canvas.is_empty() {
             self.open().canvas.extend(frame.iter().cloned());
@@ -907,6 +924,21 @@ impl Compiler {
             } else if self.open().units.len() > mark.units || self.open().canvas.len() > mark.canvas
             {
                 last = None;
+            }
+        }
+        if let Some(soft) = &soft {
+            if self.open().units.len() != units {
+                // The content drew on more than one canvas: the mask clips
+                // hard instead.
+                self.undo(start);
+                self.hard_masks += 1;
+                let done = self.group(g, time, depth);
+                self.hard_masks -= 1;
+                return done;
+            }
+            if !self.open().canvas.is_empty() {
+                let ops = self.soft_mask_ops(soft);
+                self.open().canvas.extend(ops);
             }
         }
         self.ancestors.pop();
