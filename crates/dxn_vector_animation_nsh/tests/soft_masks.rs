@@ -1,7 +1,9 @@
 //! Soft masks (partly transparent, or by luminance) play on the graph: the
 //! content on a canvas of its own, then taken away region by region of the
 //! plane the mask's shapes cut it into, as much as the mask does not show
-//! there. They draw what the reference draws, colors within a tenth.
+//! there (or, where the mask does not move, by an image of what it hides:
+//! `mask_images`). They draw what the reference draws, colors within a
+//! tenth.
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
@@ -9,8 +11,8 @@ mod common;
 
 use dxn_vector_animation::{
     Animated, AnimatedPoint, BlendMode, Color, Direction, Easing, EllipseStart, Fill, Geometry,
-    GradientStop, GradientUnits, Group, Keyframe, LinearGradient, LoopMode, Mask, MaskKind, Matrix,
-    Node, Paint, RectStart, Scene, Shape, ShapePath, Spread, Timeline, Track, TransformOp,
+    Group, Keyframe, LoopMode, Mask, MaskKind, Matrix, Node, Paint, RectStart, Scene, Shape,
+    ShapePath, Timeline, Track, TransformOp,
 };
 use dxn_vector_animation_nsh::plan::{self, Op, Unit};
 
@@ -265,58 +267,6 @@ fn translucent_content_is_masked_pixel_by_pixel() {
         translucent,
     );
     assert_soft(&s);
-}
-
-#[test]
-fn content_on_several_canvases_is_clipped_hard() {
-    // A layer in the content: the mask cannot take away from one canvas.
-    let mut layer = group(content());
-    layer.opacity = Animated::Static(0.5);
-    let s = masked(
-        MaskKind::Alpha,
-        false,
-        vec![half(circle(45.0, 45.0, 35.0))],
-        vec![Node::Group(layer)],
-    );
-    let plan = plan::compile(&s, Matrix::IDENTITY).unwrap();
-    assert!(!takes_away(&plan.units));
-}
-
-#[test]
-fn a_gradient_mask_is_clipped_hard() {
-    let gradient = Paint::LinearGradient(LinearGradient {
-        start: AnimatedPoint::fixed(0.0, 0.0),
-        end: AnimatedPoint::fixed(100.0, 0.0),
-        stops: Animated::Static(vec![
-            GradientStop {
-                offset: 0.0,
-                color: WHITE,
-            },
-            GradientStop {
-                offset: 1.0,
-                color: Color::rgba(1.0, 1.0, 1.0, 0.0),
-            },
-        ]),
-        units: GradientUnits::UserSpace,
-        transform: Matrix::IDENTITY,
-        spread: Spread::Pad,
-    });
-    let s = masked(
-        MaskKind::Alpha,
-        false,
-        vec![Node::shape(Shape {
-            paths: vec![circle(45.0, 45.0, 35.0)],
-            fill: Some(Fill {
-                paint: gradient,
-                opacity: Animated::Static(1.0),
-                rule: Default::default(),
-            }),
-            ..Default::default()
-        })],
-        content(),
-    );
-    let plan = plan::compile(&s, Matrix::IDENTITY).unwrap();
-    assert!(!takes_away(&plan.units));
 }
 
 #[test]

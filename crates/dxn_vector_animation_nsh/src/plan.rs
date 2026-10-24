@@ -17,7 +17,7 @@ use dxn_vector_animation::{
     Paint as ScenePaint, PaintOrder, Path, PathEl, Point, Rect, Scene, Shape, ShapePath, Stroke,
     TimeMap, TimeRange, Track, TransformOp, Trim, TrimMode,
     outline::{geometry_path, path_length, trim_paths},
-    transform::{decompose, point_along, unwrap_angles},
+    transform::{decompose, point_along, transform_at, unwrap_angles},
 };
 
 use crate::graph::{Curve, Expr, Graph, MathOp, NodeId, Num, Paint, STEP, TIME, pack};
@@ -80,12 +80,76 @@ pub fn has_effects(node: &Node) -> bool {
     }
 }
 
+/// Whether `node` holds a group with a soft mask (partly transparent, or by
+/// luminance), which a frame's canvas (clipping) does not draw.
+pub fn has_soft_masks(node: &Node) -> bool {
+    fn partial(a: &Animated<f64>) -> bool {
+        match a {
+            Animated::Static(v) => *v < 1.0,
+            Animated::Track(t) => t.keyframes.iter().any(|k| k.value < 1.0),
+        }
+    }
+    fn faint(paint: &ScenePaint) -> bool {
+        match paint {
+            ScenePaint::Solid { color } => match color {
+                Animated::Static(c) => c.a < 1.0,
+                Animated::Track(t) => t.keyframes.iter().any(|k| k.value.a < 1.0),
+            },
+            _ => true,
+        }
+    }
+    fn soft(g: &Group) -> bool {
+        partial(&g.opacity)
+            || g.children.iter().any(|n| match n {
+                Node::Group(g) => soft(g),
+                Node::Shape(s) => {
+                    s.fill
+                        .as_ref()
+                        .is_some_and(|f| partial(&f.opacity) || faint(&f.paint))
+                        || s.stroke
+                            .as_ref()
+                            .is_some_and(|f| partial(&f.opacity) || faint(&f.paint))
+                }
+                Node::Image(_) => true,
+            })
+    }
+    match node {
+        Node::Group(g) => {
+            g.mask.as_ref().is_some_and(|m| {
+                m.kind == dxn_vector_animation::MaskKind::Luminance || soft(&m.content)
+            }) || g.children.iter().any(has_soft_masks)
+        }
+        _ => false,
+    }
+}
+
+/// Whether `node`, sampled, is drawn as an image the reference renderer
+/// makes: it holds effects or soft masks.
+pub fn needs_raster(node: &Node) -> bool {
+    has_effects(node) || has_soft_masks(node)
+}
+
 /// Whether `scene` draws the same at every time: sampled at its keyframes'
 /// span, every frame alike.
 pub fn still(scene: &Scene) -> bool {
     let d = scene.timeline.duration.max(0.0);
     let first = scene.frame_at(0.0);
     (1..=16).all(|k| scene.frame_at(d * f64::from(k) / 16.0) == first)
+}
+
+/// How far `ops` scale lengths, at most over a playback of `duration`.
+fn probe_scale(ops: &[TransformOp], duration: f64) -> f64 {
+    let scale = |t: f64| {
+        let m = transform_at(ops, t);
+        (m.a * m.d - m.b * m.c).abs().sqrt()
+    };
+    if !ops.iter().any(TransformOp::is_animated) {
+        return scale(0.0);
+    }
+    let n = ((duration.max(0.0) * 60.0).ceil() as usize).clamp(1, 600);
+    (0..=n)
+        .map(|k| scale(duration * k as f64 / n as f64))
+        .fold(0.0, f64::max)
 }
 
 /// `scene` drawn through `base` into a `w` × `h` view, wrapped for
@@ -577,12 +641,11 @@ struct Compiler {
     stage: Scene,
     /// Why parts are sampled.
     sampled: Vec<String>,
-    /// Above zero while groups are compiled again with their soft masks
-    /// clipping hard (their content drew on more than one canvas).
-    hard_masks: usize,
     /// While shadows' casters are compiled: whether their silhouette is
     /// all or nothing.
     casting: Option<bool>,
+    /// The display's pixels a point, for what the plan holds as images.
+    pixels: f64,
 }
 
 /// Where the compiler was before a node: what drawing it is undone to.
@@ -625,8 +688,15 @@ fn add_within(g: &mut Group, depth: usize, node: Node) {
     }
 }
 
-/// Compiles `scene` drawn through `base` (the scene's fit into the view).
+/// Compiles `scene` drawn through `base` (the scene's fit into the view),
+/// for a display of a pixel a point.
 pub fn compile(scene: &Scene, base: Matrix) -> Result<Plan, Unsupported> {
+    compile_for(scene, base, 1.0)
+}
+
+/// Compiles `scene` drawn through `base` for a display of `pixels` pixels
+/// a point (what the plan holds as images, masks' images, has as many).
+pub fn compile_for(scene: &Scene, base: Matrix, pixels: f64) -> Result<Plan, Unsupported> {
     let mut c = Compiler {
         g: Graph::default(),
         base,
@@ -646,8 +716,8 @@ pub fn compile(scene: &Scene, base: Matrix) -> Result<Plan, Unsupported> {
             root: Group::new(),
         },
         sampled: Vec::new(),
-        hard_masks: 0,
         casting: None,
+        pixels: if pixels > 0.0 { pixels } else { 1.0 },
     };
     c.group(&scene.root, TIME, 0)?;
     c.flush();
@@ -671,6 +741,29 @@ pub fn from_frame(frame: &Frame, base: Matrix) -> Plan {
         units: vec![Unit::Canvas(closed(ops))],
         sampled: Vec::new(),
     }
+}
+
+/// `units` each taking away what `mask` (operations from the view's
+/// origin) takes away; false where one cannot (a canvas reaching past the
+/// view or over an area, a layer that moves).
+fn mask_units(units: &mut [Unit], mask: &[Op]) -> bool {
+    for unit in units {
+        match unit {
+            Unit::Canvas(ops) => ops.extend(mask.iter().cloned()),
+            Unit::Layer {
+                units,
+                transform: None,
+                ..
+            } => {
+                if !mask_units(units, mask) {
+                    return false;
+                }
+            }
+            Unit::Sampled(_) | Unit::Raster(_) => {}
+            Unit::Wide { .. } | Unit::Area { .. } | Unit::Layer { .. } => return false,
+        }
+    }
+    true
 }
 
 /// `ops` with every `save()` they leave open restored at the end. A canvas
@@ -972,7 +1065,7 @@ impl Compiler {
     /// the part.
     fn sample(&mut self, node: &Node, joins: Option<usize>) -> usize {
         let depth = self.ancestors.len();
-        let raster = has_effects(node);
+        let raster = needs_raster(node);
         let open = self.open();
         if let Some(i) = joins
             && i + 1 == open.units.len()
@@ -1081,13 +1174,16 @@ impl Compiler {
             frame.extend(self.clip(clip, local)?);
         }
         let soft = match &g.mask {
-            Some(mask) => self.soft_mask(mask, local, depth)?,
+            Some(mask) => self.soft_mask(g, mask, local, depth)?,
             None => None,
         };
         // A mask that shows nothing anywhere: nothing of the group to draw
         // (an empty clip is not honoured everywhere).
         if soft.as_ref().is_some_and(mask::SoftMask::hides_all) {
             return Ok(());
+        }
+        if let Some(soft) = &soft {
+            frame.extend(soft.clips.iter().cloned());
         }
         if let Some(mask) = &g.mask
             && soft.is_none()
@@ -1151,17 +1247,23 @@ impl Compiler {
             }
         }
         if let Some(soft) = &soft {
+            let ops = self.soft_mask_ops(soft);
             if self.open().units.len() != units {
-                // The content drew on more than one canvas: the mask clips
-                // hard instead.
-                self.undo(start);
-                self.hard_masks += 1;
-                let done = self.group(g, time, depth);
-                self.hard_masks -= 1;
-                return done;
+                // The content drew on more than one canvas: each takes away
+                // what the mask hides, in the setup of the groups again (a
+                // canvas keeps the fit it starts with; parts the reference
+                // draws are masked in their scenes).
+                let mut setup = vec![Op::Save];
+                setup.extend(self.context.iter().flatten().cloned());
+                setup.extend(ops.iter().cloned());
+                let setup = closed(setup);
+                if !mask_units(&mut self.open().units[units..], &setup) {
+                    // A canvas past the view, or moving.
+                    self.undo(start);
+                    return unsupported("a soft mask of shadows");
+                }
             }
             if !self.open().canvas.is_empty() {
-                let ops = self.soft_mask_ops(soft);
                 self.open().canvas.extend(ops);
             }
         }

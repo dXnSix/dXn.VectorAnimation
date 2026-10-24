@@ -336,8 +336,9 @@ pub fn VectorAnimation(
             return Vec::new();
         }
         let base = fit(&r.loaded.scene, w, h, props.resize_mode.get());
+        let pixels = f64::from(pixel_ratio()).max(1.0);
         if r.native
-            && let Ok(plan) = plan::compile(&r.loaded.scene, base)
+            && let Ok(plan) = plan::compile_for(&r.loaded.scene, base, pixels)
         {
             let nodes = Nodes::new(&plan.graph, time);
             let part = move |unit: &plan::Unit| match unit {
@@ -350,7 +351,7 @@ pub fn VectorAnimation(
             };
             return lower::elements(&plan.units, &nodes, &part);
         }
-        if plan::has_effects(&dxn_vector_animation::Node::Group(
+        if plan::needs_raster(&dxn_vector_animation::Node::Group(
             r.loaded.scene.root.clone(),
         )) {
             let scene = Arc::new(r.loaded.scene.clone());

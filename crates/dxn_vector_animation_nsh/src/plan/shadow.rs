@@ -507,6 +507,42 @@ impl Compiler {
     /// frames, as a layer's transform (`g` not yet among the groups drawn
     /// inside).
     fn chain_transform(&mut self, g: &Group) -> LayerTransform {
+        let times = probe_times(self.stage.timeline.duration);
+        let matrices = self.chain_matrices(g, &times);
+        let mut parts: [Vec<f64>; 6] = Default::default();
+        for m in matrices {
+            let d = decompose(m);
+            let values = [
+                d.translate.0,
+                d.translate.1,
+                d.angle,
+                d.skew.atan().to_degrees(),
+                d.scale.0,
+                d.scale.1,
+            ];
+            for (list, v) in parts.iter_mut().zip(values) {
+                list.push(v);
+            }
+        }
+        unwrap_angles(&mut parts[2]);
+        // Within a twentieth of a point, a hundredth of a degree, a
+        // thousandth of a scale.
+        let tolerances = [0.05, 0.05, 0.01, 0.01, 1e-3, 1e-3];
+        let [tx, ty, rotate, skew, sx, sy] = [0, 1, 2, 3, 4, 5].map(|i| {
+            let n = self.sampled_num(&times, &parts[i], tolerances[i]);
+            Num::Node(self.node(n))
+        });
+        LayerTransform {
+            translate: (tx, ty),
+            rotate,
+            skew,
+            scale: (sx, sy),
+        }
+    }
+
+    /// The matrix from `g`'s lengths to the view at each of `times` (`g` not
+    /// yet among the groups drawn inside), from the scene's frames.
+    pub(super) fn chain_matrices(&self, g: &Group, times: &[f64]) -> Vec<Matrix> {
         let mut probe = shell(g);
         probe.effects = Vec::new();
         probe.clip = None;
@@ -546,42 +582,34 @@ impl Compiler {
             },
             ..self.stage.clone()
         };
-        let times = probe_times(self.stage.timeline.duration);
-        let mut parts: [Vec<f64>; 6] = Default::default();
         let mut last = Matrix::IDENTITY;
-        for &t in &times {
-            if let Some(m) = scene.frame_at(t).items.iter().find_map(|item| match item {
-                Item::Fill { transform, .. } => Some(*transform),
-                _ => None,
-            }) {
-                last = m;
+        times
+            .iter()
+            .map(|&t| {
+                if let Some(m) = scene.frame_at(t).items.iter().find_map(|item| match item {
+                    Item::Fill { transform, .. } => Some(*transform),
+                    _ => None,
+                }) {
+                    last = m;
+                }
+                self.base * last
+            })
+            .collect()
+    }
+
+    /// How many of the view's points a length of `g` takes, at most over
+    /// the playback (`g` not yet among the groups drawn inside).
+    pub(super) fn largest_scale(&self, g: &Group) -> f64 {
+        let scale = |m: Matrix| (m.a * m.d - m.b * m.c).abs().sqrt();
+        match self.still_linear(g) {
+            Some(m) => scale(m),
+            None => {
+                let times = probe_times(self.stage.timeline.duration);
+                self.chain_matrices(g, &times)
+                    .into_iter()
+                    .map(scale)
+                    .fold(0.0, f64::max)
             }
-            let d = decompose(self.base * last);
-            let values = [
-                d.translate.0,
-                d.translate.1,
-                d.angle,
-                d.skew.atan().to_degrees(),
-                d.scale.0,
-                d.scale.1,
-            ];
-            for (list, v) in parts.iter_mut().zip(values) {
-                list.push(v);
-            }
-        }
-        unwrap_angles(&mut parts[2]);
-        // Within a twentieth of a point, a hundredth of a degree, a
-        // thousandth of a scale.
-        let tolerances = [0.05, 0.05, 0.01, 0.01, 1e-3, 1e-3];
-        let [tx, ty, rotate, skew, sx, sy] = [0, 1, 2, 3, 4, 5].map(|i| {
-            let n = self.sampled_num(&times, &parts[i], tolerances[i]);
-            Num::Node(self.node(n))
-        });
-        LayerTransform {
-            translate: (tx, ty),
-            rotate,
-            skew,
-            scale: (sx, sy),
         }
     }
 

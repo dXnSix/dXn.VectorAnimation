@@ -21,11 +21,11 @@ kurbo.workspace = true
 log.workspace = true
 nsh-core.workspace = true
 serde_json.workspace = true
+tiny-skia.workspace = true
 
 [dev-dependencies]
 nsh-engine.workspace = true
 nsh-testing.workspace = true
-tiny-skia.workspace = true
 
 [lints]
 workspace = true
