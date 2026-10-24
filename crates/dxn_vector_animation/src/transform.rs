@@ -99,18 +99,25 @@ pub(crate) fn segments(path: &Path) -> Vec<kurbo::PathSeg> {
     path.to_kurbo().segments().collect()
 }
 
-/// The decomposition CSS interpolates 2D matrices through.
-#[derive(Clone, Copy)]
-struct Decomposed {
-    translate: (f64, f64),
-    scale: (f64, f64),
-    /// Degrees.
-    angle: f64,
-    /// The shear left after removing the rotation.
-    skew: f64,
+/// The decomposition CSS interpolates 2D matrices through:
+/// `translate · rotate(angle) · shear(skew) · scale`, where `shear(k)` is
+/// `[1, 0, k, 1, 0, 0]`. A player animating matrices interpolates these
+/// parts (the angle the shorter way round, see [`unwrap_angles`]) and
+/// composes them again.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Decomposed {
+    /// Translation.
+    pub translate: (f64, f64),
+    /// Scale along x and y.
+    pub scale: (f64, f64),
+    /// Rotation, clockwise degrees.
+    pub angle: f64,
+    /// The shear left after removing the rotation (`x += skew · y`).
+    pub skew: f64,
 }
 
-fn decompose(m: Matrix) -> Decomposed {
+/// `m`'s decomposition.
+pub fn decompose(m: Matrix) -> Decomposed {
     let (mut row0, mut row1) = ((m.a, m.b), (m.c, m.d));
     let mut scale_x = row0.0.hypot(row0.1);
     let mut scale_y;
@@ -142,23 +149,35 @@ fn decompose(m: Matrix) -> Decomposed {
     }
 }
 
-fn recompose(d: Decomposed) -> Matrix {
+/// The matrix of decomposition `d`.
+pub fn recompose(d: Decomposed) -> Matrix {
     Matrix::translate(d.translate.0, d.translate.1)
         * Matrix::rotate(d.angle)
         * Matrix::new(1.0, 0.0, d.skew, 1.0, 0.0, 0.0)
         * Matrix::scale(d.scale.0, d.scale.1)
 }
 
+/// Angles adjusted by whole turns so each one is within 180° of the one
+/// before: interpolated in order, they turn the shorter way round.
+pub fn unwrap_angles(angles: &mut [f64]) {
+    for i in 1..angles.len() {
+        let prev = angles[i - 1];
+        while angles[i] - prev > 180.0 {
+            angles[i] -= 360.0;
+        }
+        while angles[i] - prev < -180.0 {
+            angles[i] += 360.0;
+        }
+    }
+}
+
 /// `a` a fraction `t` of the way to `b`, through their decompositions.
 pub(crate) fn interpolate_matrix(a: Matrix, b: Matrix, t: f64) -> Matrix {
-    let (mut da, db) = (decompose(a), decompose(b));
+    let (da, mut db) = (decompose(a), decompose(b));
     // Turn the shorter way round.
-    let delta = db.angle - da.angle;
-    if delta > 180.0 {
-        da.angle += 360.0;
-    } else if delta < -180.0 {
-        da.angle -= 360.0;
-    }
+    let mut angles = [da.angle, db.angle];
+    unwrap_angles(&mut angles);
+    db.angle = angles[1];
     let lerp = |x: f64, y: f64| x + (y - x) * t;
     recompose(Decomposed {
         translate: (
