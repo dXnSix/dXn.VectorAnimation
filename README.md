@@ -10,7 +10,8 @@ JavaScript and no engine work per frame.
 
 > **Status: phase 1.** The component, playback, the TSX and Rust APIs and an example app, checked headless
 > (`nsh test`), against 53 real animation files, and frame by frame in the iOS simulator, Chrome, the
-> Android emulator, and GTK and GPUI on Linux; not yet on Windows, nor GPUI on macOS.
+> Android emulator, GTK and GPUI on Linux, and GPUI on macOS. Windows is compiled for, not yet run; no real
+> phone has run it yet.
 
 ## Usage
 
@@ -181,8 +182,8 @@ cd examples/check && nsh test check.test.tsx --target ios   # or web, android, l
 cargo run -p dxn_vector_animation_check -- compare examples/check/shots examples/check --out <dir>
 ```
 
-The set is the check app's own scenes (fixtures, spinners, trims, moving gradients) and, with `--corpus`, the
-corpus files the tool lists. The comparison finds the tiles by their border, renders each reference at the
+The set is the check app's own scenes (fixtures, spinners, trims, moving gradients, drop shadows, blurs, soft
+masks and masks whose shapes turn) and, with `--corpus`, the corpus files the tool lists. The comparison finds the tiles by their border, renders each reference at the
 tile's size, and reports the share of pixels that differ, straight and at the best shift of a pixel (a border
 a fraction of a pixel wide moves the content); it writes each pair side by side. The iOS simulator's
 screenshots are Display P3 and converted to sRGB first.
@@ -192,9 +193,22 @@ screenshots are Display P3 and converted to sRGB first.
   patching `nsh-*` to that checkout, as for the gallery.
 - GPUI on macOS photographs nothing while the screen is locked.
 
-On the iOS simulator, Chrome, the Android emulator, and GTK and GPUI on Linux, the tiles differ from the
-reference in under 0.5% of their pixels at the device's scale (up to 3% in Chrome at one pixel a point, where
-a pixel of anti-aliasing is a larger share), except masks of partial opacity or luminance, which clip hard.
+Last run (31 scenes, the check app's 19 and 12 corpus files, each at 25, 50 and 75%):
+
+| Platform | Pixels a point | Tiles off the reference by, at most |
+|---|---|---|
+| iOS simulator | 3 | 0.13% |
+| Android emulator | 2.75 | 1.6% (anti-aliasing of fine strokes and bands) |
+| Chrome | 1 | 2.9% |
+| GTK on Linux | 1 | 2.75% |
+| GPUI on Linux | 1 | 2.5% |
+| GPUI on macOS | 2 | 1.4% on the first two pages; on the last, four tiles photographed in a state that is not the one held |
+
+At one pixel a point a pixel of anti-aliasing is a larger share: the scenes over 0.5% there are corpus files of
+fine detail. Every scene of shadows, blurs and soft masks is within 0.5% on every platform but GPUI on macOS.
+On GPUI on macOS, tiles of the last page show a state of another time after the page changes, also with holds
+four times as long; GPUI on Linux, with the same plans, does not: it is the macOS GPUI host's, not the
+plans'.
 
 ## What playing costs
 
@@ -209,8 +223,11 @@ the platforms' UI threads, and frame times on real phones, are not measured here
 ## Roadmap
 
 1. **Done:** the component with canvases, warped time and playback; the TSX and Rust APIs; the example app;
-   moving trims, dash patterns and gradients on the graph; the iOS simulator and the web.
-2. Windows, and GPUI on macOS; views with bound transforms for groups that only move or fade.
+   moving trims, dash patterns and gradients on the graph; sampling only what the graph cannot express; soft
+   masks; drop shadows and blurs; dotLottie; device checks on iOS, Android, the web, Linux (GTK, GPUI) and
+   GPUI on macOS.
+2. Windows run (it compiles; running it needs a Windows machine or CI), real phones and their frame times, the
+   stale frames of GPUI on macOS, views with bound transforms for groups that only move or fade.
 
 ## License
 
