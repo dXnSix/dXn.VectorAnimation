@@ -291,10 +291,15 @@ pub fn VectorAnimation(
         .overflow_hidden()
         .w(move || px(natural().map_or(0.0, |s| s.0) as f32))
         .h(move || px(natural().map_or(0.0, |s| s.1) as f32))
-        .role(AccessibilityRole::Image)
-        .on_layout(move |frame: &Bounds<Points>| size.set(frame.size));
+        .role(AccessibilityRole::Image);
     root = root.optional_label(move || props.accessibility_label.get());
-    root.child(dynamic(move || {
+    // The canvases' box (inside the view's border), measured: the scene
+    // fits into it.
+    let stage = view()
+        .absolute()
+        .size_full()
+        .on_layout(move |frame: &Bounds<Points>| size.set(frame.size));
+    root.child(stage.child(dynamic(move || {
         let Some(r) = ready.get() else {
             return Vec::new();
         };
@@ -327,7 +332,7 @@ pub fn VectorAnimation(
             .size_full()
             .into_element(),
         ]
-    }))
+    })))
 }
 
 /// Reads `src` into a scene.
