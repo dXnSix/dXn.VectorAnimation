@@ -1,0 +1,43 @@
+[workspace]
+resolver = "3"
+members = ["crates/*"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.95"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/dXnSix/dXn.VectorAnimation.Nsh"
+homepage = "https://github.com/dXnSix/dXn.VectorAnimation.Nsh"
+
+[workspace.dependencies]
+dxn_vector_animation = { git = "https://github.com/dXnSix/dXn.VectorAnimation", branch = "main", features = ["serde"] }
+dxn_vector_animation_lottie = { git = "https://github.com/dXnSix/dXn.VectorAnimation", branch = "main" }
+dxn_vector_animation_render = { git = "https://github.com/dXnSix/dXn.VectorAnimation", branch = "main" }
+dxn_vector_animation_svg = { git = "https://github.com/dXnSix/dXn.VectorAnimation", branch = "main" }
+base64 = "0.23.1"
+log = "0.4"
+# NSH by version requirement: an app's own NSH (crates.io, a checkout, a
+# fork) is the one the player builds with.
+nsh-core = "0.2"
+nsh-engine = { version = "0.2", default-features = false }
+nsh-testing = { version = "0.2", default-features = false }
+serde_json = "1.0.154"
+tiny-skia = { version = "0.12.0", default-features = false, features = ["std", "simd"] }
+
+# This workspace's own builds and tests run on the dXnSix fork of NSH; apps
+# depending on the crate keep theirs.
+[patch.crates-io]
+nsh-core = { git = "https://github.com/dXnSix/nsh", branch = "main" }
+nsh-engine = { git = "https://github.com/dXnSix/nsh", branch = "main" }
+nsh-testing = { git = "https://github.com/dXnSix/nsh", branch = "main" }
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+missing_docs = "warn"
+
+[workspace.lints.clippy]
+dbg_macro = "deny"
+todo = "deny"
+unwrap_used = "deny"
+expect_used = "deny"

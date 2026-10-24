@@ -1,0 +1,5 @@
+{
+  "name": "Vector Animation Gallery",
+  "id": "com.dxn.vectoranimation.gallery",
+  "rust": "../../crates/dxn_vector_animation_nsh"
+}
