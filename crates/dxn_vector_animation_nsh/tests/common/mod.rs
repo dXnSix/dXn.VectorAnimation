@@ -84,6 +84,13 @@ pub fn widest_point(scene: &Scene, time: f64, w: u32, h: u32) -> f64 {
                     replay.run(ops, &mut p);
                     replay.widest.get()
                 }
+                Unit::Wide { margin, ops } => {
+                    let (ew, eh) = wide_size(margin, w, h);
+                    let mut p = sk::Pixmap::new(ew, eh).unwrap();
+                    let mut replay = Replay::new(g, t, ew, eh);
+                    replay.run(ops, &mut p);
+                    replay.widest.get()
+                }
                 Unit::Layer { units, .. } => walk(units, g, t, w, h, base),
                 Unit::Sampled(part) => {
                     let plan = plan::from_frame(&part.frame_at(t), base);
@@ -105,6 +112,22 @@ fn units(list: &[Unit], g: &Graph, t: f64, w: u32, h: u32, base: Matrix) -> sk::
             Unit::Canvas(ops) => {
                 let mut p = sk::Pixmap::new(w, h).unwrap();
                 Replay::new(g, t, w, h).run(ops, &mut p);
+                (p, 1.0, BlendMode::Normal)
+            }
+            // A canvas reaching past the view, shown within it.
+            Unit::Wide { margin, ops } => {
+                let (ew, eh) = wide_size(margin, w, h);
+                let mut big = sk::Pixmap::new(ew, eh).unwrap();
+                Replay::new(g, t, ew, eh).run(ops, &mut big);
+                let mut p = sk::Pixmap::new(w, h).unwrap();
+                p.draw_pixmap(
+                    -(margin[0] as i32),
+                    -(margin[1] as i32),
+                    big.as_ref(),
+                    &sk::PixmapPaint::default(),
+                    sk::Transform::identity(),
+                    None,
+                );
                 (p, 1.0, BlendMode::Normal)
             }
             Unit::Layer {
@@ -155,6 +178,15 @@ fn units(list: &[Unit], g: &Graph, t: f64, w: u32, h: u32, base: Matrix) -> sk::
         );
     }
     out
+}
+
+/// The pixels of a canvas reaching `margin` past a `w` × `h` view (whole
+/// points, a pixel each).
+fn wide_size(margin: &[f64; 4], w: u32, h: u32) -> (u32, u32) {
+    (
+        w + (margin[0] + margin[2]) as u32,
+        h + (margin[1] + margin[3]) as u32,
+    )
 }
 
 #[derive(Clone)]

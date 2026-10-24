@@ -10,7 +10,7 @@ use dxn_vector_animation_nsh::plan::{self, Op, Unit};
 fn canvases(units: &[Unit], out: &mut Vec<Vec<Op>>) {
     for u in units {
         match u {
-            Unit::Canvas(ops) => out.push(ops.clone()),
+            Unit::Canvas(ops) | Unit::Wide { ops, .. } => out.push(ops.clone()),
             Unit::Layer { units, .. } => canvases(units, out),
             Unit::Sampled(_) | Unit::Raster(_) => {}
         }

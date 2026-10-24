@@ -1,7 +1,8 @@
 //! Drop shadows and blurs. Still shadows play on the graph: a canvas under
 //! the content draws it with the shadow and takes it away again, the
-//! shadow's opacity (which may move) its layer's. Blurs, and shadows that
-//! move otherwise, are drawn as images the reference renderer makes.
+//! shadow's opacity (which may move) its layer's. Blurs, and shadows of
+//! more than one canvas, are drawn as images the reference renderer makes.
+//! (Shadows that move, or show through the content: `shadow_casting`.)
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
@@ -35,6 +36,13 @@ fn worst(scene: &Scene) -> f64 {
 fn kinds(units: &[Unit]) -> (usize, usize) {
     units.iter().fold((0, 0), |(s, r), u| match u {
         Unit::Canvas(ops) => (
+            s + usize::from(
+                ops.iter()
+                    .any(|op| matches!(op, Op::Shadow { color, .. } if color & 0xff > 0)),
+            ),
+            r,
+        ),
+        Unit::Wide { ops, .. } => (
             s + usize::from(
                 ops.iter()
                     .any(|op| matches!(op, Op::Shadow { color, .. } if color & 0xff > 0)),
@@ -131,6 +139,7 @@ fn shadow(alpha: Animated<f64>, offset: AnimatedPoint, blur: f64, knockout: bool
         offset,
         blur: Animated::Static(blur),
         knockout,
+        hard: false,
     })
 }
 
@@ -242,25 +251,6 @@ fn a_blur_is_drawn_as_the_reference_draws_it() {
 }
 
 #[test]
-fn a_shadow_that_moves_is_drawn_as_the_reference_draws_it() {
-    let s = scene(
-        vec![shadow(
-            Animated::Static(0.5),
-            AnimatedPoint {
-                x: track(&[(0.0, 0.0), (2.0, 10.0)]),
-                y: Animated::Static(5.0),
-            },
-            3.0,
-            true,
-        )],
-        1.0,
-    );
-    let plan = plan::compile(&s, Matrix::IDENTITY).unwrap();
-    assert_eq!(kinds(&plan.units), (0, 1));
-    assert!(worst(&s) <= 0.001);
-}
-
-#[test]
 fn a_shadow_of_layers_is_drawn_as_the_reference_draws_it() {
     // A faded group of two inside: a layer of its own, a second canvas.
     let mut s = scene(
@@ -358,6 +348,7 @@ fn a_shadow_whose_blur_moves_fades_between_blurs() {
             offset: AnimatedPoint::fixed(2.0, 5.0),
             blur: track(&[(0.0, 2.0), (2.0, 9.0)]),
             knockout: true,
+            hard: false,
         })],
         1.0,
     );

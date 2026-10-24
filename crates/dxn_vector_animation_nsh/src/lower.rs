@@ -112,6 +112,24 @@ pub(crate) fn elements(
                 let painter = painter(ops, nodes);
                 canvas(painter).absolute().size_full().into_element()
             }
+            Unit::Wide {
+                margin: [left, top, right, bottom],
+                ops,
+            } => {
+                let painter = painter(ops, nodes);
+                let wide = canvas(painter)
+                    .absolute()
+                    .left(px(-*left as f32))
+                    .top(px(-*top as f32))
+                    .right(px(-*right as f32))
+                    .bottom(px(-*bottom as f32));
+                view()
+                    .absolute()
+                    .size_full()
+                    .overflow_hidden()
+                    .child(wide)
+                    .into_element()
+            }
             Unit::Sampled(_) | Unit::Raster(_) => part(unit),
             Unit::Layer {
                 opacity,
@@ -250,10 +268,11 @@ pub(crate) fn painter(ops: &[Op], nodes: &Nodes) -> Painter {
                 blur,
                 offset,
             } => {
+                let k = shadow_scale();
                 p = p
                     .op(CanvasOp::ShadowColor(Color(*color)))
-                    .op(CanvasOp::ShadowBlur(px(*blur as f32)));
-                CanvasOp::ShadowOffset(Point::new(px(offset.0 as f32), px(offset.1 as f32)))
+                    .op(CanvasOp::ShadowBlur(px(*blur as f32 * k)));
+                CanvasOp::ShadowOffset(Point::new(px(offset.0 as f32 * k), px(offset.1 as f32 * k)))
             }
             Op::Image(data, rect) => {
                 use base64::Engine;
@@ -273,6 +292,20 @@ pub(crate) fn painter(ops: &[Op], nodes: &Nodes) -> Painter {
         p = p.op(recorded);
     }
     p
+}
+
+/// Points to the units a canvas shadow is measured in. The web canvas sets
+/// `shadowBlur` and `shadowOffset` as given, in the canvas' pixels (the
+/// transform does not move shadows), where the other platforms take points.
+fn shadow_scale() -> f32 {
+    #[cfg(target_arch = "wasm32")]
+    {
+        nsh_core::ui::prelude::pixel_ratio().max(1.0)
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        1.0
+    }
 }
 
 fn paint(p: &mut Painter, c: Paint, nodes: &Nodes) -> CanvasPaint {

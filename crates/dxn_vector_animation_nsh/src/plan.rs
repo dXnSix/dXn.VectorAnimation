@@ -12,12 +12,12 @@
 use std::sync::Arc;
 
 use dxn_vector_animation::{
-    Animated, BlendMode, Clip, Color, Dash, Direction, Effect, Fill, FillRule, Frame, FramePaint,
-    Geometry, Group, ImageData, Item, Keyframe, LineCap, LineJoin, Mask, Matrix, MotionPath,
-    MotionRotate, Node, Paint as ScenePaint, PaintOrder, Path, PathEl, Point, Rect, Scene, Shape,
-    ShapePath, Stroke, TimeMap, TimeRange, Track, TransformOp, Trim, TrimMode,
+    Animated, BlendMode, Clip, Dash, Direction, Fill, FillRule, Frame, FramePaint, Geometry, Group,
+    ImageData, Item, Keyframe, LineCap, LineJoin, Mask, Matrix, MotionPath, MotionRotate, Node,
+    Paint as ScenePaint, PaintOrder, Path, PathEl, Point, Rect, Scene, Shape, ShapePath, Stroke,
+    TimeMap, TimeRange, Track, TransformOp, Trim, TrimMode,
     outline::{geometry_path, path_length, trim_paths},
-    transform::{decompose, point_along, transform_at, unwrap_angles},
+    transform::{decompose, point_along, unwrap_angles},
 };
 
 use crate::graph::{Curve, Expr, Graph, MathOp, NodeId, Num, Paint, STEP, TIME, pack};
@@ -25,6 +25,7 @@ use crate::span;
 
 mod mask;
 mod paint;
+mod shadow;
 
 use paint::Painting;
 
@@ -431,6 +432,16 @@ pub enum Unit {
     /// that move), drawn as an image the reference renderer makes ([`raster`]):
     /// once where it does not move, frame by frame where it does.
     Raster(Arc<Scene>),
+    /// A canvas reaching past the view by `margin` points (left, top,
+    /// right, bottom), shown within the view only (what it draws past the
+    /// view casts shadows into it); its operations in its own coordinates,
+    /// the view's origin at (left, top).
+    Wide {
+        /// How far past the view it reaches on each side.
+        margin: [f64; 4],
+        /// Its operations.
+        ops: Vec<Op>,
+    },
     /// A view the size of the view over the units below it.
     Layer {
         /// Its opacity.
@@ -490,26 +501,9 @@ struct Compiler {
     /// Above zero while groups are compiled again with their soft masks
     /// clipping hard (their content drew on more than one canvas).
     hard_masks: usize,
-}
-
-/// How far apart, at most, the blurs a moving shadow blur is drawn at are:
-/// a share of the smaller (or a length of the group, for small ones).
-const BLUR_STEP: f64 = 1.0;
-const BLUR_RATIO: f64 = 0.3;
-
-/// The most blurs a moving shadow blur is drawn at.
-const BLUR_LEVELS: usize = 10;
-
-/// A drop shadow as the canvas draws it.
-struct CanvasShadow {
-    /// Opaque (`0xRRGGBBAA`).
-    color: u32,
-    /// Its opacity.
-    alpha: Num,
-    /// Twice the deviation of its blur, in the view's points.
-    blur: f64,
-    /// In the view's points.
-    offset: (f64, f64),
+    /// While shadows' casters are compiled: whether their silhouette is
+    /// all or nothing.
+    casting: Option<bool>,
 }
 
 /// Where the compiler was before a node: what drawing it is undone to.
@@ -574,6 +568,7 @@ pub fn compile(scene: &Scene, base: Matrix) -> Result<Plan, Unsupported> {
         },
         sampled: Vec::new(),
         hard_masks: 0,
+        casting: None,
     };
     c.group(&scene.root, TIME, 0)?;
     c.flush();
@@ -849,146 +844,6 @@ impl Compiler {
         }
     }
 
-    /// The drop shadows of `g` the canvas draws: still blurs, offsets and
-    /// colors (their opacity may move), in the view's points through the
-    /// group's transform as it starts; an error for effects it does not
-    /// draw (blurs, shadows that move), which are rasterized.
-    fn canvas_shadows(
-        &mut self,
-        g: &Group,
-        local: NodeId,
-    ) -> Result<Vec<CanvasShadow>, Unsupported> {
-        if g.effects.is_empty() {
-            return Ok(Vec::new());
-        }
-        let mut m = self.base;
-        for (ancestor, _) in &self.ancestors {
-            m = m * transform_at(&ancestor.transform, 0.0);
-        }
-        m = m * transform_at(&g.transform, 0.0);
-        let scale = (m.a * m.d - m.b * m.c).abs().sqrt();
-        let mut out = Vec::new();
-        for effect in &g.effects {
-            let Effect::DropShadow(shadow) = effect else {
-                return unsupported("a blur");
-            };
-            let (Some(&dx), Some(&dy)) = (shadow.offset.x.as_static(), shadow.offset.y.as_static())
-            else {
-                return unsupported("a drop shadow that moves");
-            };
-            // A blur that moves: shadows at blurs along its way, faded into
-            // one another as it moves.
-            let levels: Vec<(f64, Num)> = match &shadow.blur {
-                Animated::Static(b) => vec![(b.max(0.0), Num::Const(1.0))],
-                moving => {
-                    let times = sample_times(&[moving]);
-                    let (lo, hi) = min_max(times.iter().map(|&t| moving.sample(t).max(0.0)));
-                    // Each a step past the one before: a share of it, or
-                    // a length at least.
-                    let mut at = vec![lo];
-                    while let Some(&last) = at.last()
-                        && last < hi
-                    {
-                        if at.len() >= BLUR_LEVELS {
-                            return unsupported("a drop shadow whose blur moves far");
-                        }
-                        at.push((last + BLUR_STEP.max(last * BLUR_RATIO)).min(hi));
-                    }
-                    if at.len() < 2 {
-                        at.push(hi + BLUR_STEP);
-                    }
-                    let n = at.len() - 1;
-                    let blur = self.g.track(moving, local, |v| v.max(0.0));
-                    (0..=n)
-                        .map(|k| {
-                            let (inputs, outputs): (Vec<f64>, Vec<f64>) = match k {
-                                0 => (vec![at[0], at[1]], vec![1.0, 0.0]),
-                                k if k == n => (vec![at[n - 1], at[n]], vec![0.0, 1.0]),
-                                k => (vec![at[k - 1], at[k], at[k + 1]], vec![0.0, 1.0, 0.0]),
-                            };
-                            (at[k], self.g.lookup(blur, &inputs, &outputs))
-                        })
-                        .collect()
-                }
-            };
-            let colors: Vec<Color> = match &shadow.color {
-                Animated::Static(c) => vec![*c],
-                Animated::Track(t) => t.keyframes.iter().map(|k| k.value).collect(),
-            };
-            let Some(first) = colors.first().copied() else {
-                continue;
-            };
-            if colors
-                .iter()
-                .any(|c| (c.r, c.g, c.b) != (first.r, first.g, first.b))
-            {
-                return unsupported("a drop shadow changing color");
-            }
-            let alpha = match &shadow.color {
-                Animated::Static(c) => Num::Const(c.a.clamp(0.0, 1.0)),
-                Animated::Track(t) => {
-                    let a = Animated::Track(Track::new(
-                        t.keyframes
-                            .iter()
-                            .map(|k| Keyframe::new(k.time, k.value.a, k.easing.clone()))
-                            .collect(),
-                    ));
-                    self.g.track(&a, local, |v| v.clamp(0.0, 1.0))
-                }
-            };
-            for (blur, weight) in levels {
-                let alpha = self.mul(alpha, weight);
-                out.push(CanvasShadow {
-                    color: pack(first.with_opacity(1.0)) | 0xff,
-                    alpha,
-                    blur: 2.0 * blur * scale,
-                    offset: (m.a * dx + m.c * dy, m.b * dx + m.d * dy),
-                });
-            }
-        }
-        Ok(out)
-    }
-
-    /// The layer of `shadow` cast by `content` (a canvas's operations): the
-    /// content drawn with the shadow, then taken away (as opaque as it
-    /// covers, the shadow hidden under it), the shadow's opacity the
-    /// layer's.
-    fn shadow_unit(&mut self, content: &[Op], shadow: CanvasShadow) -> Unit {
-        let mut ops = vec![
-            Op::Save,
-            Op::Shadow {
-                color: shadow.color,
-                blur: shadow.blur,
-                offset: shadow.offset,
-            },
-        ];
-        ops.extend(content.iter().cloned());
-        ops.extend([
-            Op::Shadow {
-                color: 0,
-                blur: 0.0,
-                offset: (0.0, 0.0),
-            },
-            Op::Blend(BlendMode::DestinationOut),
-        ]);
-        for op in content {
-            ops.push(match op {
-                Op::FillColor(_) | Op::FillGradient(_) => Op::FillColor(Paint::Const(0x0000_00ff)),
-                Op::StrokeColor(_) | Op::StrokeGradient(_) => {
-                    Op::StrokeColor(Paint::Const(0x0000_00ff))
-                }
-                Op::GlobalAlpha(a) => Op::GlobalAlpha(self.g.step(*a, 0.0, true)),
-                other => other.clone(),
-            });
-        }
-        ops.push(Op::Restore);
-        Unit::Layer {
-            opacity: shadow.alpha,
-            blend: BlendMode::Normal,
-            units: vec![Unit::Canvas(ops)],
-        }
-    }
-
     /// Where it is now.
     fn mark(&mut self) -> Mark {
         let (layers, graph, context, ancestors) = (
@@ -1122,6 +977,12 @@ impl Compiler {
         if depth > 128 {
             return unsupported("groups nested too deep");
         }
+        if let Some(hard) = self.casting {
+            if !g.effects.is_empty() {
+                return unsupported("a shadow of a shadow");
+            }
+            return self.cast_group(g, time, depth, hard);
+        }
         let start = self.mark();
         let visible = match g.active {
             Some(range) => self.visibility(range, time),
@@ -1134,7 +995,7 @@ impl Compiler {
             Some(map) => self.local_time(map, time),
             None => time,
         };
-        let mut shadows = self.canvas_shadows(g, local)?;
+        let shadows = self.canvas_shadows(g, local)?;
         let mut frame = vec![Op::Save];
         frame.extend(self.transform(&g.transform, local)?);
         if let Some(clip) = &g.clip {
@@ -1197,20 +1058,7 @@ impl Compiler {
         let mut last: Option<usize> = None;
         for child in &g.children {
             let mark = self.mark();
-            let done = match child {
-                Node::Group(child) => self.group(child, local, depth + 1),
-                Node::Shape(shape) => self.shape(shape, local),
-                Node::Image(image) => {
-                    let alpha = self.open().alpha;
-                    self.draw(vec![
-                        Op::Save,
-                        Op::GlobalAlpha(alpha),
-                        Op::Image(image.data.clone(), image.rect),
-                        Op::Restore,
-                    ]);
-                    Ok(())
-                }
-            };
+            let done = self.child(child, local, depth);
             // What the graph cannot express is sampled, that part alone.
             if let Err(Unsupported(why)) = done {
                 self.undo(mark);
@@ -1248,12 +1096,21 @@ impl Compiler {
                 self.undo(start);
                 return unsupported("a drop shadow of more than one canvas");
             }
-            if content.is_empty() {
-                shadows.clear();
-            }
-            for (i, shadow) in shadows.into_iter().enumerate() {
-                let unit = self.shadow_unit(&content, shadow);
-                self.open().units.insert(units + i, unit);
+            if !content.is_empty() {
+                // The canvas starts with the fit and the setup of the groups
+                // it is in, this one's last.
+                let outer = 1 + self.context.iter().map(Vec::len).sum::<usize>();
+                match self.shadow_units(g, local, depth, &content, outer, shadows) {
+                    Ok(list) => {
+                        for (i, unit) in list.into_iter().enumerate() {
+                            self.open().units.insert(units + i, unit);
+                        }
+                    }
+                    Err(why) => {
+                        self.undo(start);
+                        return Err(why);
+                    }
+                }
             }
         }
         self.ancestors.pop();
@@ -1275,6 +1132,29 @@ impl Compiler {
             self.open().alpha = outer_alpha;
         }
         Ok(())
+    }
+
+    /// A child of a group at `depth` drawn at `time` (what is unsupported
+    /// is left to the group).
+    fn child(&mut self, child: &Node, time: NodeId, depth: usize) -> Result<(), Unsupported> {
+        match child {
+            Node::Group(child) => self.group(child, time, depth + 1),
+            Node::Shape(shape) => self.shape(shape, time),
+            Node::Image(image) => {
+                let alpha = self.open().alpha;
+                let alpha = match self.casting {
+                    Some(hard) => self.hardened(alpha, hard),
+                    None => alpha,
+                };
+                self.draw(vec![
+                    Op::Save,
+                    Op::GlobalAlpha(alpha),
+                    Op::Image(image.data.clone(), image.rect),
+                    Op::Restore,
+                ]);
+                Ok(())
+            }
+        }
     }
 
     /// 1 while `range` holds `time`, else 0.
@@ -1753,15 +1633,36 @@ impl Compiler {
         if !switches.is_empty() {
             return self.shape_windows(s, &switches, time);
         }
+        // A shadow's caster: its silhouette.
+        let owned;
+        let s = match self.casting {
+            Some(hard) => {
+                owned = shadow::silhouette(s, hard);
+                &owned
+            }
+            None => s,
+        };
         let alpha = self.open().alpha;
-        let fill = match &s.fill {
+        let mut fill = match &s.fill {
             Some(fill) => self.fill(s, fill, time, alpha)?,
             None => (Vec::new(), false),
         };
-        let stroke = match &s.stroke {
+        let mut stroke = match &s.stroke {
             Some(stroke) => self.stroke(s, stroke, time, alpha)?,
             None => (Vec::new(), false),
         };
+        if let Some(hard) = self.casting {
+            for (ops, alone) in [&mut fill, &mut stroke] {
+                if *alone {
+                    return unsupported("a shadow of a paint of its own canvas");
+                }
+                for op in ops.iter_mut() {
+                    if let Op::GlobalAlpha(a) = op {
+                        *a = self.hardened(*a, hard);
+                    }
+                }
+            }
+        }
         let (first, second) = match s.paint_order {
             PaintOrder::FillFirst => (fill, stroke),
             PaintOrder::StrokeFirst => (stroke, fill),
