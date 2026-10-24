@@ -12,16 +12,20 @@
 use std::sync::Arc;
 
 use dxn_vector_animation::{
-    Animated, BlendMode, Clip, Dash, Direction, Fill, FillRule, Frame, FramePaint, Geometry,
-    GradientUnits, Group, ImageData, Item, LineCap, LineJoin, Mask, Matrix, MotionPath,
-    MotionRotate, Node, Paint as ScenePaint, PaintOrder, Path, PathEl, Point, Rect, Scene, Shape,
-    ShapePath, Stroke, TimeMap, TimeRange, TransformOp, Trim, TrimMode,
+    Animated, BlendMode, Clip, Dash, Direction, Fill, FillRule, Frame, FramePaint, Geometry, Group,
+    ImageData, Item, LineCap, LineJoin, Mask, Matrix, MotionPath, MotionRotate, Node,
+    Paint as ScenePaint, PaintOrder, Path, PathEl, Point, Rect, Scene, Shape, ShapePath, Stroke,
+    TimeMap, TimeRange, TransformOp, Trim, TrimMode,
     outline::{geometry_path, path_length, trim_paths},
     transform::{decompose, point_along, unwrap_angles},
 };
 
 use crate::graph::{Curve, Expr, Graph, MathOp, NodeId, Num, Paint, STEP, TIME, pack};
 use crate::span;
+
+mod paint;
+
+use paint::Painting;
 
 /// A rectangle far larger than any scene: what an inverted mask shows
 /// outside its shapes.
@@ -949,21 +953,28 @@ impl Compiler {
         let alpha = self.open().alpha;
         let fill = match &s.fill {
             Some(fill) => self.fill(s, fill, time, alpha)?,
-            None => Vec::new(),
+            None => (Vec::new(), false),
         };
         let stroke = match &s.stroke {
             Some(stroke) => self.stroke(s, stroke, time, alpha)?,
-            None => Vec::new(),
+            None => (Vec::new(), false),
         };
         let (first, second) = match s.paint_order {
             PaintOrder::FillFirst => (fill, stroke),
             PaintOrder::StrokeFirst => (stroke, fill),
         };
-        if !first.is_empty() {
-            self.draw(first);
-        }
-        if !second.is_empty() {
-            self.draw(second);
+        for (ops, alone) in [first, second] {
+            if ops.is_empty() {
+                continue;
+            }
+            // A paint that adds gradients up draws on a canvas of its own.
+            if alone {
+                self.flush();
+                self.draw(ops);
+                self.flush();
+            } else {
+                self.draw(ops);
+            }
         }
         Ok(())
     }
@@ -989,50 +1000,63 @@ impl Compiler {
         Ok(ops)
     }
 
+    /// A shape's fill, and whether it needs a canvas of its own.
     fn fill(
         &mut self,
         s: &Shape,
         fill: &Fill,
         time: NodeId,
         alpha: Num,
-    ) -> Result<Vec<Op>, Unsupported> {
+    ) -> Result<(Vec<Op>, bool), Unsupported> {
         let mut ops = vec![Op::Save];
         ops.extend(self.outline(s, time)?);
         let opacity = self.g.track(&fill.opacity, time, |o| o.clamp(0.0, 1.0));
         let a = self.mul(alpha, opacity);
-        ops.push(Op::GlobalAlpha(a));
+        let mut alone = false;
         match &fill.paint {
             ScenePaint::Solid { color } => {
+                ops.push(Op::GlobalAlpha(a));
                 ops.push(Op::FillColor(self.g.color_track(color, time, 1.0)));
                 ops.push(Op::Fill(fill.rule));
             }
-            gradient => {
-                let (g, m) = self.gradient(gradient, s)?;
-                // The path is built already: a transform now moves the
-                // gradient only.
-                if m != Matrix::IDENTITY {
-                    ops.push(Op::Transform(consts(m)));
+            gradient => match self.painting(gradient, s, time)? {
+                Painting::One { gradient, m, place } => {
+                    ops.push(Op::GlobalAlpha(a));
+                    // The path is built already: a transform now moves the
+                    // gradient only.
+                    if m != Matrix::IDENTITY {
+                        ops.push(Op::Transform(consts(m)));
+                    }
+                    if let Some(place) = place {
+                        ops.push(Op::Transform(place));
+                    }
+                    ops.push(Op::FillGradient(gradient));
+                    ops.push(Op::Fill(fill.rule));
                 }
-                ops.push(Op::FillGradient(g));
-                ops.push(Op::Fill(fill.rule));
-            }
+                painting => {
+                    ops.push(Op::Clip(fill.rule));
+                    ops.extend(self.plane(&painting, a));
+                    alone = painting.alone();
+                }
+            },
         }
         ops.push(Op::Restore);
-        Ok(ops)
+        Ok((ops, alone))
     }
 
+    /// A shape's stroke, and whether it needs a canvas of its own.
     fn stroke(
         &mut self,
         s: &Shape,
         stroke: &Stroke,
         time: NodeId,
         alpha: Num,
-    ) -> Result<Vec<Op>, Unsupported> {
+    ) -> Result<(Vec<Op>, bool), Unsupported> {
         let opacity = self.g.track(&stroke.opacity, time, |o| o.clamp(0.0, 1.0));
         let a = self.mul(alpha, opacity);
         let width = self.g.track(&stroke.width, time, |w| w.max(0.0));
         if width.is(0.0) {
-            return Ok(Vec::new());
+            return Ok((Vec::new(), false));
         }
         let mut style = vec![
             Op::LineWidth(width),
@@ -1044,13 +1068,15 @@ impl Compiler {
             ScenePaint::Solid { color } => {
                 style.push(Op::StrokeColor(self.g.color_track(color, time, 1.0)))
             }
-            gradient => {
-                let (g, m) = self.gradient(gradient, s)?;
-                if m != Matrix::IDENTITY {
-                    return unsupported("a transformed gradient on a stroke");
-                }
-                style.push(Op::StrokeGradient(g));
-            }
+            gradient => match self.painting(gradient, s, time)? {
+                Painting::One {
+                    gradient,
+                    m,
+                    place: None,
+                } if m == Matrix::IDENTITY => style.push(Op::StrokeGradient(gradient)),
+                // A transform set for the gradient would scale the stroke.
+                painting => return self.painted_stroke(s, stroke, &painting, a),
+            },
         }
         if let Some(trim) = &s.trim
             && (trim.start.is_animated() || trim.end.is_animated() || trim.offset.is_animated())
@@ -1058,7 +1084,7 @@ impl Compiler {
             if stroke.dash.is_some() {
                 return unsupported("a moving trim of a dashed stroke");
             }
-            return self.moving_trim(s, trim, time, a, &style);
+            return Ok((self.moving_trim(s, trim, time, a, &style)?, false));
         }
         if let Some(dash) = &stroke.dash
             && dash.array.iter().any(Animated::is_animated)
@@ -1066,7 +1092,7 @@ impl Compiler {
             if s.trim.is_some() {
                 return unsupported("an animated dash pattern of a trimmed stroke");
             }
-            return self.moving_dash(s, dash, time, a, &style);
+            return Ok((self.moving_dash(s, dash, time, a, &style)?, false));
         }
         let mut ops = vec![Op::Save];
         ops.extend(self.outline(s, time)?);
@@ -1086,7 +1112,7 @@ impl Compiler {
         }
         ops.push(Op::Stroke);
         ops.push(Op::Restore);
-        Ok(ops)
+        Ok((ops, false))
     }
 
     /// A trim that moves, as the reference trims: from the smaller of start
@@ -1292,66 +1318,6 @@ impl Compiler {
         ops.push(Op::Stroke);
         ops.push(Op::Restore);
         ops
-    }
-
-    /// A scene gradient as a canvas gradient and the transform to set for
-    /// it after the path is built.
-    fn gradient(
-        &mut self,
-        paint: &ScenePaint,
-        s: &Shape,
-    ) -> Result<(Arc<Gradient>, Matrix), Unsupported> {
-        let stops_of = |stops: &Animated<Vec<dxn_vector_animation::GradientStop>>| match stops {
-            Animated::Static(list) => Ok(list.iter().map(|s| (s.offset, pack(s.color))).collect()),
-            Animated::Track(_) => unsupported("animated gradient colors"),
-        };
-        let space = |units: GradientUnits, transform: Matrix| -> Result<Matrix, Unsupported> {
-            match units {
-                GradientUnits::UserSpace => Ok(transform),
-                GradientUnits::BoundingBox => {
-                    let mut all = Path::new();
-                    for p in static_paths(s)? {
-                        all.extend(&p);
-                    }
-                    let b = all
-                        .bounds()
-                        .ok_or_else(|| Unsupported("an empty gradient box".into()))?;
-                    Ok(Matrix::new(b.width, 0.0, 0.0, b.height, b.x, b.y) * transform)
-                }
-            }
-        };
-        match paint {
-            ScenePaint::LinearGradient(g) => {
-                if g.start.is_animated() || g.end.is_animated() {
-                    return unsupported("a moving gradient");
-                }
-                let m = space(g.units, g.transform)?;
-                Ok((
-                    Arc::new(Gradient::Linear {
-                        start: g.start.sample(0.0),
-                        end: g.end.sample(0.0),
-                        stops: stops_of(&g.stops)?,
-                    }),
-                    m,
-                ))
-            }
-            ScenePaint::RadialGradient(g) => {
-                if g.center.is_animated() || g.focal.is_animated() || g.radius.is_animated() {
-                    return unsupported("a moving gradient");
-                }
-                let m = space(g.units, g.transform)?;
-                Ok((
-                    Arc::new(Gradient::Radial {
-                        focal: g.focal.sample(0.0),
-                        center: g.center.sample(0.0),
-                        radius: g.radius.sample(0.0),
-                        stops: stops_of(&g.stops)?,
-                    }),
-                    m,
-                ))
-            }
-            ScenePaint::Solid { .. } => unsupported("a color as a gradient"),
-        }
     }
 }
 

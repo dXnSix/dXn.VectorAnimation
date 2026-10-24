@@ -86,8 +86,15 @@ The view is the animation's own size unless the app sizes it.
   by their offset, Figma's path trims, dash lengths that change), the part is a path of its own whose points
   the graph moves: each segment cut where the part starts and ends, from lookups of the outline sampled by
   length.
-- **What the graph cannot express** (gradients that move, dash patterns of several dashes that move, animated
-  stars, paths morphing between different commands) is sampled frame by frame on the engine thread
+- **Gradients that move.** NSH's canvas gradients are still, so a gradient whose ends move is a still one
+  placed by a transform the graph moves (a radial one too, while its focal point keeps its place within the
+  circle). One whose colors change is its keyframes' gradients faded into one another; a linear one whose
+  stops move (Figma's shines) is a gradient of its own between each two stops, in bands the graph moves.
+  Paints of several gradients are added up on a canvas of their own, within a clip of the shape; a stroke so
+  painted clips to its outline.
+- **What the graph cannot express** (gradient stops whose colors and places both change, radial gradients
+  whose stops move, dash patterns of several dashes that move, animated stars, paths morphing between
+  different commands) is sampled frame by frame on the engine thread
   instead, for the whole scene; the reason is logged.
 - **The web** plays it the same way: NSH's web runtime replays canvases with Canvas 2D and runs the animation
   graph on the browser's frames.
@@ -105,7 +112,9 @@ is the one it uses. It uses NSH's public API alone: Rust components, the canvas 
 composites. This workspace's own builds and tests take the dXnSix fork of NSH (`[patch.crates-io]`).
 
 Paths built under a transform (shapes whose outlines move apart from their stroke, clips and masks of moving
-shapes) rely on Canvas 2D's rule that a path's points are placed as they are added.
+shapes) rely on Canvas 2D's rule that a path's points are placed as they are added. The player composites
+only with `lighter` and source-over: the platforms' canvases differ on operations that clear what lies
+outside the drawing (`destination-in`).
 
 ## Development
 
