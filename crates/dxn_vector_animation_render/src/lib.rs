@@ -136,13 +136,14 @@ fn draw_over(frame: &Frame, w: u32, h: u32, base: Matrix) -> Option<sk::Pixmap> 
 
 /// How far past each edge (left, top, right, bottom; pixels) of a `w` ×
 /// `h` pixmap `frame` is drawn into through `base`, for what its layers'
-/// effects take from there: as far as their shadows' offsets and three
-/// deviations of their blurs reach, past each edge anything is drawn
-/// within that reach of (a blur spreads it past the edge and back), at
-/// most the larger side.
+/// effects take from there: as far as anything is drawn past the edge and
+/// their blurs spread it (three deviations; what spreads past an edge
+/// comes back), within as far as their shadows' offsets and blurs reach,
+/// at most the larger side.
 fn overscan(frame: &Frame, base: Matrix, w: u32, h: u32) -> [u32; 4] {
     let scale = base.a.hypot(base.b).max(base.c.hypot(base.d));
-    let reach = frame
+    let (mut reach, mut spread) = (0.0f64, 0.0f64);
+    for effect in frame
         .items
         .iter()
         .filter_map(|item| match item {
@@ -150,26 +151,29 @@ fn overscan(frame: &Frame, base: Matrix, w: u32, h: u32) -> [u32; 4] {
             _ => None,
         })
         .flatten()
-        .map(|effect| match *effect {
+    {
+        let (offset, sigma) = match *effect {
             FrameEffect::DropShadow { offset, sigma, .. } => {
-                (offset.x.abs() + offset.y.abs() + 3.0 * sigma) * scale
+                (offset.x.abs() + offset.y.abs(), sigma)
             }
-            FrameEffect::Blur { sigma } => 3.0 * sigma * scale,
-        })
-        .fold(0.0f64, f64::max)
-        .min(f64::from(w.max(h)));
+            FrameEffect::Blur { sigma } => (0.0, sigma),
+        };
+        reach = reach.max((offset + 3.0 * sigma) * scale);
+        spread = spread.max(3.0 * sigma * scale);
+    }
+    let reach = reach.min(f64::from(w.max(h)));
     if reach <= 0.0 {
         return [0; 4];
     }
     let Some(drawn) = drawn_bounds(&frame.items, base) else {
         return [0; 4];
     };
-    let near = |v: f64| if v > -reach { reach.ceil() as u32 } else { 0 };
+    let past = |v: f64| (v + spread).clamp(0.0, reach).ceil() as u32;
     [
-        near(-drawn.x),
-        near(-drawn.y),
-        near(drawn.x + drawn.width - f64::from(w)),
-        near(drawn.y + drawn.height - f64::from(h)),
+        past(-drawn.x),
+        past(-drawn.y),
+        past(drawn.x + drawn.width - f64::from(w)),
+        past(drawn.y + drawn.height - f64::from(h)),
     ]
 }
 
