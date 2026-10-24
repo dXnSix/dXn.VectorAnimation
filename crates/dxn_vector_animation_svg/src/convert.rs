@@ -7,18 +7,19 @@ use std::{
 };
 
 use dxn_vector_animation::{
-    Animated, AnimatedPoint, BlendMode, Clip, ClipShape, Color, Dash, Direction, EllipseStart,
-    Error, Fill, FillRule, Geometry, GradientStop, GradientUnits, Group, Image, ImageData,
-    Interpolate, Item, Keyframe, Limits, LineCap, LineJoin, LinearGradient, Mask, MaskKind, Matrix,
-    MotionPath, MotionRotate, Node, Paint, PaintOrder, Path, Point, RadialGradient, Rect,
-    RectStart, Scene, Shape, ShapePath, Spread, Stroke, Timeline, Track, TransformOp,
-    outline::path_length,
+    Animated, AnimatedPoint, BlendMode, Blur, Clip, ClipShape, Color, Dash, Direction, DropShadow,
+    Effect, EllipseStart, Error, Fill, FillRule, Geometry, GradientStop, GradientUnits, Group,
+    Image, ImageData, Interpolate, Item, Keyframe, Limits, LineCap, LineJoin, LinearGradient, Mask,
+    MaskKind, Matrix, MotionPath, MotionRotate, Node, Paint, PaintOrder, Path, Point,
+    RadialGradient, Rect, RectStart, Scene, Shape, ShapePath, Spread, Stroke, Timeline, Track,
+    TransformOp, outline::path_length,
 };
 use roxmltree::Node as XmlNode;
 
 use crate::{
     animate::{TimelineSpan, property_keyframes},
     css::{Stylesheet, parse_declarations},
+    filter,
     smil::{self, Smil},
     values::{
         self, AnimationSpec, TransformFn, angle, color, fraction, length, list_matrix, number,
@@ -89,6 +90,7 @@ const ANIMATABLE: &[&str] = &[
     "x2",
     "y2",
     "points",
+    "filter",
 ];
 
 /// The winning declarations of one element: property → value.
@@ -868,11 +870,10 @@ impl<'a, 'input> Converter<'a, 'input> {
             .get("mix-blend-mode")
             .map(|v| blend_mode(v.trim()))
             .unwrap_or_default();
-        if declared.contains_key("filter")
-            && declared.get("filter").is_some_and(|f| f.trim() != "none")
-        {
-            self.warn("filters (shadows, blurs) are left out");
-        }
+        let effects = self.effects(
+            declared.get("filter").map(String::as_str),
+            animations.get("filter"),
+        );
         let clip = match declared.get("clip-path").map(|v| v.trim()) {
             Some(v) if v != "none" => self.clip(v, bounds(&content)),
             _ => None,
@@ -886,7 +887,8 @@ impl<'a, 'input> Converter<'a, 'input> {
             && opacity == Animated::Static(1.0)
             && blend == BlendMode::Normal
             && clip.is_none()
-            && mask.is_none();
+            && mask.is_none()
+            && effects.is_empty();
         let id = node.attribute("id").map(str::to_owned);
         let mut group = match content {
             Node::Group(g) => g,
@@ -902,6 +904,7 @@ impl<'a, 'input> Converter<'a, 'input> {
         group.blend = blend;
         group.clip = clip;
         group.mask = mask.map(Box::new);
+        group.effects.extend(effects);
         if let Some(visible) = visibility {
             // Inside the element's own opacity: the two multiply.
             group.children = vec![Node::Group(Group {
@@ -911,6 +914,84 @@ impl<'a, 'input> Converter<'a, 'input> {
             })];
         }
         Ok(Node::Group(group))
+    }
+
+    /// The effects of the `filter` property: still, or animated through
+    /// `keys` (each keyframe's functions alike).
+    fn effects(
+        &mut self,
+        value: Option<&str>,
+        keys: Option<&Vec<Keyframe<String>>>,
+    ) -> Vec<Effect> {
+        if let Some(keys) = keys {
+            let mut parsed = Vec::with_capacity(keys.len());
+            for k in keys.iter().filter(|k| k.time.is_finite()) {
+                match filter::functions(&k.value) {
+                    Ok(f) => parsed.push(Keyframe::new(k.time, f, k.easing.clone())),
+                    Err(what) => {
+                        self.warn(format!(
+                            "animation of `filter` holds {what} and is left out"
+                        ));
+                        parsed.clear();
+                        break;
+                    }
+                }
+            }
+            if !parsed.is_empty() {
+                match filter::animated(&parsed) {
+                    Some(effects) => return effects,
+                    None => self.warn(
+                        "animation of `filter` between different functions (or of url()) is left out",
+                    ),
+                }
+            }
+        }
+        let Some(value) = value.map(str::trim).filter(|v| *v != "none") else {
+            return Vec::new();
+        };
+        let functions = match filter::functions(value) {
+            Ok(f) => f,
+            Err(what) => {
+                self.warn(format!("filter `{value}` is left out: it holds {what}"));
+                return Vec::new();
+            }
+        };
+        let mut effects = Vec::new();
+        for function in functions {
+            match function {
+                filter::Function::Blur(sigma) => effects.push(Effect::Blur(Blur {
+                    radius: Animated::Static(sigma.max(0.0)),
+                })),
+                filter::Function::DropShadow {
+                    dx,
+                    dy,
+                    sigma,
+                    color,
+                } => effects.push(Effect::DropShadow(DropShadow {
+                    color: Animated::Static(color),
+                    offset: AnimatedPoint::fixed(dx, dy),
+                    blur: Animated::Static(sigma),
+                    knockout: false,
+                })),
+                filter::Function::Url(id) => {
+                    let node = self
+                        .ids
+                        .get(id.as_str())
+                        .copied()
+                        .filter(|n| n.has_tag_name("filter"));
+                    match node.map(filter::element) {
+                        Some(Ok(list)) => effects.extend(list),
+                        Some(Err(why)) => {
+                            self.warn(format!("filter `#{id}` is left out: it holds {why}"))
+                        }
+                        None => {
+                            self.warn(format!("filter `#{id}` is not a <filter> and is left out"))
+                        }
+                    }
+                }
+            }
+        }
+        effects
     }
 
     /// A typed track from text keyframes; a value that does not parse drops

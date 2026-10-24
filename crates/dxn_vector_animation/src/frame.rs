@@ -3,8 +3,8 @@
 use std::sync::Arc;
 
 use crate::{
-    BlendMode, Color, FillRule, GradientStop, GradientUnits, Group, ImageData, LineCap, LineJoin,
-    MaskKind, Matrix, Node, Paint, PaintOrder, Path, Point, Rect, Scene, Shape, Spread,
+    BlendMode, Color, Effect, FillRule, GradientStop, GradientUnits, Group, ImageData, LineCap,
+    LineJoin, MaskKind, Matrix, Node, Paint, PaintOrder, Path, Point, Rect, Scene, Shape, Spread,
     outline::{geometry_path, trim_paths},
     transform::transform_at,
 };
@@ -76,7 +76,35 @@ pub struct Layer {
     pub clip: Option<Vec<ClipPath>>,
     /// How much of the layer shows, pixel by pixel.
     pub mask: Option<FrameMask>,
+    /// Shadows and blurs of what the layer draws, before its clip and
+    /// mask: blurs in turn, consecutive shadows all cast by the drawing as
+    /// it is before them (the first lowest), under it.
+    pub effects: Vec<FrameEffect>,
 }
+
+/// A layer's effect, in the frame's space.
+#[derive(Debug, Clone, PartialEq)]
+pub enum FrameEffect {
+    /// The layer's silhouette under it.
+    DropShadow {
+        /// Its color; its alpha is the shadow's opacity.
+        color: Color,
+        /// How far it falls.
+        offset: Point,
+        /// The standard deviation of its blur.
+        sigma: f64,
+        /// Hidden where the layer draws.
+        knockout: bool,
+    },
+    /// The layer blurred.
+    Blur {
+        /// The standard deviation.
+        sigma: f64,
+    },
+}
+
+/// The most an effect blurs, in scene lengths.
+const MAX_SIGMA: f64 = 1.0e4;
 
 /// One shape of a layer's clip.
 #[derive(Debug, Clone, PartialEq)]
@@ -200,13 +228,40 @@ fn sample_group(group: &Group, time: f64, parent: Matrix, out: &mut Vec<Item>, d
             items,
         }
     });
-    let layer = opacity < 1.0 || !group.blend.is_normal() || clip.is_some() || mask.is_some();
+    // Lengths of the group's space in the frame's (about, where it skews
+    // or stretches).
+    let scale = (m.a * m.d - m.b * m.c).abs().sqrt();
+    let sigma = |v: f64| (v * scale).clamp(0.0, MAX_SIGMA);
+    let effects: Vec<FrameEffect> = group
+        .effects
+        .iter()
+        .map(|effect| match effect {
+            Effect::DropShadow(shadow) => {
+                let (dx, dy) = (shadow.offset.x.sample(time), shadow.offset.y.sample(time));
+                FrameEffect::DropShadow {
+                    color: shadow.color.sample(time),
+                    offset: Point::new(m.a * dx + m.c * dy, m.b * dx + m.d * dy),
+                    sigma: sigma(shadow.blur.sample(time)),
+                    knockout: shadow.knockout,
+                }
+            }
+            Effect::Blur(blur) => FrameEffect::Blur {
+                sigma: sigma(blur.radius.sample(time)),
+            },
+        })
+        .collect();
+    let layer = opacity < 1.0
+        || !group.blend.is_normal()
+        || clip.is_some()
+        || mask.is_some()
+        || !effects.is_empty();
     if layer {
         out.push(Item::PushLayer(Layer {
             opacity,
             blend: group.blend,
             clip,
             mask,
+            effects,
         }));
     }
     for child in &group.children {

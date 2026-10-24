@@ -26,15 +26,15 @@ pub mod transform;
 pub use animated::{Animated, AnimatedPoint, Interpolate, Keyframe, Track};
 pub use color::Color;
 pub use easing::{Easing, StepPosition};
-pub use frame::{ClipPath, Frame, FrameMask, FramePaint, Item, Layer, StrokeStyle};
+pub use frame::{ClipPath, Frame, FrameEffect, FrameMask, FramePaint, Item, Layer, StrokeStyle};
 pub use geom::{Matrix, Path, PathEl, Point, Rect};
 pub use limits::{Error, Import, Limits, Stats};
 pub use scene::{
-    BlendMode, Clip, ClipShape, Dash, Direction, EllipseStart, Fill, FillRule, Geometry,
-    GradientStop, GradientUnits, Group, Image, ImageData, LineCap, LineJoin, LinearGradient,
-    LoopMode, Marker, Mask, MaskKind, MotionPath, MotionRotate, Node, Paint, PaintOrder,
-    RadialGradient, RectStart, Scene, Shape, ShapePath, Spread, Star, StarKind, Stroke, TimeMap,
-    TimeRange, Timeline, TransformOp, Trim, TrimMode,
+    BlendMode, Blur, Clip, ClipShape, Dash, Direction, DropShadow, Effect, EllipseStart, Fill,
+    FillRule, Geometry, GradientStop, GradientUnits, Group, Image, ImageData, LineCap, LineJoin,
+    LinearGradient, LoopMode, Marker, Mask, MaskKind, MotionPath, MotionRotate, Node, Paint,
+    PaintOrder, RadialGradient, RectStart, Scene, Shape, ShapePath, Spread, Star, StarKind, Stroke,
+    TimeMap, TimeRange, Timeline, TransformOp, Trim, TrimMode,
 };
 
 /// The name and version of the compiled scene format

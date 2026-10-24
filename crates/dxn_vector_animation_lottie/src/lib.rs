@@ -6,10 +6,11 @@
 //! remapping (clipped to their size), solid layers, embedded images,
 //! layer masks (add, subtract, intersect, inverted) and track mattes
 //! (alpha, luminance, inverted), blend modes, keyframes with their bezier
-//! easings and holds, and position keyframes with spatial tangents as
-//! motion paths (auto-orient included).
+//! easings and holds, position keyframes with spatial tangents as motion
+//! paths (auto-orient included), and the layer effects Drop Shadow and
+//! Gaussian Blur.
 //!
-//! What a file holds beyond that (expressions, text layers, effects,
+//! What a file holds beyond that (expressions, text layers, other effects,
 //! repeaters, merge paths) is left out with a warning in
 //! [`Import::warnings`]. dotLottie archives are read by unpacking their
 //! animation JSON first.

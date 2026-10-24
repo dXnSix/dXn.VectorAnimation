@@ -236,6 +236,17 @@ fn count_group(group: &Group, depth: usize, stats: &mut Stats) {
     if let Some(mask) = &group.mask {
         count_group(&mask.content, depth + 1, stats);
     }
+    for effect in &group.effects {
+        match effect {
+            crate::Effect::DropShadow(shadow) => {
+                count(&shadow.color, stats);
+                count(&shadow.offset.x, stats);
+                count(&shadow.offset.y, stats);
+                count(&shadow.blur, stats);
+            }
+            crate::Effect::Blur(blur) => count(&blur.radius, stats),
+        }
+    }
     for child in &group.children {
         match child {
             Node::Group(g) => count_group(g, depth + 1, stats),

@@ -67,6 +67,9 @@ core and the importers build for WebAssembly; a build that plays compiled scenes
   does, and through matrix decomposition when they differ.
 - **Geometry.** Paths morph between keyframes of the same commands; rectangles, ellipses and stars stay
   parametric; motion paths and trims measure arc length.
+- **Effects.** Groups cast drop shadows (color, offset, blur, knocked out under the drawing or not) and blur
+  (Gaussian), each value animated; consecutive shadows are all cast by the drawing. The reference renderer
+  blurs as SVG suggests, with three box blurs along each axis.
 - **Two ways to play.** Sample the scene at any time, or read its tracks and drive them with a native
   animation system (what the NSH player does: its UI thread plays the tracks without per-frame work in Rust).
 - **Compiled scenes.** `compiled::to_json` / `from_json` save and load a scene as `.vector-animation.json`, so
@@ -92,8 +95,12 @@ core and the importers build for WebAssembly; a build that plays compiled scenes
   ones too) or other animations' begins and ends; animations that start one another in a cycle become the
   timeline's loop, and several animations of one attribute apply in the order they began. Shapes' geometry
   animates (`x`, `y`, `width`, `height`, `rx`, `ry`, `cx`, `cy`, `r`, line ends, `points`).
-- Left out with a warning: text (export it as outlines), filters and what animates them, patterns, SMIL
-  begins on events, `end` times and `accumulate`.
+- Filters of shadows and blurs: `<filter>` chains as Figma exports drop shadows (several of them) and layer
+  blurs (the source's alpha hardened, moved, blurred, colored, cut out, blended under the source),
+  `feDropShadow`, `feGaussianBlur`, and CSS `filter` of `blur()`, `drop-shadow()` and `url()`, still or
+  animated by `@keyframes`.
+- Left out with a warning: text (export it as outlines), other filters (inner shadows, color filters),
+  patterns, SMIL begins on events, `end` times and `accumulate`.
 
 **Lottie** (`dxn_vector_animation_lottie`)
 
@@ -101,8 +108,9 @@ core and the importers build for WebAssembly; a build that plays compiled scenes
   radial gradients; trim paths), null layers as parents, nested compositions with time stretch, offset and
   remapping, solid layers, embedded images, layer masks (add, subtract, intersect, inverted), track mattes
   (alpha and luminance, inverted), blend modes, bezier easings and holds, and position keyframes with spatial
-  tangents as motion paths (auto-orient included).
-- Left out with a warning: expressions, text layers, effects, repeaters, merge paths and other shape
+  tangents as motion paths (auto-orient included), and the layer effects Drop Shadow and Gaussian Blur
+  (converted as lottie-web converts them).
+- Left out with a warning: expressions, text layers, other effects, repeaters, merge paths and other shape
   modifiers.
 
 ## Untrusted input
@@ -126,8 +134,7 @@ Tests are grouped by feature, one file each in a crate's `tests/` (`cargo test -
 ## Roadmap
 
 1. **Done:** the scene model, Figma Motion's SVG subset, Lottie, the reference renderer and the CLI.
-2. dotLottie archives, repeaters, filters (drop shadows and blurs), Lottie text as shapes, CSS selectors
-   beyond simple ones.
+2. dotLottie archives, repeaters, Lottie text as shapes, CSS selectors beyond simple ones.
 
 ## License
 

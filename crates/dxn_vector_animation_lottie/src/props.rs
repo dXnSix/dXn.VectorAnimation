@@ -373,3 +373,20 @@ pub(crate) fn sampled(times: &[f64], f: impl Fn(f64) -> f64) -> Animated<f64> {
             .collect(),
     ))
 }
+
+/// A color track sampling `f` at `times` (straight between them), or the
+/// constant at time 0 when there are none.
+pub(crate) fn sampled_color(times: &[f64], f: impl Fn(f64) -> Color) -> Animated<Color> {
+    let mut times = times.to_vec();
+    times.sort_by(f64::total_cmp);
+    times.dedup();
+    if times.len() < 2 {
+        return Animated::Static(f(times.first().copied().unwrap_or(0.0)));
+    }
+    Animated::Track(Track::new(
+        times
+            .iter()
+            .map(|&t| Keyframe::new(t, f(t), Easing::Linear))
+            .collect(),
+    ))
+}

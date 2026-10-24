@@ -8,17 +8,18 @@ use std::{
 };
 
 use dxn_vector_animation::{
-    Animated, AnimatedPoint, BlendMode, Clip, ClipShape, Color, Dash, Direction, EllipseStart,
-    Error, Fill, FillRule, Geometry, Group, Image, ImageData, Keyframe, Limits, LineCap, LineJoin,
-    LinearGradient, LoopMode, Marker, Mask, MaskKind, Matrix, MotionPath, MotionRotate, Node,
-    Paint, Path, Point, RadialGradient, Rect, RectStart, Scene, Shape, ShapePath, Star, StarKind,
-    Stroke, TimeMap, TimeRange, Timeline, Track, TransformOp, Trim, TrimMode, outline::path_length,
+    Animated, AnimatedPoint, BlendMode, Blur, Clip, ClipShape, Color, Dash, Direction, DropShadow,
+    Effect, EllipseStart, Error, Fill, FillRule, Geometry, Group, Image, ImageData, Keyframe,
+    Limits, LineCap, LineJoin, LinearGradient, LoopMode, Marker, Mask, MaskKind, Matrix,
+    MotionPath, MotionRotate, Node, Paint, Path, Point, RadialGradient, Rect, RectStart, Scene,
+    Shape, ShapePath, Star, StarKind, Stroke, TimeMap, TimeRange, Timeline, Track, TransformOp,
+    Trim, TrimMode, outline::path_length,
 };
 use serde_json::Value;
 
 use crate::props::{
-    self, Prop, color, gradient_stops, has_expression, key_times, num, nums, prop, sampled, scalar,
-    shape,
+    self, Prop, color, gradient_stops, has_expression, key_times, num, nums, prop, sampled,
+    sampled_color, scalar, shape,
 };
 
 /// A rectangle far larger than any composition: what an inverted mask
@@ -267,13 +268,7 @@ impl<'a> Converter<'a> {
         if content.is_empty() {
             return Ok(None);
         }
-        if layer
-            .get("ef")
-            .and_then(Value::as_array)
-            .is_some_and(|e| !e.is_empty())
-        {
-            self.warn("layer effects (shadows, blurs) are left out");
-        }
+        let effects = self.effects(layer);
         if layer.get("ddd").and_then(num).is_some_and(|d| d != 0.0) {
             self.warn("3D layers are drawn flat");
         }
@@ -292,6 +287,7 @@ impl<'a> Converter<'a> {
             opacity,
             blend: blend_mode(layer.get("bm").and_then(num).unwrap_or(0.0) as i64, self),
             mask: mask.map(Box::new),
+            effects,
             // A layer playing backwards has its in point after its out point.
             active: Some(TimeRange {
                 start: ip.min(op) / self.fr,
@@ -401,6 +397,90 @@ impl<'a> Converter<'a> {
 
     /// Layer masks (`masksProperties`) as one alpha mask: added,
     /// subtracted and intersected shapes in order.
+    /// A layer's effects (`ef`): drop shadows (25) and Gaussian blurs (29),
+    /// converted as lottie-web converts them (a shadow's softness is four
+    /// deviations, its direction clockwise from up; a blur's blurriness
+    /// 0.3 of one); others are left out with a warning.
+    fn effects(&mut self, layer: &Value) -> Vec<Effect> {
+        let Some(list) = layer.get("ef").and_then(Value::as_array) else {
+            return Vec::new();
+        };
+        let fr = self.fr;
+        let mut out = Vec::new();
+        for effect in list {
+            if effect.get("en").and_then(num) == Some(0.0) {
+                continue;
+            }
+            let params = effect
+                .get("ef")
+                .and_then(Value::as_array)
+                .map(Vec::as_slice)
+                .unwrap_or(&[]);
+            let param = |i: usize| params.get(i).and_then(|p| p.get("v"));
+            let name = effect
+                .get("nm")
+                .and_then(Value::as_str)
+                .unwrap_or("an effect");
+            match effect.get("ty").and_then(num).map(|t| t as i64) {
+                Some(25) => {
+                    if param(5).and_then(prop).is_some_and(|p| match p {
+                        Prop::Static(v) => num(v).is_some_and(|v| v != 0.0),
+                        Prop::Keys(_) => true,
+                    }) {
+                        self.warn("a drop shadow showing the shadow only is left out");
+                        continue;
+                    }
+                    let color = color(param(0), fr);
+                    let opacity = scalar(param(1), 0, 1.0 / 255.0, 1.0, fr);
+                    let direction = scalar(param(2), 0, 1.0, 135.0, fr);
+                    let distance = scalar(param(3), 0, 1.0, 5.0, fr);
+                    let softness = scalar(param(4), 0, 0.25, 0.0, fr);
+                    let mut times = key_times(param(0), fr);
+                    times.extend(key_times(param(1), fr));
+                    let color = if times.is_empty() {
+                        let c = color.sample(0.0);
+                        Animated::Static(c.with_opacity(opacity.sample(0.0).clamp(0.0, 1.0)))
+                    } else {
+                        sampled_color(&times, |t| {
+                            color
+                                .sample(t)
+                                .with_opacity(opacity.sample(t).clamp(0.0, 1.0))
+                        })
+                    };
+                    let mut times = key_times(param(2), fr);
+                    times.extend(key_times(param(3), fr));
+                    let along = |t: f64, f: fn(f64) -> f64| {
+                        let angle = (direction.sample(t) - 90.0).to_radians();
+                        distance.sample(t) * f(angle)
+                    };
+                    out.push(Effect::DropShadow(DropShadow {
+                        color,
+                        offset: AnimatedPoint {
+                            x: sampled(&times, |t| along(t, f64::cos)),
+                            y: sampled(&times, |t| along(t, f64::sin)),
+                        },
+                        blur: softness,
+                        knockout: false,
+                    }));
+                }
+                Some(29) => {
+                    let dimensions = param(1).and_then(prop).and_then(|p| match p {
+                        Prop::Static(v) => num(v),
+                        Prop::Keys(_) => None,
+                    });
+                    if dimensions.is_some_and(|d| d != 1.0) {
+                        self.warn("a Gaussian blur along one axis is blurred along both");
+                    }
+                    out.push(Effect::Blur(Blur {
+                        radius: scalar(param(0), 0, 0.3, 0.0, fr),
+                    }));
+                }
+                _ => self.warn(format!("the layer effect `{name}` is left out")),
+            }
+        }
+        out
+    }
+
     fn layer_masks(&mut self, layer: &Value) -> Option<Mask> {
         let masks = layer.get("masksProperties")?.as_array()?;
         let mut content = Group::new();

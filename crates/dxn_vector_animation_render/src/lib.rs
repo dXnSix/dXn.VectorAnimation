@@ -10,8 +10,8 @@
 use std::{collections::HashMap, sync::Arc};
 
 use dxn_vector_animation::{
-    BlendMode, Color, FillRule, Frame, FrameMask, FramePaint, GradientStop, ImageData, Item, Layer,
-    LineCap, LineJoin, MaskKind, Matrix, Path, PathEl, Spread, StrokeStyle,
+    BlendMode, Color, FillRule, Frame, FrameEffect, FrameMask, FramePaint, GradientStop, ImageData,
+    Item, Layer, LineCap, LineJoin, MaskKind, Matrix, Path, PathEl, Spread, StrokeStyle,
 };
 use tiny_skia as sk;
 
@@ -229,6 +229,18 @@ impl Renderer {
 
     /// Clips and masks `pixmap` as `layer` says and draws it onto `target`.
     fn compose(&mut self, pixmap: &mut sk::Pixmap, layer: &Layer, target: &mut sk::Pixmap) {
+        // Blurs in turn; consecutive shadows cast together, under it.
+        for run in layer.effects.chunk_by(|a, b| {
+            matches!(
+                (a, b),
+                (
+                    FrameEffect::DropShadow { .. },
+                    FrameEffect::DropShadow { .. }
+                )
+            )
+        }) {
+            self.effects(pixmap, run);
+        }
         if let Some(clip) = &layer.clip
             && let Some(mut mask) = sk::Mask::new(self.width, self.height)
         {
@@ -261,6 +273,76 @@ impl Renderer {
             sk::Transform::identity(),
             None,
         );
+    }
+
+    /// `run` applied to `pixmap`: a blur, or shadows all cast by `pixmap`
+    /// and drawn under it, the first lowest.
+    fn effects(&self, pixmap: &mut sk::Pixmap, run: &[FrameEffect]) {
+        // The frame's lengths in pixels, along each axis.
+        let (sx, sy) = (self.base.a.abs(), self.base.d.abs());
+        let Some(mut out) = sk::Pixmap::new(pixmap.width(), pixmap.height()) else {
+            return;
+        };
+        for effect in run {
+            match *effect {
+                FrameEffect::Blur { sigma } => {
+                    blur(pixmap, sigma * sx, sigma * sy);
+                    return;
+                }
+                FrameEffect::DropShadow {
+                    color,
+                    offset,
+                    sigma,
+                    knockout,
+                } => {
+                    let Some(mut shadow) = silhouette(pixmap, color) else {
+                        continue;
+                    };
+                    blur(&mut shadow, sigma * sx, sigma * sy);
+                    let Some(mut moved) = sk::Pixmap::new(pixmap.width(), pixmap.height()) else {
+                        continue;
+                    };
+                    moved.draw_pixmap(
+                        0,
+                        0,
+                        shadow.as_ref(),
+                        &sk::PixmapPaint {
+                            quality: sk::FilterQuality::Bilinear,
+                            ..Default::default()
+                        },
+                        sk::Transform::from_translate(
+                            (offset.x * self.base.a) as f32,
+                            (offset.y * self.base.d) as f32,
+                        ),
+                        None,
+                    );
+                    if knockout {
+                        for (o, p) in moved.pixels_mut().iter_mut().zip(pixmap.pixels()) {
+                            if p.alpha() > 0 {
+                                *o = sk::PremultipliedColorU8::TRANSPARENT;
+                            }
+                        }
+                    }
+                    out.draw_pixmap(
+                        0,
+                        0,
+                        moved.as_ref(),
+                        &sk::PixmapPaint::default(),
+                        sk::Transform::identity(),
+                        None,
+                    );
+                }
+            }
+        }
+        out.draw_pixmap(
+            0,
+            0,
+            pixmap.as_ref(),
+            &sk::PixmapPaint::default(),
+            sk::Transform::identity(),
+            None,
+        );
+        *pixmap = out;
     }
 
     fn mask(&mut self, mask: &FrameMask) -> Option<sk::Mask> {
@@ -437,5 +519,149 @@ fn sk_blend(b: BlendMode) -> sk::BlendMode {
         BlendMode::Add => sk::BlendMode::Plus,
         BlendMode::DestinationIn => sk::BlendMode::DestinationIn,
         BlendMode::DestinationOut => sk::BlendMode::DestinationOut,
+    }
+}
+
+/// `pixmap`'s silhouette in `color`: its alpha times the color's.
+fn silhouette(pixmap: &sk::Pixmap, color: Color) -> Option<sk::Pixmap> {
+    let mut out = sk::Pixmap::new(pixmap.width(), pixmap.height())?;
+    let c = color.clamped();
+    for (o, p) in out.pixels_mut().iter_mut().zip(pixmap.pixels()) {
+        let a = f64::from(p.alpha()) / 255.0 * c.a;
+        let channel = |v: f64| (v * a * 255.0).round().clamp(0.0, 255.0) as u8;
+        let alpha = (a * 255.0).round().clamp(0.0, 255.0) as u8;
+        if let Some(px) = sk::PremultipliedColorU8::from_rgba(
+            channel(c.r).min(alpha),
+            channel(c.g).min(alpha),
+            channel(c.b).min(alpha),
+            alpha,
+        ) {
+            *o = px;
+        }
+    }
+    Some(out)
+}
+
+/// A Gaussian blur of `pixmap`, of standard deviations `sx` and `sy` in
+/// pixels: three box blurs along each axis (as SVG's `feGaussianBlur`
+/// suggests), a kernel of the Gaussian itself for small ones; outside the
+/// pixmap is transparent.
+fn blur(pixmap: &mut sk::Pixmap, sx: f64, sy: f64) {
+    let (w, h) = (pixmap.width() as usize, pixmap.height() as usize);
+    let mut data: Vec<f32> = pixmap.data().iter().map(|&v| f32::from(v)).collect();
+    if sx > 0.0 {
+        blur_axis(&mut data, w, h, 4, w * 4, sx);
+    }
+    if sy > 0.0 {
+        blur_axis(&mut data, h, w, w * 4, 4, sy);
+    }
+    let out = pixmap.data_mut();
+    for (px, v) in out
+        .as_chunks_mut::<4>()
+        .0
+        .iter_mut()
+        .zip(data.as_chunks::<4>().0)
+    {
+        let a = v[3].round().clamp(0.0, 255.0);
+        px[3] = a as u8;
+        for c in 0..3 {
+            // Premultiplied: no channel above the alpha.
+            px[c] = v[c].round().clamp(0.0, a) as u8;
+        }
+    }
+}
+
+/// Blurs lines of `len` pixels (`step` apart in `data`), `count` of them
+/// (`stride` apart), with standard deviation `sigma`.
+fn blur_axis(data: &mut [f32], len: usize, count: usize, step: usize, stride: usize, sigma: f64) {
+    let mut line = vec![0.0f32; len * 4];
+    let mut tmp = vec![0.0f32; len * 4];
+    for i in 0..count {
+        let start = i * stride;
+        for x in 0..len {
+            let at = start + x * step;
+            line[x * 4..x * 4 + 4].copy_from_slice(&data[at..at + 4]);
+        }
+        if sigma < 2.0 {
+            gaussian(&line, &mut tmp, sigma);
+            std::mem::swap(&mut line, &mut tmp);
+        } else {
+            let d =
+                (sigma * 3.0 * (2.0 * std::f64::consts::PI).sqrt() / 4.0 + 0.5).floor() as usize;
+            let d = d.clamp(1, len.max(1) * 2);
+            if d % 2 == 1 {
+                for _ in 0..3 {
+                    box_blur(&line, &mut tmp, d, (d - 1) / 2);
+                    std::mem::swap(&mut line, &mut tmp);
+                }
+            } else {
+                // Two boxes centered on the boundaries either side of the
+                // pixel, and one a pixel wider centered on it.
+                box_blur(&line, &mut tmp, d, d / 2);
+                box_blur(&tmp, &mut line, d, d / 2 - 1);
+                box_blur(&line, &mut tmp, d + 1, d / 2);
+                std::mem::swap(&mut line, &mut tmp);
+            }
+        }
+        for x in 0..len {
+            let at = start + x * step;
+            data[at..at + 4].copy_from_slice(&line[x * 4..x * 4 + 4]);
+        }
+    }
+}
+
+/// The average of each pixel's `size` pixels from `before` before it.
+fn box_blur(src: &[f32], dst: &mut [f32], size: usize, before: usize) {
+    let len = src.len() / 4;
+    let mut sum = [0.0f32; 4];
+    let at = |x: isize| -> Option<usize> { (x >= 0 && (x as usize) < len).then_some(x as usize) };
+    // The window of pixel 0: from -before to size - 1 - before.
+    for x in 0..size as isize {
+        if let Some(i) = at(x - before as isize) {
+            for c in 0..4 {
+                sum[c] += src[i * 4 + c];
+            }
+        }
+    }
+    let n = size as f32;
+    for x in 0..len {
+        for c in 0..4 {
+            dst[x * 4 + c] = sum[c] / n;
+        }
+        let x = x as isize;
+        if let Some(i) = at(x + size as isize - before as isize) {
+            for c in 0..4 {
+                sum[c] += src[i * 4 + c];
+            }
+        }
+        if let Some(i) = at(x - before as isize) {
+            for c in 0..4 {
+                sum[c] -= src[i * 4 + c];
+            }
+        }
+    }
+}
+
+/// A Gaussian kernel of `sigma` (out to three of it) over `src`.
+fn gaussian(src: &[f32], dst: &mut [f32], sigma: f64) {
+    let len = src.len() / 4;
+    let r = (sigma * 3.0).ceil() as isize;
+    let weights: Vec<f32> = (-r..=r)
+        .map(|k| (-(k * k) as f64 / (2.0 * sigma * sigma)).exp() as f32)
+        .collect();
+    let total: f32 = weights.iter().sum();
+    for x in 0..len as isize {
+        let mut acc = [0.0f32; 4];
+        for (k, w) in (-r..=r).zip(&weights) {
+            let i = x + k;
+            if i >= 0 && (i as usize) < len {
+                for c in 0..4 {
+                    acc[c] += src[i as usize * 4 + c] * w;
+                }
+            }
+        }
+        for c in 0..4 {
+            dst[x as usize * 4 + c] = acc[c] / total;
+        }
     }
 }

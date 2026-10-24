@@ -151,6 +151,15 @@ pub struct Group {
         serde(default, skip_serializing_if = "Option::is_none")
     )]
     pub mask: Option<Box<Mask>>,
+    /// Drop shadows and blurs of what the group draws (before its clip and
+    /// mask), in the group's space: blurs in turn, and consecutive drop
+    /// shadows all cast by the drawing as it is before them, the first
+    /// lowest, under it.
+    #[cfg_attr(
+        feature = "serde",
+        serde(default, skip_serializing_if = "Vec::is_empty")
+    )]
+    pub effects: Vec<Effect>,
     /// When the group shows, in its parent's time; always when `None`.
     #[cfg_attr(
         feature = "serde",
@@ -184,11 +193,49 @@ impl Default for Group {
             blend: BlendMode::Normal,
             clip: None,
             mask: None,
+            effects: Vec::new(),
             active: None,
             time: None,
             children: Vec::new(),
         }
     }
+}
+
+/// What a group's drawing goes through before it composes.
+#[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "serde", serde(rename_all = "camelCase", tag = "type"))]
+pub enum Effect {
+    /// The drawing's silhouette under it, blurred, moved and colored.
+    DropShadow(DropShadow),
+    /// The drawing blurred.
+    Blur(Blur),
+}
+
+/// A shadow a group's drawing casts.
+#[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "serde", serde(rename_all = "camelCase"))]
+pub struct DropShadow {
+    /// Its color; its alpha is the shadow's opacity.
+    pub color: Animated<Color>,
+    /// How far it falls, in the group's lengths.
+    pub offset: AnimatedPoint,
+    /// The standard deviation of its blur, in the group's lengths.
+    pub blur: Animated<f64>,
+    /// Hidden where the drawing is, even where it is see-through (Figma's
+    /// shadows not shown behind transparent areas).
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub knockout: bool,
+}
+
+/// A Gaussian blur of a group's drawing.
+#[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "serde", serde(rename_all = "camelCase"))]
+pub struct Blur {
+    /// Its standard deviation, in the group's lengths.
+    pub radius: Animated<f64>,
 }
 
 impl Group {
