@@ -877,13 +877,20 @@ impl<'a> Converter<'a> {
                 let d = h.sample(t).clamp(-0.99, 0.99) * r;
                 Point::new(s.x + d * angle.cos(), s.y + d * angle.sin())
             };
+            // With no highlight the focal point is the center, moving as it
+            // moves.
+            let focal = if h.as_static() == Some(&0.0) {
+                start.clone()
+            } else {
+                AnimatedPoint {
+                    x: sampled(&times, |t| focal_at(t).x),
+                    y: sampled(&times, |t| focal_at(t).y),
+                }
+            };
             return Paint::RadialGradient(RadialGradient {
                 center: start.clone(),
                 radius: sampled(&times, radius_at),
-                focal: AnimatedPoint {
-                    x: sampled(&times, |t| focal_at(t).x),
-                    y: sampled(&times, |t| focal_at(t).y),
-                },
+                focal,
                 stops,
                 units: Default::default(),
                 transform: Matrix::IDENTITY,
