@@ -1,0 +1,5 @@
+{
+  "name": "Vector Animation Check",
+  "id": "com.dxn.vectoranimation.check",
+  "rust": "../../crates/dxn_vector_animation_nsh"
+}

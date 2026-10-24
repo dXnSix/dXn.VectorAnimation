@@ -143,6 +143,33 @@ version); an `nsh` built from a checkout needs that checkout's crates: a local, 
 `examples/gallery/.cargo/config.toml` patching `nsh-*` to it, with `nsh test .` run from `examples/gallery`
 (Cargo reads that configuration from the directory it runs in).
 
+## Device checks
+
+`examples/check` plays a check set, twelve tiles a page, and its test holds each page at 25, 50 and 75% and
+photographs it on the platform it runs on; `vector-animation-check` (`crates/dxn_vector_animation_check`)
+writes the set and sets the photographs beside the reference renderer's frames:
+
+```sh
+cargo run -p dxn_vector_animation_check -- scenes examples/check --corpus <dir>
+cd examples/check && nsh test check.test.tsx --target ios   # or web, android, linux, gpui
+cargo run -p dxn_vector_animation_check -- compare examples/check/shots examples/check --out <dir>
+```
+
+The set is the check app's own scenes (fixtures, spinners, trims, moving gradients) and, with `--corpus`, the
+corpus files the tool lists. The comparison finds the tiles by their border, renders each reference at the
+tile's size, and reports the share of pixels that differ, straight and at the best shift of a pixel (a border
+a fraction of a pixel wide moves the content); it writes each pair side by side. The iOS simulator's
+screenshots are Display P3 and converted to sRGB first.
+
+- The web build needs a clang that targets wasm (Homebrew's LLVM first on the `PATH` on macOS).
+- `nsh test` with an `nsh` built from a checkout needs a local `.cargo/config.toml` in `examples/check`
+  patching `nsh-*` to that checkout, as for the gallery.
+- GPUI on macOS photographs nothing while the screen is locked.
+
+On the iOS simulator, Chrome, the Android emulator, and GTK and GPUI on Linux, the tiles differ from the
+reference in under 0.5% of their pixels at the device's scale (up to 3% in Chrome at one pixel a point, where
+a pixel of anti-aliasing is a larger share), except masks of partial opacity or luminance, which clip hard.
+
 ## Roadmap
 
 1. **Done:** the component with canvases, warped time and playback; the TSX and Rust APIs; the example app;

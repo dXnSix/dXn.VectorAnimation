@@ -245,6 +245,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "dxn_vector_animation_check"
+version = "0.1.0"
+dependencies = [
+ "dxn_vector_animation",
+ "dxn_vector_animation_lottie",
+ "dxn_vector_animation_render",
+ "dxn_vector_animation_svg",
+ "serde_json",
+ "tiny-skia",
+]
+
+[[package]]
 name = "dxn_vector_animation_lottie"
 version = "0.1.0"
 source = "git+https://github.com/dXnSix/dXn.VectorAnimation?branch=main#cb65e51e23e6f7e1a8cd9ceab5ceb642858f9f03"
