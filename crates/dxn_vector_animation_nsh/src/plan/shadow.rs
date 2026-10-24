@@ -16,14 +16,16 @@
 //! (`source-atop`).
 
 use dxn_vector_animation::{
-    Animated, BlendMode, Clip, ClipShape, Color, Effect, Fill, FrameEffect, Group, Item, Keyframe,
-    Matrix, MotionRotate, Node, Paint as ScenePaint, Path, Point, Rect, Scene, Shape, ShapePath,
-    Track, TransformOp, outline::geometry_path, transform::transform_at,
+    Animated, BlendMode, Clip, ClipShape, Color, Effect, Fill, Group, Item, Keyframe, Matrix,
+    MotionRotate, Node, Paint as ScenePaint, Path, Point, Rect, Scene, Shape, ShapePath, Track,
+    TransformOp,
+    outline::geometry_path,
+    transform::{decompose, transform_at, unwrap_angles},
 };
 
 use super::{
-    Compiler, FAR, Gradient, Op, Open, Unit, Unsupported, closed, huge_rect, min_max, sample_times,
-    shell, simplified, unsupported,
+    Compiler, FAR, Gradient, LayerTransform, Op, Open, Unit, Unsupported, closed, huge_rect,
+    min_max, sample_times, shell, simplified, unsupported,
 };
 use crate::graph::{Curve, Expr, MathOp, NodeId, Num, Paint, TIME, pack};
 
@@ -58,6 +60,21 @@ pub(super) struct CanvasShadow {
     knockout: bool,
     /// Cast by the content's silhouette made all or nothing.
     hard: bool,
+}
+
+/// A group's shadows as the canvas draws them.
+#[derive(Default)]
+pub(super) struct Shadows {
+    list: Vec<CanvasShadow>,
+    /// How the group's lengths move in the view, where it turns or scales
+    /// (the shadows are then in its lengths).
+    turning: Option<LayerTransform>,
+}
+
+impl Shadows {
+    pub(super) fn is_empty(&self) -> bool {
+        self.list.is_empty()
+    }
 }
 
 /// The deviation of a shadow's blur in the view's points.
@@ -333,33 +350,17 @@ fn recolor(color: Paint) -> Vec<Op> {
     ops
 }
 
-/// The effects of the layer holding the frame's first fill.
-fn probe_effects(frame: &dxn_vector_animation::Frame) -> Option<Vec<FrameEffect>> {
-    let mut layers: Vec<&[FrameEffect]> = Vec::new();
-    for item in &frame.items {
-        match item {
-            Item::PushLayer(layer) => layers.push(&layer.effects),
-            Item::PopLayer => {
-                layers.pop();
-            }
-            Item::Fill { .. } => return layers.last().map(|e| e.to_vec()),
-            _ => {}
-        }
-    }
-    None
-}
-
 impl Compiler {
     /// The drop shadows of `g` as the canvas draws them (in the view's
-    /// points, their offset and hue moving as the group's do); an error for
-    /// blurs, which are rasterized.
+    /// points, or in the group's lengths where it turns or scales: see
+    /// [`Self::shadow_units`]); an error for blurs, which are rasterized.
     pub(super) fn canvas_shadows(
         &mut self,
         g: &Group,
         local: NodeId,
-    ) -> Result<Vec<CanvasShadow>, Unsupported> {
+    ) -> Result<Shadows, Unsupported> {
         if g.effects.is_empty() {
-            return Ok(Vec::new());
+            return Ok(Shadows::default());
         }
         if self.casting.is_some() {
             return unsupported("a shadow of a shadow");
@@ -368,13 +369,14 @@ impl Compiler {
             return unsupported("a blur");
         }
         let linear = self.still_linear(g);
+        let m = linear.unwrap_or(Matrix::IDENTITY);
         let mut out = Vec::new();
-        for (i, effect) in g.effects.iter().enumerate() {
+        for effect in &g.effects {
             let Effect::DropShadow(shadow) = effect else {
                 continue;
             };
-            let (offset, blur, unit) = match linear {
-                Some(m) => {
+            let (offset, blur, unit) = {
+                {
                     let scale = (m.a * m.d - m.b * m.c).abs().sqrt();
                     let mut along = |kx: f64, ky: f64| {
                         let x = self.g.track(&shadow.offset.x, local, |v| kx * v);
@@ -394,7 +396,6 @@ impl Compiler {
                     };
                     (offset, blur, scale)
                 }
-                None => self.sampled_shadow(g, i),
             };
             let colors = values(&shadow.color);
             let Some(first) = colors.first().copied() else {
@@ -440,7 +441,11 @@ impl Compiler {
                 });
             }
         }
-        Ok(out)
+        let turning = match (linear, out.is_empty()) {
+            (None, false) => Some(self.chain_transform(g)),
+            _ => None,
+        };
+        Ok(Shadows { list: out, turning })
     }
 
     /// Blurs from `lo` to `hi` (deviations) a moving one (`node`) is drawn
@@ -497,14 +502,17 @@ impl Compiler {
         })
     }
 
-    /// Shadow `i` of `g` where the groups it is in turn or scale: where it
-    /// falls and how it blurs in the view, sampled from the scene's frames
-    /// as the reference casts it; and the group's lengths in points as it
-    /// starts.
-    fn sampled_shadow(&mut self, g: &Group, i: usize) -> ([Num; 2], ViewBlur, f64) {
+    /// How `g`'s lengths move in the view, where it or a group it is in
+    /// turns or scales: its matrix to the view, sampled from the scene's
+    /// frames, as a layer's transform (`g` not yet among the groups drawn
+    /// inside).
+    fn chain_transform(&mut self, g: &Group) -> LayerTransform {
         let mut probe = shell(g);
+        probe.effects = Vec::new();
         probe.clip = None;
         probe.mask = None;
+        probe.opacity = Animated::Static(1.0);
+        probe.active = None;
         probe.children = vec![Node::shape(Shape {
             paths: vec![ShapePath::new(dxn_vector_animation::Geometry::Rect {
                 center: dxn_vector_animation::AnimatedPoint::fixed(0.5, 0.5),
@@ -524,6 +532,10 @@ impl Compiler {
         for (ancestor, _) in self.ancestors.iter().rev() {
             let mut a = ancestor.clone();
             a.opacity = Animated::Static(1.0);
+            a.active = None;
+            a.clip = None;
+            a.mask = None;
+            a.effects = Vec::new();
             a.children = vec![part];
             part = Node::Group(a);
         }
@@ -534,41 +546,49 @@ impl Compiler {
             },
             ..self.stage.clone()
         };
-        let b = self.base;
-        let scale = (b.a * b.d - b.b * b.c).abs().sqrt();
         let times = probe_times(self.stage.timeline.duration);
-        let (mut xs, mut ys, mut sigmas) = (Vec::new(), Vec::new(), Vec::new());
-        let mut last = (0.0, 0.0, 0.0);
+        let mut parts: [Vec<f64>; 6] = Default::default();
+        let mut last = Matrix::IDENTITY;
         for &t in &times {
-            if let Some(FrameEffect::DropShadow { offset, sigma, .. }) =
-                probe_effects(&scene.frame_at(t)).and_then(|e| e.get(i).cloned())
-            {
-                last = (
-                    b.a * offset.x + b.c * offset.y,
-                    b.b * offset.x + b.d * offset.y,
-                    sigma * scale,
-                );
+            if let Some(m) = scene.frame_at(t).items.iter().find_map(|item| match item {
+                Item::Fill { transform, .. } => Some(*transform),
+                _ => None,
+            }) {
+                last = m;
             }
-            xs.push(last.0);
-            ys.push(last.1);
-            sigmas.push(last.2);
+            let d = decompose(self.base * last);
+            let values = [
+                d.translate.0,
+                d.translate.1,
+                d.angle,
+                d.skew.atan().to_degrees(),
+                d.scale.0,
+                d.scale.1,
+            ];
+            for (list, v) in parts.iter_mut().zip(values) {
+                list.push(v);
+            }
         }
-        let x = self.sampled_num(&times, &xs);
-        let y = self.sampled_num(&times, &ys);
-        let blur = match self.sampled_num(&times, &sigmas) {
-            Num::Const(s) => ViewBlur::Still(s),
-            node => {
-                let (lo, hi) = min_max(sigmas.iter().copied());
-                ViewBlur::Moving { lo, hi, node }
-            }
-        };
-        ([x, y], blur, scale)
+        unwrap_angles(&mut parts[2]);
+        // Within a twentieth of a point, a hundredth of a degree, a
+        // thousandth of a scale.
+        let tolerances = [0.05, 0.05, 0.01, 0.01, 1e-3, 1e-3];
+        let [tx, ty, rotate, skew, sx, sy] = [0, 1, 2, 3, 4, 5].map(|i| {
+            let n = self.sampled_num(&times, &parts[i], tolerances[i]);
+            Num::Node(self.node(n))
+        });
+        LayerTransform {
+            translate: (tx, ty),
+            rotate,
+            skew,
+            scale: (sx, sy),
+        }
     }
 
-    /// `values` at `times` (of the playback, in view points) as a node: the
-    /// samples a line does not stand for within a twentieth of a point.
-    fn sampled_num(&mut self, times: &[f64], values: &[f64]) -> Num {
-        let (inputs, outputs) = simplified(times, values, 0.05);
+    /// `values` at `times` (of the playback) as a node: the samples a line
+    /// does not stand for within `tolerance`.
+    fn sampled_num(&mut self, times: &[f64], values: &[f64], tolerance: f64) -> Num {
+        let (inputs, outputs) = simplified(times, values, tolerance);
         if inputs.len() < 2 {
             return Num::Const(outputs.first().copied().unwrap_or(0.0));
         }
@@ -750,14 +770,25 @@ impl Compiler {
         depth: usize,
         content: &[Op],
         outer: usize,
-        shadows: Vec<CanvasShadow>,
+        shadows: Shadows,
     ) -> Result<Vec<Unit>, Unsupported> {
         let (setup, drawn) = content.split_at(outer.min(content.len()));
         let see_through = self.see_through(drawn);
+        // A group that turns or scales: its shadows cast in its lengths,
+        // in layers moving as it does (the groups' clips would not).
+        let turning = shadows.turning;
+        // The groups' clips in the turning group's lengths.
+        let clips = match &turning {
+            Some(_) if setup.iter().any(|op| matches!(op, Op::Clip(_))) => {
+                let frames = self.context.clone();
+                self.clips_within(&frames)?
+            }
+            _ => Vec::new(),
+        };
         // Soft and hard silhouettes, as the shadows need them.
         let mut casters: [Option<Vec<Op>>; 2] = [None, None];
         let mut units = Vec::new();
-        for shadow in shadows {
+        for shadow in shadows.list {
             let k = usize::from(shadow.hard);
             if casters[k].is_none() {
                 casters[k] = Some(self.casters(g, local, depth, shadow.hard)?);
@@ -767,15 +798,17 @@ impl Compiler {
                 continue;
             }
             let moving = shadow.offset.iter().any(|n| matches!(n, Num::Node(_)));
-            let unit = if moving || (!shadow.knockout && see_through) {
-                self.cast_past(setup, &cast, &shadow)
-            } else {
-                Unit::Canvas(self.cast_in_place(setup, &cast, &shadow))
+            let past = moving || (!shadow.knockout && see_through);
+            let unit = match (&turning, past) {
+                (None, true) => self.cast_past(setup, &cast, &shadow),
+                (None, false) => Unit::Canvas(self.cast_in_place(setup, &cast, &shadow)),
+                (Some(_), past) => self.cast_in_area(&cast, &shadow, past, &clips),
             };
             units.push(Unit::Layer {
                 opacity: shadow.alpha,
                 blend: BlendMode::Normal,
                 units: vec![unit],
+                transform: turning.clone(),
             });
         }
         Ok(units)
@@ -868,6 +901,148 @@ impl Compiler {
         }
         ops.extend(recolor(s.color));
         Unit::Wide { margin, ops }
+    }
+
+    /// The shadow cast by `cast` in the group's own lengths, on a canvas
+    /// over where it falls: drawn in place and taken away again, or, `past`
+    /// that, falling into it from casters past it.
+    fn cast_in_area(&mut self, cast: &[Op], s: &CanvasShadow, past: bool, clips: &[Op]) -> Unit {
+        let Some(b) = self.drawn_bounds(cast, s.offset) else {
+            return Unit::Canvas(Vec::new());
+        };
+        let still = self.drawn_bounds(cast, [Num::Const(0.0); 2]).unwrap_or(b);
+        // Where the shadow falls, and the casters left of it.
+        let shown = b.union(still).grown(1.5 * s.blur + 2.0);
+        let dx = shown.x - (b.x + b.width) - PAST;
+        let area = if past {
+            shown.union(Rect::new(b.x + dx, b.y, b.width, b.height))
+        } else {
+            shown
+        };
+        let area = Rect::new(
+            area.x.floor(),
+            area.y.floor(),
+            (area.x + area.width).ceil() - area.x.floor(),
+            (area.y + area.height).ceil() - area.y.floor(),
+        );
+        let at = Op::Translate(Num::Const(-area.x), Num::Const(-area.y));
+        let mut ops = vec![Op::Save, at.clone()];
+        if past {
+            let moved = self.g.math(MathOp::Add, s.offset[0], Num::Const(dx));
+            ops.push(Op::Translate(moved, s.offset[1]));
+            ops.push(shadow_op(s.color, s.blur, (-dx, 0.0)));
+            ops.extend(cast.iter().cloned());
+            ops.push(Op::Restore);
+            if s.knockout {
+                ops.extend([Op::Save, at, Op::Blend(BlendMode::DestinationOut)]);
+                ops.extend(self.cut(cast));
+                ops.push(Op::Restore);
+            }
+        } else {
+            let still = |n: Num| match n {
+                Num::Const(c) => c,
+                Num::Node(_) => 0.0,
+            };
+            ops.push(shadow_op(
+                s.color,
+                s.blur,
+                (still(s.offset[0]), still(s.offset[1])),
+            ));
+            ops.extend(cast.iter().cloned());
+            ops.extend([
+                shadow_op(Paint::Const(0), 0.0, (0.0, 0.0)),
+                Op::Blend(BlendMode::DestinationOut),
+            ]);
+            ops.extend(self.cut(cast));
+            ops.push(Op::Restore);
+        }
+        if !clips.is_empty() {
+            let mut clip = vec![
+                Op::Save,
+                Op::Translate(Num::Const(-area.x), Num::Const(-area.y)),
+            ];
+            clip.extend(clips.iter().cloned());
+            ops.extend(closed(clip));
+        }
+        ops.extend(recolor(s.color));
+        let shown = Rect::new(
+            shown.x.floor(),
+            shown.y.floor(),
+            (shown.x + shown.width).ceil() - shown.x.floor(),
+            (shown.y + shown.height).ceil() - shown.y.floor(),
+        );
+        Unit::Area {
+            area,
+            shown: past.then_some(shown),
+            ops,
+        }
+    }
+
+    /// The clips of `frames` (the setup of the groups drawn inside, the
+    /// last a turning group's) taking away what is drawn outside them, in
+    /// the last group's lengths: each built after undoing the transforms of
+    /// the groups between it and the last; an error where one of those
+    /// cannot be undone on the graph (a matrix that moves otherwise than
+    /// skewing along x).
+    fn clips_within(&mut self, frames: &[Vec<Op>]) -> Result<Vec<Op>, Unsupported> {
+        let mut out = Vec::new();
+        for (k, frame) in frames.iter().enumerate() {
+            let runs = clip_runs(frame);
+            if !runs.iter().any(|&clip| clip) {
+                continue;
+            }
+            out.push(Op::Save);
+            for later in frames[k + 1..].iter().rev() {
+                let transforms: Vec<Op> = later
+                    .iter()
+                    .zip(clip_runs(later))
+                    .filter(|(op, clip)| !clip && !matches!(op, Op::Save | Op::Restore))
+                    .map(|(op, _)| op.clone())
+                    .collect();
+                for op in transforms.iter().rev() {
+                    out.push(self.inverse(op)?);
+                }
+            }
+            let clip: Vec<Op> = frame
+                .iter()
+                .zip(&runs)
+                .filter(|(_, clip)| **clip)
+                .map(|(op, _)| op.clone())
+                .collect();
+            out.extend(clips_after(&clip));
+            out.push(Op::Restore);
+        }
+        Ok(out)
+    }
+
+    /// The transform undoing `op`.
+    fn inverse(&mut self, op: &Op) -> Result<Op, Unsupported> {
+        let neg = |c: &mut Self, n: Num| c.g.math(MathOp::Mul, n, Num::Const(-1.0));
+        let inv = |c: &mut Self, n: Num| c.g.math(MathOp::Div, Num::Const(1.0), n);
+        Ok(match *op {
+            Op::Translate(x, y) => Op::Translate(neg(self, x), neg(self, y)),
+            Op::Scale(x, y) => Op::Scale(inv(self, x), inv(self, y)),
+            Op::Rotate(a) => Op::Rotate(neg(self, a)),
+            Op::Transform([a, b, c, d, e, f]) => {
+                let one = |n: Num| n.is(1.0);
+                let zero = |n: Num| n.is(0.0);
+                if let (Num::Const(a), Num::Const(b), Num::Const(c), Num::Const(d)) = (a, b, c, d)
+                    && let (Num::Const(e), Num::Const(f)) = (e, f)
+                {
+                    let m = Matrix::new(a, b, c, d, e, f);
+                    let Some(i) = m.invert() else {
+                        return unsupported("a shadow of a group flattened to a line");
+                    };
+                    Op::Transform([i.a, i.b, i.c, i.d, i.e, i.f].map(Num::Const))
+                } else if one(a) && zero(b) && one(d) && zero(e) && zero(f) {
+                    // A skew along x.
+                    Op::Transform([a, b, neg(self, c), d, e, f])
+                } else {
+                    return unsupported("a shadow of a group whose matrix moves");
+                }
+            }
+            _ => return unsupported("a shadow of a group whose setup draws"),
+        })
     }
 
     /// Where `ops` (from the view's origin) draw over the playback, moved by

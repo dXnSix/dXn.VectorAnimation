@@ -42,7 +42,7 @@ fn kinds(units: &[Unit]) -> (usize, usize) {
             ),
             r,
         ),
-        Unit::Wide { ops, .. } => (
+        Unit::Wide { ops, .. } | Unit::Area { ops, .. } => (
             s + usize::from(
                 ops.iter()
                     .any(|op| matches!(op, Op::Shadow { color, .. } if color & 0xff > 0)),

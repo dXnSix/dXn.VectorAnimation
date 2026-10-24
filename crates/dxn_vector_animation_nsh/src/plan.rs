@@ -442,6 +442,18 @@ pub enum Unit {
         /// Its operations.
         ops: Vec<Op>,
     },
+    /// A canvas over `area` (points in the coordinates of what holds it),
+    /// shown within `shown` only where there is one (what it draws past
+    /// that casts shadows into it); its operations in its own coordinates,
+    /// `area`'s corner at their origin.
+    Area {
+        /// Where it is.
+        area: Rect,
+        /// What of it shows.
+        shown: Option<Rect>,
+        /// Its operations.
+        ops: Vec<Op>,
+    },
     /// A view the size of the view over the units below it.
     Layer {
         /// Its opacity.
@@ -450,7 +462,24 @@ pub enum Unit {
         blend: BlendMode,
         /// What it holds, bottom first.
         units: Vec<Unit>,
+        /// How it moves (about its top left corner), where it does: what it
+        /// holds is then in the coordinates it moves.
+        transform: Option<LayerTransform>,
     },
+}
+
+/// An animated transform: moved, turned, skewed along x and scaled, in that
+/// order (what each part reads).
+#[derive(Debug, Clone, PartialEq)]
+pub struct LayerTransform {
+    /// How far it moves, in points.
+    pub translate: (Num, Num),
+    /// How far it turns, in degrees clockwise.
+    pub rotate: Num,
+    /// How far it skews along x, in degrees.
+    pub skew: Num,
+    /// How it scales.
+    pub scale: (Num, Num),
 }
 
 /// A compiled scene.
@@ -1125,6 +1154,7 @@ impl Compiler {
                     opacity: layer.opacity,
                     blend: layer.blend,
                     units: layer.units,
+                    transform: None,
                 };
                 self.open().units.push(unit);
             }

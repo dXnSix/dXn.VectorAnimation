@@ -131,12 +131,56 @@ pub(crate) fn elements(
                     .into_element()
             }
             Unit::Sampled(_) | Unit::Raster(_) => part(unit),
+            Unit::Area { area, shown, ops } => {
+                let painter = painter(ops, nodes);
+                let (x, y) = match shown {
+                    Some(shown) => (area.x - shown.x, area.y - shown.y),
+                    None => (area.x, area.y),
+                };
+                let placed = canvas(painter)
+                    .absolute()
+                    .left(px(x as f32))
+                    .top(px(y as f32))
+                    .w(px(area.width as f32))
+                    .h(px(area.height as f32));
+                match shown {
+                    None => placed.into_element(),
+                    Some(shown) => view()
+                        .absolute()
+                        .left(px(shown.x as f32))
+                        .top(px(shown.y as f32))
+                        .w(px(shown.width as f32))
+                        .h(px(shown.height as f32))
+                        .overflow_hidden()
+                        .child(placed)
+                        .into_element(),
+                }
+            }
             Unit::Layer {
                 opacity,
                 blend,
                 units,
+                transform,
             } => {
                 let mut layer = view().absolute().size_full();
+                if let Some(t) = transform {
+                    use nsh_core::TransformKind as K;
+                    layer = layer.origin_top_left();
+                    for (kind, n) in [
+                        (K::TranslateX, t.translate.0),
+                        (K::TranslateY, t.translate.1),
+                        (K::Rotate, t.rotate),
+                        (K::SkewX, t.skew),
+                        (K::ScaleX, t.scale.0),
+                        (K::ScaleY, t.scale.1),
+                    ] {
+                        if let Num::Node(id) = n
+                            && let Some(node) = nodes.node(id)
+                        {
+                            layer = layer.bind_transform(kind, node);
+                        }
+                    }
+                }
                 match opacity {
                     Num::Const(c) => {
                         if *c < 1.0 {

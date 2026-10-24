@@ -42,7 +42,7 @@ fn assert_soft(scene: &Scene) {
 /// Whether a canvas of `units` takes away (`destination-out`).
 fn takes_away(units: &[Unit]) -> bool {
     units.iter().any(|u| match u {
-        Unit::Canvas(ops) | Unit::Wide { ops, .. } => ops
+        Unit::Canvas(ops) | Unit::Wide { ops, .. } | Unit::Area { ops, .. } => ops
             .iter()
             .any(|op| matches!(op, Op::Blend(BlendMode::DestinationOut))),
         Unit::Layer { units, .. } => takes_away(units),

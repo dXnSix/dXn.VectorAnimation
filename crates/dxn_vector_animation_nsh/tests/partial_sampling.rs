@@ -149,7 +149,7 @@ const BLUE: Color = Color::rgba(0.16, 0.35, 0.86, 1.0);
 /// How many units of each kind: canvases, sampled parts, layers.
 fn kinds(units: &[Unit]) -> (usize, usize, usize) {
     units.iter().fold((0, 0, 0), |(c, s, l), unit| match unit {
-        Unit::Canvas(_) | Unit::Wide { .. } => (c + 1, s, l),
+        Unit::Canvas(_) | Unit::Wide { .. } | Unit::Area { .. } => (c + 1, s, l),
         Unit::Sampled(_) | Unit::Raster(_) => (c, s + 1, l),
         Unit::Layer { units, .. } => {
             let (ci, si, li) = kinds(units);

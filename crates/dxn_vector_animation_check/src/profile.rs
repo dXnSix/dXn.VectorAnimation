@@ -31,7 +31,7 @@ struct Count {
 fn count(units: &[Unit], c: &mut Count) {
     for unit in units {
         match unit {
-            Unit::Canvas(ops) | Unit::Wide { ops, .. } => {
+            Unit::Canvas(ops) | Unit::Wide { ops, .. } | Unit::Area { ops, .. } => {
                 c.canvases += 1;
                 c.ops += ops
                     .iter()

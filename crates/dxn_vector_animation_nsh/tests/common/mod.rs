@@ -84,6 +84,13 @@ pub fn widest_point(scene: &Scene, time: f64, w: u32, h: u32) -> f64 {
                     replay.run(ops, &mut p);
                     replay.widest.get()
                 }
+                Unit::Area { area, ops, .. } => {
+                    let win = Window::of(*area);
+                    let mut p = sk::Pixmap::new(win.w, win.h).unwrap();
+                    let mut replay = Replay::new(g, t, win.w, win.h);
+                    replay.run(ops, &mut p);
+                    replay.widest.get()
+                }
                 Unit::Wide { margin, ops } => {
                     let (ew, eh) = wide_size(margin, w, h);
                     let mut p = sk::Pixmap::new(ew, eh).unwrap();
@@ -106,45 +113,178 @@ pub fn widest_point(scene: &Scene, time: f64, w: u32, h: u32) -> f64 {
 }
 
 fn units(list: &[Unit], g: &Graph, t: f64, w: u32, h: u32, base: Matrix) -> sk::Pixmap {
-    let mut out = sk::Pixmap::new(w, h).unwrap();
+    let view = Window { x: 0, y: 0, w, h };
+    units_in(list, g, t, w, h, base, view)
+}
+
+/// A window onto the coordinates units draw in (a layer's, the view's for
+/// most): its corner and its size, in pixels a point.
+#[derive(Clone, Copy)]
+struct Window {
+    x: i32,
+    y: i32,
+    w: u32,
+    h: u32,
+}
+
+impl Window {
+    fn of(r: dxn_vector_animation::Rect) -> Window {
+        let (x0, y0) = (r.x.floor() as i32, r.y.floor() as i32);
+        let (x1, y1) = (
+            (r.x + r.width).ceil() as i32,
+            (r.y + r.height).ceil() as i32,
+        );
+        Window {
+            x: x0,
+            y: y0,
+            w: (x1 - x0).max(1) as u32,
+            h: (y1 - y0).max(1) as u32,
+        }
+    }
+}
+
+/// `ops` replayed on a canvas over `element` (their origin at its corner,
+/// as a platform's canvas of that size), placed in `win` and kept within
+/// `keep` (in the same coordinates).
+fn canvas_in(
+    ops: &[Op],
+    g: &Graph,
+    t: f64,
+    win: Window,
+    element: dxn_vector_animation::Rect,
+    keep: dxn_vector_animation::Rect,
+) -> sk::Pixmap {
+    let el = Window::of(element);
+    let mut drawn = sk::Pixmap::new(el.w, el.h).unwrap();
+    Replay::new(g, t, el.w, el.h).run(ops, &mut drawn);
+    let mut p = sk::Pixmap::new(win.w, win.h).unwrap();
+    p.draw_pixmap(
+        el.x - win.x,
+        el.y - win.y,
+        drawn.as_ref(),
+        &sk::PixmapPaint::default(),
+        sk::Transform::identity(),
+        None,
+    );
+    let (x0, y0) = (keep.x - f64::from(win.x), keep.y - f64::from(win.y));
+    let (x1, y1) = (x0 + keep.width, y0 + keep.height);
+    let width = win.w as usize;
+    for (i, px) in p.pixels_mut().iter_mut().enumerate() {
+        let (px_x, px_y) = ((i % width) as f64 + 0.5, (i / width) as f64 + 0.5);
+        if px_x < x0 || px_y < y0 || px_x > x1 || px_y > y1 {
+            *px = sk::PremultipliedColorU8::TRANSPARENT;
+        }
+    }
+    p
+}
+
+/// Where `list` draws in its coordinates, about (a canvas the size of the
+/// view covers it).
+fn extent(list: &[Unit], w: u32, h: u32) -> dxn_vector_animation::Rect {
+    let view = dxn_vector_animation::Rect::new(0.0, 0.0, f64::from(w), f64::from(h));
+    list.iter()
+        .map(|u| match u {
+            Unit::Area { area, shown, .. } => shown.unwrap_or(*area),
+            Unit::Layer {
+                units,
+                transform: None,
+                ..
+            } => extent(units, w, h),
+            _ => view,
+        })
+        .reduce(|a, b| a.union(b))
+        .unwrap_or(view)
+}
+
+fn units_in(
+    list: &[Unit],
+    g: &Graph,
+    t: f64,
+    w: u32,
+    h: u32,
+    base: Matrix,
+    win: Window,
+) -> sk::Pixmap {
+    let view = dxn_vector_animation::Rect::new(0.0, 0.0, f64::from(w), f64::from(h));
+    let mut out = sk::Pixmap::new(win.w, win.h).unwrap();
     for unit in list {
         let (pixmap, opacity, blend) = match unit {
-            Unit::Canvas(ops) => {
-                let mut p = sk::Pixmap::new(w, h).unwrap();
-                Replay::new(g, t, w, h).run(ops, &mut p);
-                (p, 1.0, BlendMode::Normal)
-            }
+            Unit::Canvas(ops) => (
+                canvas_in(ops, g, t, win, view, view),
+                1.0,
+                BlendMode::Normal,
+            ),
             // A canvas reaching past the view, shown within it.
             Unit::Wide { margin, ops } => {
-                let (ew, eh) = wide_size(margin, w, h);
-                let mut big = sk::Pixmap::new(ew, eh).unwrap();
-                Replay::new(g, t, ew, eh).run(ops, &mut big);
-                let mut p = sk::Pixmap::new(w, h).unwrap();
-                p.draw_pixmap(
-                    -(margin[0] as i32),
-                    -(margin[1] as i32),
-                    big.as_ref(),
-                    &sk::PixmapPaint::default(),
-                    sk::Transform::identity(),
-                    None,
+                let element = dxn_vector_animation::Rect::new(
+                    -margin[0],
+                    -margin[1],
+                    f64::from(w) + margin[0] + margin[2],
+                    f64::from(h) + margin[1] + margin[3],
                 );
-                (p, 1.0, BlendMode::Normal)
+                (
+                    canvas_in(ops, g, t, win, element, view),
+                    1.0,
+                    BlendMode::Normal,
+                )
             }
+            // A canvas over an area, shown within part of it.
+            Unit::Area { area, shown, ops } => (
+                canvas_in(ops, g, t, win, *area, shown.unwrap_or(*area)),
+                1.0,
+                BlendMode::Normal,
+            ),
             Unit::Layer {
                 opacity,
                 blend,
                 units: inner,
-            } => (units(inner, g, t, w, h, base), g.num(*opacity, t), *blend),
+                transform: None,
+            } => (
+                units_in(inner, g, t, w, h, base, win),
+                g.num(*opacity, t),
+                *blend,
+            ),
+            // A layer that moves: what it holds drawn in its coordinates,
+            // then moved as the platform moves the view.
+            Unit::Layer {
+                opacity,
+                blend,
+                units: inner,
+                transform: Some(tf),
+            } => {
+                let local = Window::of(extent(inner, w, h));
+                let drawn = units_in(inner, g, t, w, h, base, local);
+                let n = |v: Num| g.num(v, t);
+                let m = Matrix::translate(-f64::from(win.x), -f64::from(win.y))
+                    * Matrix::translate(n(tf.translate.0), n(tf.translate.1))
+                    * Matrix::rotate(n(tf.rotate))
+                    * Matrix::skew(n(tf.skew), 0.0)
+                    * Matrix::scale(n(tf.scale.0), n(tf.scale.1))
+                    * Matrix::translate(f64::from(local.x), f64::from(local.y));
+                let mut p = sk::Pixmap::new(win.w, win.h).unwrap();
+                p.draw_pixmap(
+                    0,
+                    0,
+                    drawn.as_ref(),
+                    &sk::PixmapPaint {
+                        quality: sk::FilterQuality::Bilinear,
+                        ..Default::default()
+                    },
+                    sk_transform(m),
+                    None,
+                );
+                (p, g.num(*opacity, t), *blend)
+            }
             // A part rasterized: the reference's pixels, as the player
             // draws them.
             Unit::Raster(part) => {
                 let view = plan::in_view(part, base, f64::from(w), f64::from(h));
-                let mut p = sk::Pixmap::new(w, h).unwrap();
+                let mut p = sk::Pixmap::new(win.w, win.h).unwrap();
                 if let Some((image, at)) = plan::raster(&view, t, 1.0) {
                     let image = sk::Pixmap::decode_png(&image.bytes).expect("a PNG");
                     p.draw_pixmap(
-                        at.x.round() as i32,
-                        at.y.round() as i32,
+                        at.x.round() as i32 - win.x,
+                        at.y.round() as i32 - win.y,
                         image.as_ref(),
                         &sk::PixmapPaint::default(),
                         sk::Transform::identity(),
@@ -157,7 +297,7 @@ fn units(list: &[Unit], g: &Graph, t: f64, w: u32, h: u32, base: Matrix) -> sk::
             Unit::Sampled(part) => {
                 let plan = plan::from_frame(&part.frame_at(t), base);
                 (
-                    units(&plan.units, &plan.graph, t, w, h, base),
+                    units_in(&plan.units, &plan.graph, t, w, h, base, win),
                     1.0,
                     BlendMode::Normal,
                 )
@@ -484,10 +624,47 @@ impl<'g> Replay<'g> {
             );
             self.cast_shadow(&shape, out);
         }
+        if self.unbounded() {
+            // Canvas' `destination-in` changes what the shape leaves out too.
+            let mut shape = sk::Pixmap::new(self.w, self.h).unwrap();
+            let mut plain = paint.clone();
+            plain.blend_mode = sk::BlendMode::SourceOver;
+            shape.fill_path(
+                &path,
+                &plain,
+                sk_rule(rule),
+                sk::Transform::identity(),
+                None,
+            );
+            self.compose(&shape, out);
+            return;
+        }
         out.fill_path(
             &path,
             &paint,
             sk_rule(rule),
+            sk::Transform::identity(),
+            self.state.clip.as_ref(),
+        );
+    }
+
+    /// Whether the composite operation changes the canvas where a drawing
+    /// leaves it out.
+    fn unbounded(&self) -> bool {
+        !self.state.atop && self.state.blend == BlendMode::DestinationIn
+    }
+
+    /// `shape` (a drawing on a canvas of its own) composed onto `out` with
+    /// the composite operation, over the whole canvas within the clip.
+    fn compose(&self, shape: &sk::Pixmap, out: &mut sk::Pixmap) {
+        out.draw_pixmap(
+            0,
+            0,
+            shape.as_ref(),
+            &sk::PixmapPaint {
+                blend_mode: sk_blend(self.state.blend),
+                ..Default::default()
+            },
             sk::Transform::identity(),
             self.state.clip.as_ref(),
         );

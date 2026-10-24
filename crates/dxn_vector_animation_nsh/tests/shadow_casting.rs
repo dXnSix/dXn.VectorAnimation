@@ -70,7 +70,15 @@ fn kinds(units: &[Unit]) -> (usize, usize, usize) {
     };
     units.iter().fold((0, 0, 0), |(a, b, c), u| match u {
         Unit::Canvas(ops) => (a + casts(ops), b, c),
-        Unit::Wide { ops, .. } => (a, b + casts(ops), c),
+        Unit::Wide { ops, .. }
+        | Unit::Area {
+            ops,
+            shown: Some(_),
+            ..
+        } => (a, b + casts(ops), c),
+        Unit::Area {
+            ops, shown: None, ..
+        } => (a + casts(ops), b, c),
         Unit::Layer { units, .. } => {
             let (x, y, z) = kinds(units);
             (a + x, b + y, c + z)
@@ -364,17 +372,17 @@ fn a_shadow_of_content_clipped_otherwise_is_drawn_as_the_reference_draws_it() {
     assert!(worst(&s) <= 0.001);
 }
 
-#[test]
-fn a_shadow_turning_with_its_group_plays_on_the_graph() {
-    // The group turns about the middle: its shadow's offset turns with it.
+/// The card and disc turning about the middle and shrinking, with a shadow
+/// falling right of them (seen through them, or knocked out).
+fn turning(knockout: bool, opacity: f64) -> Scene {
     let mut s = scene(
         vec![Effect::DropShadow(shadow(
             dark(0.5),
             AnimatedPoint::fixed(6.0, 0.0),
             2.0,
-            true,
+            knockout,
         ))],
-        1.0,
+        opacity,
     );
     if let Node::Group(g) = &mut s.root.children[1] {
         g.transform = vec![
@@ -389,9 +397,20 @@ fn a_shadow_turning_with_its_group_plays_on_the_graph() {
             TransformOp::translate(-50.0, -50.0),
         ];
     }
-    // Two blurs as the scale shrinks the blur, faded between.
-    assert_eq!(native(&s), (0, 2, 0));
-    assert_within(&s, 0.01);
+    s
+}
+
+#[test]
+fn a_shadow_turning_with_its_group_plays_on_the_graph() {
+    // Cast in the group's lengths, in a layer turning and scaling as it.
+    let s = turning(false, 0.6);
+    assert_eq!(native(&s), (0, 1, 0));
+    assert_matches(&s);
+    // Knocked out: the content's edges, anti-aliased all along as it turns,
+    // keep the shadow as they cover (see `assert_within`).
+    let s = turning(true, 1.0);
+    assert_eq!(native(&s), (1, 0, 0));
+    assert_within(&s, 0.06);
 }
 
 #[test]
@@ -416,6 +435,65 @@ fn a_shadow_of_content_sliding_past_the_view() {
         )],
         ..Group::new()
     });
+    assert_eq!(native(&s), (0, 1, 0));
+    assert_matches(&s);
+}
+
+#[test]
+fn a_shadow_turning_inside_a_clip_is_clipped_where_it_falls() {
+    // The turning card and disc in a frame clipping them to a band: the
+    // band's clip undone into the turning group's lengths.
+    let inner = turning(false, 0.6).root;
+    let mut s = turning(false, 0.6);
+    s.root = Group {
+        children: vec![
+            filled(rect(0.0, 0.0, 100.0, 100.0), Paint::solid(GROUND), 1.0),
+            Node::Group(Group {
+                transform: vec![TransformOp::translate(4.0, 2.0)],
+                clip: Some(Clip {
+                    shapes: vec![ClipShape {
+                        geometry: rect_geometry(10.0, 25.0, 80.0, 45.0, 0.0),
+                        transform: Vec::new(),
+                        rule: FillRule::NonZero,
+                    }],
+                }),
+                children: vec![inner.children[1].clone()],
+                ..Group::new()
+            }),
+        ],
+        ..Group::new()
+    };
+    assert_eq!(native(&s), (0, 1, 0));
+    assert_matches(&s);
+}
+
+#[test]
+fn a_shadow_cast_from_past_the_view_inside_a_clip() {
+    // Seen through the content, inside a frame clipping it to a band.
+    let mut s = scene(
+        vec![Effect::DropShadow(shadow(
+            dark(0.8),
+            AnimatedPoint {
+                x: track(&[(0.0, -4.0), (2.0, 8.0)]),
+                y: Animated::Static(6.0),
+            },
+            2.0,
+            false,
+        ))],
+        0.5,
+    );
+    let shadowed = s.root.children.remove(1);
+    s.root.children.push(Node::Group(Group {
+        clip: Some(Clip {
+            shapes: vec![ClipShape {
+                geometry: rect_geometry(10.0, 25.0, 80.0, 45.0, 0.0),
+                transform: Vec::new(),
+                rule: FillRule::NonZero,
+            }],
+        }),
+        children: vec![shadowed],
+        ..Group::new()
+    }));
     assert_eq!(native(&s), (0, 1, 0));
     assert_matches(&s);
 }
