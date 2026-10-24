@@ -191,6 +191,7 @@ dependencies = [
  "base64",
  "dxn_vector_animation",
  "kurbo",
+ "miniz_oxide 0.8.9",
  "serde_json",
 ]
 

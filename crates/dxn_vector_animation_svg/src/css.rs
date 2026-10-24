@@ -1,5 +1,6 @@
 //! The CSS an SVG's `<style>` sheets and `style` attributes hold: rules of
-//! simple selectors, declarations, and `@keyframes`.
+//! selectors (compounds of types, ids, classes, attributes and structural
+//! pseudo-classes, joined by combinators), declarations, and `@keyframes`.
 
 use std::collections::HashMap;
 
@@ -20,25 +21,111 @@ pub(crate) struct Rule {
     pub(crate) order: usize,
 }
 
-/// A compound selector: `tag`, `#id`, `.class` and `*` together.
+/// A selector: compounds joined by combinators, matched right to left.
 #[derive(Debug, Default)]
 pub(crate) struct Selector {
-    pub(crate) tag: Option<String>,
-    pub(crate) id: Option<String>,
-    pub(crate) classes: Vec<String>,
+    /// What the element itself matches.
+    subject: Compound,
+    /// What its ancestors or earlier siblings match, nearest first, each
+    /// with how it joins the compound after it.
+    context: Vec<(Combinator, Compound)>,
+}
+
+/// How two compounds of a selector relate.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Combinator {
+    /// `a b`: an ancestor.
+    Descendant,
+    /// `a > b`: the parent.
+    Child,
+    /// `a + b`: the element just before.
+    Adjacent,
+    /// `a ~ b`: an element before.
+    Sibling,
+}
+
+/// A compound selector: `tag` or `*`, `#id`, `.class`, `[attribute]` and
+/// pseudo-classes together.
+#[derive(Debug, Default, Clone)]
+struct Compound {
+    tag: Option<String>,
+    ids: Vec<String>,
+    classes: Vec<String>,
+    attributes: Vec<Attribute>,
+    pseudo: Vec<Pseudo>,
+}
+
+/// `[name]`, or `[name op value]`.
+#[derive(Debug, Clone)]
+struct Attribute {
+    name: String,
+    test: Option<(String, String)>,
+}
+
+/// The pseudo-classes it matches.
+#[derive(Debug, Clone)]
+enum Pseudo {
+    /// `:nth-child(an+b)` (`:first-child` is `0n+1`), from the end for
+    /// `:nth-last-child` and `:last-child`.
+    Nth { a: i64, b: i64, from_end: bool },
+    /// `:only-child`.
+    Only,
+    /// `:not(compound)`.
+    Not(Box<Compound>),
 }
 
 impl Selector {
     /// CSS specificity: (ids, classes, tags).
     pub(crate) fn specificity(&self) -> (u32, u32, u32) {
-        (
-            u32::from(self.id.is_some()),
-            self.classes.len() as u32,
-            u32::from(self.tag.is_some()),
-        )
+        std::iter::once(&self.subject)
+            .chain(self.context.iter().map(|(_, c)| c))
+            .map(Compound::specificity)
+            .fold((0, 0, 0), |a, b| (a.0 + b.0, a.1 + b.1, a.2 + b.2))
     }
 
     pub(crate) fn matches(&self, node: roxmltree::Node<'_, '_>) -> bool {
+        self.subject.matches(node) && matches_context(&self.context, node)
+    }
+}
+
+/// Whether `node`'s ancestors and earlier siblings match `context`
+/// (nearest first), trying every candidate a combinator allows.
+fn matches_context(context: &[(Combinator, Compound)], node: roxmltree::Node<'_, '_>) -> bool {
+    let Some(((combinator, compound), rest)) = context.split_first() else {
+        return true;
+    };
+    let mut candidates: Box<dyn Iterator<Item = roxmltree::Node<'_, '_>>> = match combinator {
+        Combinator::Child => Box::new(node.parent_element().into_iter()),
+        Combinator::Descendant => Box::new(node.ancestors().skip(1).filter(|n| n.is_element())),
+        Combinator::Adjacent => Box::new(node.prev_sibling_element().into_iter()),
+        Combinator::Sibling => Box::new(std::iter::successors(node.prev_sibling_element(), |n| {
+            n.prev_sibling_element()
+        })),
+    };
+    candidates.any(|n| compound.matches(n) && matches_context(rest, n))
+}
+
+impl Compound {
+    fn specificity(&self) -> (u32, u32, u32) {
+        let pseudo: (u32, u32, u32) = self
+            .pseudo
+            .iter()
+            .map(|p| match p {
+                Pseudo::Not(inner) => inner.specificity(),
+                _ => (0, 1, 0),
+            })
+            .fold((0, 0, 0), |a, b| (a.0 + b.0, a.1 + b.1, a.2 + b.2));
+        (
+            self.ids.len() as u32 + pseudo.0,
+            (self.classes.len() + self.attributes.len()) as u32 + pseudo.1,
+            u32::from(self.tag.is_some()) + pseudo.2,
+        )
+    }
+
+    fn matches(&self, node: roxmltree::Node<'_, '_>) -> bool {
+        if !node.is_element() {
+            return false;
+        }
         if self
             .tag
             .as_deref()
@@ -46,8 +133,10 @@ impl Selector {
         {
             return false;
         }
-        if let Some(id) = &self.id
-            && node.attribute("id") != Some(id.as_str())
+        if self
+            .ids
+            .iter()
+            .any(|id| node.attribute("id") != Some(id.as_str()))
         {
             return false;
         }
@@ -60,7 +149,62 @@ impl Selector {
                 return false;
             }
         }
-        true
+        self.attributes.iter().all(|a| a.matches(node))
+            && self.pseudo.iter().all(|p| p.matches(node))
+    }
+}
+
+impl Attribute {
+    fn matches(&self, node: roxmltree::Node<'_, '_>) -> bool {
+        let Some(value) = node
+            .attributes()
+            .find(|a| a.name() == self.name)
+            .map(|a| a.value())
+        else {
+            return false;
+        };
+        let Some((op, want)) = &self.test else {
+            return true;
+        };
+        let want = want.as_str();
+        match op.as_str() {
+            "=" => value == want,
+            "~=" => value.split_ascii_whitespace().any(|w| w == want),
+            "|=" => value == want || value.starts_with(&format!("{want}-")),
+            "^=" => !want.is_empty() && value.starts_with(want),
+            "$=" => !want.is_empty() && value.ends_with(want),
+            "*=" => !want.is_empty() && value.contains(want),
+            _ => false,
+        }
+    }
+}
+
+impl Pseudo {
+    fn matches(&self, node: roxmltree::Node<'_, '_>) -> bool {
+        match self {
+            Pseudo::Nth { a, b, from_end } => {
+                let siblings = |next: bool| {
+                    std::iter::successors(Some(node), move |n| {
+                        if next {
+                            n.next_sibling_element()
+                        } else {
+                            n.prev_sibling_element()
+                        }
+                    })
+                    .count() as i64
+                };
+                let index = siblings(*from_end);
+                // index = a·n + b for some n ≥ 0.
+                match a {
+                    0 => index == *b,
+                    a => (index - b) % a == 0 && (index - b) / a >= 0,
+                }
+            }
+            Pseudo::Only => {
+                node.prev_sibling_element().is_none() && node.next_sibling_element().is_none()
+            }
+            Pseudo::Not(inner) => !inner.matches(node),
+        }
     }
 }
 
@@ -212,7 +356,7 @@ impl Stylesheet {
                 match parse_selector(sel.trim()) {
                     Some(s) => selectors.push(s),
                     None => warn(format!(
-                        "CSS selector `{}` is not supported (simple selectors only): its rule is left out",
+                        "CSS selector `{}` is not supported (pseudo-elements and other pseudo-classes are not): its rule is left out",
                         sel.trim()
                     )),
                 }
@@ -267,35 +411,218 @@ fn parse_keyframes(content: &str) -> Vec<KeyframeBlock> {
     blocks
 }
 
-/// A compound selector, or `None` for what this reader does not match
-/// (combinators, attributes, pseudo-classes).
+/// A selector, or `None` for what this reader does not match
+/// (pseudo-elements, other pseudo-classes, namespaces).
 fn parse_selector(text: &str) -> Option<Selector> {
-    if text.is_empty() || text.contains(|c: char| c.is_whitespace() || "[]:>+~".contains(c)) {
-        return None;
-    }
-    let mut sel = Selector::default();
-    let mut rest = text;
-    let ident_end = |s: &str| s.find(['#', '.', '*']).unwrap_or(s.len());
-    if let Some(r) = rest.strip_prefix('*') {
-        rest = r;
-    } else if !rest.starts_with(['#', '.']) {
-        let end = ident_end(rest);
-        sel.tag = Some(rest[..end].to_owned());
-        rest = &rest[end..];
-    }
+    let mut compounds: Vec<(Option<Combinator>, Compound)> = Vec::new();
+    let mut pending: Option<Combinator> = None;
+    let mut rest = text.trim();
     while !rest.is_empty() {
-        let (kind, r) = rest.split_at(1);
-        let end = ident_end(r);
-        let name = &r[..end];
-        if name.is_empty() {
+        let trimmed = rest.trim_start();
+        let spaced = trimmed.len() < rest.len();
+        rest = trimmed;
+        if let Some(c) = rest.chars().next()
+            && let Some(combinator) = match c {
+                '>' => Some(Combinator::Child),
+                '+' => Some(Combinator::Adjacent),
+                '~' => Some(Combinator::Sibling),
+                _ => None,
+            }
+        {
+            if compounds.is_empty() || pending.is_some_and(|p| p != Combinator::Descendant) {
+                return None;
+            }
+            pending = Some(combinator);
+            rest = &rest[1..];
+            continue;
+        }
+        if spaced && !compounds.is_empty() && pending.is_none() {
+            pending = Some(Combinator::Descendant);
+        }
+        let (compound, after) = parse_compound(rest)?;
+        if !compounds.is_empty() && pending.is_none() {
             return None;
         }
-        match kind {
-            "#" => sel.id = Some(name.to_owned()),
-            "." => sel.classes.push(name.to_owned()),
-            _ => return None,
-        }
-        rest = &r[end..];
+        compounds.push((pending.take(), compound));
+        rest = after;
     }
-    Some(sel)
+    if pending.is_some() {
+        return None;
+    }
+    // Each compound came with the combinator joining it to the one before.
+    let (join, subject) = compounds.pop()?;
+    let mut context = Vec::with_capacity(compounds.len());
+    let mut next_join = join;
+    while let Some((join, compound)) = compounds.pop() {
+        context.push((next_join?, compound));
+        next_join = join;
+    }
+    Some(Selector { subject, context })
+}
+
+/// A compound at the start of `text`, and what follows it.
+fn parse_compound(text: &str) -> Option<(Compound, &str)> {
+    let mut c = Compound::default();
+    let mut rest = text;
+    let ident_len = |s: &str| {
+        s.find(|ch: char| !(ch.is_alphanumeric() || ch == '-' || ch == '_' || ch == '\\'))
+            .unwrap_or(s.len())
+    };
+    if let Some(r) = rest.strip_prefix('*') {
+        rest = r;
+    } else {
+        let n = ident_len(rest);
+        if n > 0 {
+            c.tag = Some(rest[..n].to_owned());
+            rest = &rest[n..];
+        }
+    }
+    let mut any = c.tag.is_some() || rest.len() < text.len();
+    loop {
+        match rest.chars().next() {
+            Some('#') => {
+                let n = ident_len(&rest[1..]);
+                if n == 0 {
+                    return None;
+                }
+                c.ids.push(rest[1..1 + n].to_owned());
+                rest = &rest[1 + n..];
+            }
+            Some('.') => {
+                let n = ident_len(&rest[1..]);
+                if n == 0 {
+                    return None;
+                }
+                c.classes.push(rest[1..1 + n].to_owned());
+                rest = &rest[1 + n..];
+            }
+            Some('[') => {
+                let close = rest.find(']')?;
+                c.attributes.push(parse_attribute(&rest[1..close])?);
+                rest = &rest[close + 1..];
+            }
+            Some(':') => {
+                if rest.starts_with("::") {
+                    return None;
+                }
+                let n = ident_len(&rest[1..]);
+                let name = rest[1..1 + n].to_ascii_lowercase();
+                rest = &rest[1 + n..];
+                let mut args = None;
+                if rest.starts_with('(') {
+                    let close = matching_paren(rest)?;
+                    args = Some(rest[1..close].trim());
+                    rest = &rest[close + 1..];
+                }
+                c.pseudo.push(match (name.as_str(), args) {
+                    ("first-child", None) => Pseudo::Nth {
+                        a: 0,
+                        b: 1,
+                        from_end: false,
+                    },
+                    ("last-child", None) => Pseudo::Nth {
+                        a: 0,
+                        b: 1,
+                        from_end: true,
+                    },
+                    ("only-child", None) => Pseudo::Only,
+                    ("nth-child", Some(a)) => {
+                        let (a, b) = parse_nth(a)?;
+                        Pseudo::Nth {
+                            a,
+                            b,
+                            from_end: false,
+                        }
+                    }
+                    ("nth-last-child", Some(a)) => {
+                        let (a, b) = parse_nth(a)?;
+                        Pseudo::Nth {
+                            a,
+                            b,
+                            from_end: true,
+                        }
+                    }
+                    ("not", Some(inner)) => {
+                        let (compound, after) = parse_compound(inner)?;
+                        if !after.trim().is_empty() {
+                            return None;
+                        }
+                        Pseudo::Not(Box::new(compound))
+                    }
+                    _ => return None,
+                });
+            }
+            _ => break,
+        }
+        any = true;
+    }
+    any.then_some((c, rest))
+}
+
+/// The index of the parenthesis closing the one `text` starts with.
+fn matching_paren(text: &str) -> Option<usize> {
+    let mut depth = 0;
+    for (i, ch) in text.char_indices() {
+        match ch {
+            '(' => depth += 1,
+            ')' => {
+                depth -= 1;
+                if depth == 0 {
+                    return Some(i);
+                }
+            }
+            _ => {}
+        }
+    }
+    None
+}
+
+/// `name`, or `name op value` (the value quoted or not).
+fn parse_attribute(text: &str) -> Option<Attribute> {
+    let text = text.trim();
+    let ops = ["~=", "|=", "^=", "$=", "*=", "="];
+    for op in ops {
+        if let Some((name, value)) = text.split_once(op) {
+            let value = value.trim();
+            let value = value
+                .strip_suffix(" i")
+                .or_else(|| value.strip_suffix(" s"))
+                .unwrap_or(value)
+                .trim();
+            return Some(Attribute {
+                name: name.trim().to_owned(),
+                test: Some((op.to_owned(), unquote(value).to_owned())),
+            });
+        }
+    }
+    (!text.is_empty()).then(|| Attribute {
+        name: text.to_owned(),
+        test: None,
+    })
+}
+
+/// `an+b` of `:nth-child()`: `odd`, `even`, `3`, `2n`, `-n+3`, `2n+1`.
+fn parse_nth(text: &str) -> Option<(i64, i64)> {
+    let t: String = text
+        .chars()
+        .filter(|c| !c.is_whitespace())
+        .collect::<String>()
+        .to_ascii_lowercase();
+    match t.as_str() {
+        "odd" => return Some((2, 1)),
+        "even" => return Some((2, 0)),
+        _ => {}
+    }
+    match t.split_once('n') {
+        None => Some((0, t.parse().ok()?)),
+        Some((a, b)) => {
+            let a = match a {
+                "" | "+" => 1,
+                "-" => -1,
+                a => a.parse().ok()?,
+            };
+            let b = if b.is_empty() { 0 } else { b.parse().ok()? };
+            Some((a, b))
+        }
+    }
 }

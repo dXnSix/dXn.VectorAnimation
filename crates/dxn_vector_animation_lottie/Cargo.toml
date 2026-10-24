@@ -15,6 +15,7 @@ categories = ["graphics", "parser-implementations"]
 base64.workspace = true
 dxn_vector_animation.workspace = true
 kurbo.workspace = true
+miniz_oxide.workspace = true
 serde_json.workspace = true
 
 [lints]

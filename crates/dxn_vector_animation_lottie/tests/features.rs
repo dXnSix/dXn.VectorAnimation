@@ -144,7 +144,7 @@ fn polystars_and_inverted_masks() {
 
 #[test]
 fn unsupported_features_are_reported() {
-    let shapes = json!([{ "ty": "rp" }, { "ty": "rc", "p": { "a": 0, "k": [0, 0] }, "s": { "a": 0, "k": [10, 10] }, "r": { "a": 0, "k": 0 } },
+    let shapes = json!([{ "ty": "mm" }, { "ty": "rc", "p": { "a": 0, "k": [0, 0] }, "s": { "a": 0, "k": [10, 10] }, "r": { "a": 0, "k": 0 } },
         { "ty": "fl", "c": { "a": 0, "k": [1, 0, 0, 1] }, "o": { "a": 0, "k": 100 } }]);
     let data = comp(
         json!([
@@ -155,21 +155,19 @@ fn unsupported_features_are_reported() {
     let import = dxn_vector_animation_lottie::read(&data).unwrap();
     let w = import.warnings.join("\n");
     assert!(
-        w.contains("repeaters") && w.contains("text layers") && w.contains("expressions"),
+        w.contains("merge paths") && w.contains("text layers") && w.contains("expressions"),
         "{w}"
     );
 }
 
 #[test]
-fn sniffs_lottie_and_refuses_archives() {
+fn sniffs_lottie_and_archives() {
     assert!(dxn_vector_animation_lottie::sniff(
         br#"{"v":"5.7","fr":30,"layers":[]}"#
     ));
     assert!(!dxn_vector_animation_lottie::sniff(b"<svg/>"));
-    assert!(matches!(
-        dxn_vector_animation_lottie::read(b"PK\x03\x04rest"),
-        Err(dxn_vector_animation::Error::Unsupported(_))
-    ));
+    assert!(dxn_vector_animation_lottie::sniff(b"PK\x03\x04rest"));
+    assert!(dxn_vector_animation_lottie::read(b"PK\x03\x04rest").is_err());
 }
 
 #[test]

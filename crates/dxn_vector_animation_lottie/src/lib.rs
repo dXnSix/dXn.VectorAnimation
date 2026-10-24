@@ -12,16 +12,20 @@
 //!
 //! What a file holds beyond that (expressions, text layers, other effects,
 //! repeaters, merge paths) is left out with a warning in
-//! [`Import::warnings`]. dotLottie archives are read by unpacking their
-//! animation JSON first.
+//! [`Import::warnings`]. dotLottie archives (ZIP) are read too: their first
+//! animation, its images embedded.
 
 mod convert;
+mod dotlottie;
 mod props;
 
 use dxn_vector_animation::{Error, Import, Limits};
 
-/// Whether `data` looks like a Lottie JSON document.
+/// Whether `data` looks like a Lottie JSON document or a dotLottie archive.
 pub fn sniff(data: &[u8]) -> bool {
+    if dotlottie::sniff(data) {
+        return true;
+    }
     let head = &data[..data.len().min(64 * 1024)];
     let Some(first) = head.iter().find(|b| !b.is_ascii_whitespace()) else {
         return false;
@@ -36,13 +40,14 @@ pub fn sniff(data: &[u8]) -> bool {
     has("\"layers\"") && (has("\"fr\"") || has("\"op\""))
 }
 
-/// Reads the Lottie JSON document `data` with the default [`Limits`].
+/// Reads the Lottie JSON document or dotLottie archive `data` with the
+/// default [`Limits`].
 pub fn read(data: &[u8]) -> Result<Import, Error> {
     read_with(data, &Limits::default())
 }
 
-/// Reads the Lottie JSON document `data`, refusing it when it is over
-/// `limits`.
+/// Reads the Lottie JSON document or dotLottie archive `data`, refusing it
+/// when it is over `limits` (an archive's unpacked bytes too).
 pub fn read_with(data: &[u8], limits: &Limits) -> Result<Import, Error> {
     if data.len() > limits.max_bytes {
         return Err(Error::Limit {
@@ -50,17 +55,19 @@ pub fn read_with(data: &[u8], limits: &Limits) -> Result<Import, Error> {
             limit: limits.max_bytes as f64,
         });
     }
-    if data.starts_with(b"PK\x03\x04") {
-        return Err(Error::Unsupported(
-            "dotLottie archives: unpack the animation's JSON first".into(),
-        ));
-    }
-    let root: serde_json::Value =
-        serde_json::from_slice(data).map_err(|e| Error::Invalid(e.to_string()))?;
+    let (root, mut left_out) = if dotlottie::sniff(data) {
+        dotlottie::unpack(data, limits)?
+    } else {
+        (
+            serde_json::from_slice(data).map_err(|e| Error::Invalid(e.to_string()))?,
+            Vec::new(),
+        )
+    };
     let (scene, warnings) = convert::Converter::run(&root, *limits)?;
     scene.check(limits)?;
+    left_out.extend(warnings);
     Ok(Import {
         scene,
-        warnings: warnings.into_iter().collect(),
+        warnings: left_out,
     })
 }

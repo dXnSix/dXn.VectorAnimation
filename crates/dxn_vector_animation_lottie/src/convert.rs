@@ -11,9 +11,9 @@ use dxn_vector_animation::{
     Animated, AnimatedPoint, BlendMode, Blur, Clip, ClipShape, Color, Dash, Direction, DropShadow,
     Effect, EllipseStart, Error, Fill, FillRule, Geometry, Group, Image, ImageData, Keyframe,
     Limits, LineCap, LineJoin, LinearGradient, LoopMode, Marker, Mask, MaskKind, Matrix,
-    MotionPath, MotionRotate, Node, Paint, Path, Point, RadialGradient, Rect, RectStart, Scene,
-    Shape, ShapePath, Star, StarKind, Stroke, TimeMap, TimeRange, Timeline, Track, TransformOp,
-    Trim, TrimMode, outline::path_length,
+    MotionPath, MotionRotate, Node, Paint, PaintOrder, Path, Point, RadialGradient, Rect,
+    RectStart, Scene, Shape, ShapePath, Star, StarKind, Stroke, TimeMap, TimeRange, Timeline,
+    Track, TransformOp, Trim, TrimMode, outline::path_length,
 };
 use serde_json::Value;
 
@@ -34,6 +34,11 @@ pub(crate) struct Converter<'a> {
     limits: Limits,
     depth: usize,
     nodes: usize,
+    /// The file's fonts (`fonts.list`) and glyphs (`chars`).
+    fonts: Vec<&'a Value>,
+    chars: Vec<&'a Value>,
+    /// Glyph outlines by their `chars` index, converted once.
+    glyphs: HashMap<usize, Vec<ShapePath>>,
 }
 
 impl<'a> Converter<'a> {
@@ -79,10 +84,19 @@ impl<'a> Converter<'a> {
             limits,
             depth: 0,
             nodes: 0,
+            fonts: root
+                .get("fonts")
+                .and_then(|f| f.get("list"))
+                .and_then(Value::as_array)
+                .map(|l| l.iter().collect())
+                .unwrap_or_default(),
+            chars: root
+                .get("chars")
+                .and_then(Value::as_array)
+                .map(|l| l.iter().collect())
+                .unwrap_or_default(),
+            glyphs: HashMap::new(),
         };
-        if root.get("fonts").is_some() || root.get("chars").is_some() {
-            converter.warn("fonts and glyphs are left out");
-        }
         let children = converter.composition(layers)?;
         let markers = root
             .get("markers")
@@ -259,10 +273,7 @@ impl<'a> Converter<'a> {
                     .unwrap_or(&[]);
                 self.shapes(items)?.0
             }
-            5 => {
-                self.warn("text layers are left out: convert text to shapes before exporting");
-                Vec::new()
-            }
+            5 => self.text(layer)?,
             _ => Vec::new(),
         };
         if content.is_empty() {
@@ -717,11 +728,15 @@ impl<'a> Converter<'a> {
                         outlines.push(Outline {
                             path: ShapePath::new(geometry),
                             trim: None,
+                            faded: false,
                         });
                     }
                 }
                 "fl" | "st" | "gf" | "gs" => {
                     let style = self.style(ty, item);
+                    if outlines.iter().any(|o| o.faded) {
+                        self.warn("a repeater's fade of outlines styled after it is left out");
+                    }
                     // Outlines cut by different trims draw as shapes of their own.
                     let mut runs: Vec<(Option<usize>, Vec<ShapePath>, Option<Trim>)> = Vec::new();
                     for outline in &outlines {
@@ -767,6 +782,7 @@ impl<'a> Converter<'a> {
                                 transform: t,
                             },
                             trim: outline.trim,
+                            faded: outline.faded,
                         });
                     }
                     if !nodes.is_empty() {
@@ -801,7 +817,7 @@ impl<'a> Converter<'a> {
                     }
                 }
                 "tr" => {}
-                "rp" => self.warn("repeaters are left out"),
+                "rp" => self.repeat(item, &mut drawn, &mut outlines)?,
                 "mm" => self.warn("merge paths are left out"),
                 "rd" => self.warn("rounded corners are left out"),
                 "pb" | "tw" | "zz" | "op" => {
@@ -813,6 +829,448 @@ impl<'a> Converter<'a> {
         self.depth -= 1;
         drawn.reverse();
         Ok((drawn, outlines))
+    }
+
+    /// A text layer drawn with the file's glyphs (`chars`), as lottie-web
+    /// lays text out: each glyph at a hundredth of the size, advanced by
+    /// its width and the tracking, lines `lh` apart and justified, box
+    /// text wrapped at spaces; each keyframed document shown until the
+    /// next. Text animators and text on a path are left out.
+    fn text(&mut self, layer: &'a Value) -> Result<Vec<Node>, Error> {
+        let fr = self.fr;
+        let t = layer.get("t");
+        if t.and_then(|t| t.get("a"))
+            .and_then(Value::as_array)
+            .is_some_and(|a| !a.is_empty())
+        {
+            self.warn("text animators are left out");
+        }
+        if t.and_then(|t| t.get("p"))
+            .and_then(|p| p.get("m"))
+            .is_some()
+        {
+            self.warn("text on a path is laid out on a line");
+        }
+        if self.chars.is_empty() {
+            self.warn("text layers without glyphs are left out: export them with glyphs (chars)");
+            return Ok(Vec::new());
+        }
+        let docs: Vec<(f64, &'a Value)> = t
+            .and_then(|t| t.get("d"))
+            .and_then(|d| d.get("k"))
+            .and_then(Value::as_array)
+            .map(|k| {
+                k.iter()
+                    .filter_map(|k| {
+                        Some((k.get("t").and_then(num).unwrap_or(0.0) / fr, k.get("s")?))
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+        let mut out = Vec::new();
+        for (i, (start, doc)) in docs.iter().enumerate() {
+            let Some(shapes) = self.document(doc)? else {
+                continue;
+            };
+            let active = (docs.len() > 1).then(|| TimeRange {
+                start: if i == 0 { f64::NEG_INFINITY } else { *start },
+                end: docs.get(i + 1).map_or(f64::INFINITY, |d| d.0),
+            });
+            out.push(Node::Group(Group {
+                active,
+                children: shapes,
+                ..Group::new()
+            }));
+        }
+        Ok(out)
+    }
+
+    /// One text document (`s`) as shapes: its glyphs filled and stroked.
+    fn document(&mut self, doc: &'a Value) -> Result<Option<Vec<Node>>, Error> {
+        let text = doc.get("t").and_then(Value::as_str).unwrap_or("");
+        let size = doc.get("s").and_then(num).unwrap_or(10.0);
+        let font = doc.get("f").and_then(Value::as_str).unwrap_or("");
+        let justify = doc.get("j").and_then(num).unwrap_or(0.0) as i64;
+        let tracking = doc.get("tr").and_then(num).unwrap_or(0.0) / 1000.0 * size;
+        let line_height = doc.get("lh").and_then(num).unwrap_or(size * 1.2);
+        let k = size / 100.0;
+        let entry = self
+            .fonts
+            .iter()
+            .find(|f| f.get("fName").and_then(Value::as_str) == Some(font))
+            .copied();
+        let family = entry
+            .and_then(|f| f.get("fFamily").and_then(Value::as_str))
+            .unwrap_or(font);
+        let style = entry
+            .and_then(|f| f.get("fStyle").and_then(Value::as_str))
+            .unwrap_or("");
+        let ascent = entry
+            .and_then(|f| f.get("ascent").and_then(num))
+            .unwrap_or(75.0);
+        let chars = self.chars.clone();
+        // The glyph of `ch`: its index among the chars and its advance.
+        let find = |ch: char| -> Option<(usize, f64)> {
+            let ch = ch.to_string();
+            let fits = |c: &Value, strict: bool| {
+                c.get("ch").and_then(Value::as_str) == Some(ch.as_str())
+                    && (!strict
+                        || (c.get("fFamily").and_then(Value::as_str) == Some(family)
+                            && c.get("style").and_then(Value::as_str) == Some(style)))
+            };
+            let i = chars
+                .iter()
+                .position(|c| fits(c, true))
+                .or_else(|| chars.iter().position(|c| fits(c, false)))?;
+            Some((i, chars[i].get("w").and_then(num).unwrap_or(0.0)))
+        };
+        let advance = |c: char| find(c).map_or(0.0, |(_, w)| w * k) + tracking;
+        let measure = |s: &str| s.chars().map(advance).sum::<f64>();
+        // Lines: breaks, and in a box, wraps at spaces.
+        let normalized = text.replace("\r\n", "\r").replace(['\n', '\u{3}'], "\r");
+        let box_size = doc
+            .get("sz")
+            .and_then(nums)
+            .filter(|s| s.len() >= 2 && s[0] > 0.0);
+        let box_at = doc.get("ps").and_then(nums).filter(|p| p.len() >= 2);
+        let mut lines: Vec<String> = Vec::new();
+        for paragraph in normalized.split('\r') {
+            let Some(sz) = &box_size else {
+                lines.push(paragraph.to_owned());
+                continue;
+            };
+            let mut line = String::new();
+            for word in paragraph.split_inclusive(' ') {
+                if !line.is_empty() && measure(&line) + measure(word.trim_end()) > sz[0] {
+                    lines.push(std::mem::take(&mut line).trim_end().to_owned());
+                }
+                line.push_str(word);
+            }
+            lines.push(line.trim_end().to_owned());
+        }
+        let (x0, y0, box_width) = match (&box_at, &box_size) {
+            (Some(ps), Some(sz)) => (ps[0], ps[1] + ascent * k, sz[0]),
+            _ => (0.0, 0.0, 0.0),
+        };
+        let mut paths = Vec::new();
+        for (row, line) in lines.iter().enumerate() {
+            let width = measure(line) - if line.is_empty() { 0.0 } else { tracking };
+            // Left, right or centered: on the anchor, or within the box.
+            let mut x = if box_width > 0.0 {
+                x0 + match justify {
+                    1 => box_width - width,
+                    2 => (box_width - width) / 2.0,
+                    _ => 0.0,
+                }
+            } else {
+                match justify {
+                    1 => -width,
+                    2 => -width / 2.0,
+                    _ => 0.0,
+                }
+            };
+            let y = y0 + row as f64 * line_height;
+            for c in line.chars() {
+                let Some((index, w)) = find(c) else {
+                    if !c.is_whitespace() {
+                        self.warn(format!("text has characters with no glyph (`{c}`)"));
+                    }
+                    x += tracking;
+                    continue;
+                };
+                for glyph in self.glyph(index)? {
+                    let mut transform = vec![
+                        TransformOp::Translate {
+                            x: Animated::Static(x),
+                            y: Animated::Static(y),
+                        },
+                        TransformOp::Scale {
+                            x: Animated::Static(k),
+                            y: Animated::Static(k),
+                        },
+                    ];
+                    transform.extend(glyph.transform);
+                    paths.push(ShapePath {
+                        geometry: glyph.geometry,
+                        transform,
+                    });
+                }
+                x += w * k + tracking;
+            }
+        }
+        if paths.is_empty() {
+            return Ok(None);
+        }
+        self.nodes += paths.len();
+        if self.nodes > self.limits.max_nodes {
+            return Err(Error::Limit {
+                what: "nodes",
+                limit: self.limits.max_nodes as f64,
+            });
+        }
+        let color = |key: &str| -> Option<Color> {
+            let c = doc.get(key).and_then(nums)?;
+            let s = if c.iter().take(3).any(|v| *v > 1.0) {
+                255.0
+            } else {
+                1.0
+            };
+            Some(Color::rgba(
+                *c.first()? / s,
+                *c.get(1)? / s,
+                *c.get(2)? / s,
+                1.0,
+            ))
+        };
+        let fill = color("fc").map(|c| Fill {
+            paint: Paint::solid(c),
+            opacity: Animated::Static(1.0),
+            rule: FillRule::NonZero,
+        });
+        let width = doc.get("sw").and_then(num).unwrap_or(0.0);
+        let stroke = color("sc").filter(|_| width > 0.0).map(|c| Stroke {
+            paint: Paint::solid(c),
+            opacity: Animated::Static(1.0),
+            width: Animated::Static(width),
+            cap: LineCap::Butt,
+            join: LineJoin::Miter,
+            miter_limit: 4.0,
+            dash: None,
+        });
+        // `of`: the stroke over the fill.
+        let over = doc.get("of").and_then(Value::as_bool).unwrap_or(true);
+        Ok(Some(vec![Node::shape(Shape {
+            paths,
+            fill,
+            stroke,
+            paint_order: if over {
+                PaintOrder::FillFirst
+            } else {
+                PaintOrder::StrokeFirst
+            },
+            ..Shape::default()
+        })]))
+    }
+
+    /// The outlines of glyph `index` of `chars`, at size 100.
+    fn glyph(&mut self, index: usize) -> Result<Vec<ShapePath>, Error> {
+        if let Some(paths) = self.glyphs.get(&index) {
+            return Ok(paths.clone());
+        }
+        let Some(char) = self.chars.get(index).copied() else {
+            return Ok(Vec::new());
+        };
+        let items = char
+            .get("data")
+            .and_then(|d| d.get("shapes"))
+            .and_then(Value::as_array)
+            .map(Vec::as_slice)
+            .unwrap_or(&[]);
+        let (_, outlines) = self.shapes(items)?;
+        let paths: Vec<ShapePath> = outlines.into_iter().map(|o| o.path).collect();
+        self.glyphs.insert(index, paths.clone());
+        Ok(paths)
+    }
+
+    /// A repeater (`rp`): what comes before it in its group (`drawn`, top
+    /// first, and the `outlines` a style after it paints) in copies, as
+    /// lottie-web repeats: copy `k` through the repeater's transform
+    /// `k + offset` times (about its anchor), faded from the start opacity
+    /// to the end one, later copies above (or below) earlier ones.
+    fn repeat(
+        &mut self,
+        item: &'a Value,
+        drawn: &mut Vec<Node>,
+        outlines: &mut Vec<Outline>,
+    ) -> Result<(), Error> {
+        let fr = self.fr;
+        let copies_track = scalar(item.get("c"), 0, 1.0, 1.0, fr);
+        let copies_times = key_times(item.get("c"), fr);
+        let hi = match &copies_track {
+            Animated::Static(c) => *c,
+            Animated::Track(t) => t
+                .keyframes
+                .iter()
+                .fold(f64::NEG_INFINITY, |a, k| a.max(k.value)),
+        };
+        let count = hi.ceil().clamp(0.0, MAX_COPIES as f64) as usize;
+        if hi > MAX_COPIES as f64 {
+            self.warn(format!(
+                "repeaters of more than {MAX_COPIES} copies keep {MAX_COPIES}"
+            ));
+        }
+        let offsets = scalar(item.get("o"), 0, 1.0, 0.0, fr);
+        let offset_times = key_times(item.get("o"), fr);
+        let tr = item.get("tr");
+        let get = |key: &str, dim: usize, scale: f64, default: f64| {
+            scalar(tr.and_then(|t| t.get(key)), dim, scale, default, fr)
+        };
+        let (ax, ay) = (get("a", 0, 1.0, 0.0), get("a", 1, 1.0, 0.0));
+        let (px, py) = (get("p", 0, 1.0, 0.0), get("p", 1, 1.0, 0.0));
+        let (sx, sy) = (get("s", 0, 0.01, 1.0), get("s", 1, 0.01, 1.0));
+        let r = get("r", 0, 1.0, 0.0);
+        let start = get("so", 0, 0.01, 1.0);
+        let end = get("eo", 0, 0.01, 1.0);
+        // The repeater's transform `f` times (a share of it, or backwards).
+        let step = |f: f64| -> Vec<TransformOp> {
+            let times = |a: &Animated<f64>| map(a, |v| v * f);
+            let power = |a: &Animated<f64>| map(a, |v| v.abs().max(1e-9).powf(f) * v.signum());
+            vec![
+                TransformOp::Translate {
+                    x: times(&px),
+                    y: times(&py),
+                },
+                TransformOp::Translate {
+                    x: ax.clone(),
+                    y: ay.clone(),
+                },
+                TransformOp::Rotate { degrees: times(&r) },
+                TransformOp::Scale {
+                    x: power(&sx),
+                    y: power(&sy),
+                },
+                TransformOp::Translate {
+                    x: negated(&ax),
+                    y: negated(&ay),
+                },
+            ]
+        };
+        // Turning and scaling about the anchor alone (evenly, or without
+        // turning), `k + offset` steps are one turn and one scale: the
+        // offset may move.
+        let still_position = px == Animated::Static(0.0) && py == Animated::Static(0.0);
+        let even = sx == sy || r == Animated::Static(0.0);
+        let closed = still_position && even;
+        let offset = match &offsets {
+            Animated::Static(o) => *o,
+            Animated::Track(t) => {
+                if !closed {
+                    self.warn("a repeater's moving offset keeps its first value");
+                }
+                t.keyframes.first().map_or(0.0, |k| k.value)
+            }
+        };
+        let closed_form = |k: usize| -> Vec<TransformOp> {
+            // Samples between the offset's keyframes: scales are powers.
+            let mut times = Vec::new();
+            for w in offset_times.windows(2) {
+                times.extend((0..16).map(|i| w[0] + (w[1] - w[0]) * f64::from(i) / 16.0));
+            }
+            times.extend(offset_times.last());
+            let j = |t: f64| k as f64 + offsets.sample(t);
+            let along = |a: &Animated<f64>, f: &dyn Fn(f64, f64) -> f64| match (a, &offsets) {
+                (Animated::Static(v), Animated::Static(_)) => Animated::Static(f(*v, j(0.0))),
+                (Animated::Static(v), Animated::Track(_)) => sampled(&times, |t| f(*v, j(t))),
+                (moving, _) => {
+                    let mut all = times.clone();
+                    all.extend(moving.keyframes().iter().map(|k| k.time));
+                    sampled(&all, |t| f(moving.sample(t), j(t)))
+                }
+            };
+            simplify(vec![
+                TransformOp::Translate {
+                    x: ax.clone(),
+                    y: ay.clone(),
+                },
+                TransformOp::Rotate {
+                    degrees: along(&r, &|v, j| v * j),
+                },
+                TransformOp::Scale {
+                    x: along(&sx, &|v, j| v.abs().max(1e-9).powf(j) * v.signum()),
+                    y: along(&sy, &|v, j| v.abs().max(1e-9).powf(j) * v.signum()),
+                },
+                TransformOp::Translate {
+                    x: negated(&ax),
+                    y: negated(&ay),
+                },
+            ])
+        };
+        let transform = |k: usize| -> Vec<TransformOp> {
+            if closed {
+                return closed_form(k);
+            }
+            let j = k as f64 + offset;
+            let whole = j.trunc();
+            let mut ops = Vec::new();
+            let unit = if whole < 0.0 { -1.0 } else { 1.0 };
+            for _ in 0..(whole.abs() as usize) {
+                ops.extend(step(unit));
+            }
+            if j - whole != 0.0 {
+                ops.extend(step(j - whole));
+            }
+            simplify(ops)
+        };
+        let copy_opacity = |k: usize| -> Animated<f64> {
+            let share = if count > 1 {
+                k as f64 / (count - 1) as f64
+            } else {
+                0.0
+            };
+            let mut times = key_times(tr.and_then(|t| t.get("so")), fr);
+            times.extend(key_times(tr.and_then(|t| t.get("eo")), fr));
+            times.extend(copies_times.iter().copied());
+            let visible = |t: f64| (copies_track.sample(t) - k as f64).clamp(0.0, 1.0);
+            let faded = |t: f64| {
+                let (s, e) = (start.sample(t), end.sample(t));
+                (s + (e - s) * share).clamp(0.0, 1.0) * visible(t)
+            };
+            sampled(&times, faded)
+        };
+        let below = item.get("m").and_then(num) == Some(2.0);
+        // Top first: with copies above, the last copy first.
+        let order: Vec<usize> = if below {
+            (0..count).collect()
+        } else {
+            (0..count).rev().collect()
+        };
+        // Every copy counts against the limit.
+        let each = drawn.iter().map(count_nodes).sum::<usize>() + outlines.len();
+        self.nodes += each * count.saturating_sub(1);
+        if self.nodes > self.limits.max_nodes {
+            return Err(Error::Limit {
+                what: "nodes",
+                limit: self.limits.max_nodes as f64,
+            });
+        }
+        if !drawn.is_empty() {
+            let content = std::mem::take(drawn);
+            let mut copies = Vec::with_capacity(count);
+            for &k in &order {
+                copies.push(Node::Group(Group {
+                    transform: transform(k),
+                    opacity: copy_opacity(k),
+                    // `drawn` is top first; a group's children bottom first.
+                    children: content.iter().rev().cloned().collect(),
+                    ..Group::new()
+                }));
+            }
+            // Bottom first inside: the group goes in the top-first list.
+            copies.reverse();
+            drawn.push(Node::Group(Group {
+                children: copies,
+                ..Group::new()
+            }));
+        }
+        if !outlines.is_empty() {
+            let faded = start != Animated::Static(1.0) || end != Animated::Static(1.0);
+            let base = std::mem::take(outlines);
+            for &k in order.iter().rev() {
+                for outline in &base {
+                    let mut t = transform(k);
+                    t.extend(outline.path.transform.iter().cloned());
+                    outlines.push(Outline {
+                        path: ShapePath {
+                            geometry: outline.path.geometry.clone(),
+                            transform: t,
+                        },
+                        trim: outline.trim.clone(),
+                        faded: outline.faded || faded,
+                    });
+                }
+            }
+        }
+        Ok(())
     }
 
     /// The outline of a geometry item.
@@ -993,6 +1451,9 @@ impl<'a> Converter<'a> {
 struct Outline {
     path: ShapePath,
     trim: Option<(usize, Trim)>,
+    /// Repeated by a repeater fading its copies, which a style after it
+    /// does not show.
+    faded: bool,
 }
 
 /// A layer's own time: `(t − st) / sr`.
@@ -1041,6 +1502,30 @@ fn negated(a: &Animated<f64>) -> Animated<f64> {
             t.keyframes
                 .iter()
                 .map(|k| Keyframe::new(k.time, -k.value, k.easing.clone()))
+                .collect(),
+        )),
+    }
+}
+
+/// The nodes `node` holds, itself included.
+fn count_nodes(node: &Node) -> usize {
+    match node {
+        Node::Group(g) => 1 + g.children.iter().map(count_nodes).sum::<usize>(),
+        _ => 1,
+    }
+}
+
+/// The most copies a repeater makes.
+const MAX_COPIES: usize = 1000;
+
+/// `a` with each value through `f`.
+fn map(a: &Animated<f64>, f: impl Fn(f64) -> f64) -> Animated<f64> {
+    match a {
+        Animated::Static(v) => Animated::Static(f(*v)),
+        Animated::Track(t) => Animated::Track(Track::new(
+            t.keyframes
+                .iter()
+                .map(|k| Keyframe::new(k.time, f(k.value), k.easing.clone()))
                 .collect(),
         )),
     }

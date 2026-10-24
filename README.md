@@ -81,8 +81,11 @@ core and the importers build for WebAssembly; a build that plays compiled scenes
 
 - The static document: shapes, paths, groups and their transforms, fills and strokes (dashes and
   `pathLength` included), linear and radial gradients, clip paths, alpha and luminance masks, opacity, blend
-  modes, `use` and `symbol`, nested `svg`, embedded PNG and JPEG images, and `<style>` sheets of simple
-  selectors with the cascade.
+  modes, `use` and `symbol`, nested `svg`, embedded PNG and JPEG images, and `<style>` sheets with the
+  cascade: selectors of types, ids, classes, attributes (`[a]`, `=`, `~=`, `|=`, `^=`, `$=`, `*=`) and
+  structural pseudo-classes (`:first-child`, `:last-child`, `:only-child`, `:nth-child()`,
+  `:nth-last-child()`, `:not()`), joined by descendant, child, adjacent and sibling combinators, with CSS
+  specificity.
 - CSS animations, as Figma Motion writes them: `@keyframes` with a timing function per stop, the `animation`
   shorthand and longhands (delay, iterations, direction, fill mode), `transform`, `transform-origin`,
   `transform-box`, `translate`, `rotate`, `scale`, `opacity`, motion along a path (`offset-path`,
@@ -100,7 +103,7 @@ core and the importers build for WebAssembly; a build that plays compiled scenes
   `feDropShadow`, `feGaussianBlur`, and CSS `filter` of `blur()`, `drop-shadow()` and `url()`, still or
   animated by `@keyframes`.
 - Left out with a warning: text (export it as outlines), other filters (inner shadows, color filters),
-  patterns, SMIL begins on events, `end` times and `accumulate`.
+  patterns, pseudo-elements and other pseudo-classes, SMIL begins on events, `end` times and `accumulate`.
 
 **Lottie** (`dxn_vector_animation_lottie`)
 
@@ -110,8 +113,15 @@ core and the importers build for WebAssembly; a build that plays compiled scenes
   (alpha and luminance, inverted), blend modes, bezier easings and holds, and position keyframes with spatial
   tangents as motion paths (auto-orient included), and the layer effects Drop Shadow and Gaussian Blur
   (converted as lottie-web converts them).
-- Left out with a warning: expressions, text layers, other effects, repeaters, merge paths and other shape
-  modifiers.
+- Repeaters, as lottie-web repeats: copies through the repeater's transform once more each (the offset
+  moving too where the copies only turn and scale), faded from the start opacity to the end one, above or
+  below.
+- Text layers drawn with the file's glyphs (`chars`), laid out as lottie-web lays them out: glyphs at a
+  hundredth of the size advanced by their widths and the tracking, lines justified, box text wrapped at
+  spaces, keyframed documents in turn.
+- dotLottie archives (versions 1 and 2): the first animation, its images embedded, unpacked within the limits.
+- Left out with a warning: expressions, text animators, text without glyphs, other effects, merge paths and
+  other shape modifiers.
 
 ## Untrusted input
 
@@ -133,8 +143,9 @@ Tests are grouped by feature, one file each in a crate's `tests/` (`cargo test -
 
 ## Roadmap
 
-1. **Done:** the scene model, Figma Motion's SVG subset, Lottie, the reference renderer and the CLI.
-2. dotLottie archives, repeaters, Lottie text as shapes, CSS selectors beyond simple ones.
+1. **Done:** the scene model, Figma Motion's SVG subset, Lottie, the reference renderer and the CLI;
+   effects, dotLottie archives, repeaters, Lottie text with glyphs, CSS selectors with combinators.
+2. Merge paths, text animators, inner shadows.
 
 ## License
 
