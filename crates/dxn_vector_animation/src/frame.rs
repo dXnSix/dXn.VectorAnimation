@@ -184,6 +184,16 @@ pub enum FramePaint {
         /// From the gradient's coordinates to the item's.
         transform: Matrix,
     },
+    /// Tiles of `tile`'s size side by side from its corner, each drawing
+    /// `items`.
+    Pattern {
+        /// One tile, in the pattern's coordinates.
+        tile: Rect,
+        /// From the pattern's coordinates to the item's.
+        transform: Matrix,
+        /// What a tile draws, from its corner, opacity included.
+        items: Vec<Item>,
+    },
 }
 
 /// A stroke's geometry at one moment.
@@ -425,7 +435,7 @@ fn sample_group(group: &Group, time: f64, parent: Matrix, out: &mut Vec<Item>, d
     for child in &group.children {
         match child {
             Node::Group(g) => sample_group(g, time, m, out, depth + 1),
-            Node::Shape(s) => sample_shape(s, time, m, out),
+            Node::Shape(s) => sample_shape(s, time, m, out, depth),
             Node::Image(image) => out.push(Item::Image {
                 data: image.data.clone(),
                 rect: image.rect,
@@ -438,7 +448,7 @@ fn sample_group(group: &Group, time: f64, parent: Matrix, out: &mut Vec<Item>, d
     }
 }
 
-fn sample_shape(shape: &Shape, time: f64, m: Matrix, out: &mut Vec<Item>) {
+fn sample_shape(shape: &Shape, time: f64, m: Matrix, out: &mut Vec<Item>, depth: usize) {
     let paths: Vec<Path> = shape
         .paths
         .iter()
@@ -465,7 +475,7 @@ fn sample_shape(shape: &Shape, time: f64, m: Matrix, out: &mut Vec<Item>) {
         return;
     }
     let fill = shape.fill.as_ref().and_then(|fill| {
-        let paint = paint_at(&fill.paint, time, fill.opacity.sample(time), &path)?;
+        let paint = paint_at(&fill.paint, time, fill.opacity.sample(time), &path, depth)?;
         Some(Item::Fill {
             path: path.clone(),
             transform: m,
@@ -478,7 +488,13 @@ fn sample_shape(shape: &Shape, time: f64, m: Matrix, out: &mut Vec<Item>) {
         if width <= 0.0 || !width.is_finite() {
             return None;
         }
-        let paint = paint_at(&stroke.paint, time, stroke.opacity.sample(time), &path)?;
+        let paint = paint_at(
+            &stroke.paint,
+            time,
+            stroke.opacity.sample(time),
+            &path,
+            depth,
+        )?;
         let dash = stroke.dash.as_ref().and_then(|dash| {
             let mut array: Vec<f64> = dash.array.iter().map(|d| d.sample(time).max(0.0)).collect();
             // An odd list repeats, as SVG and Canvas 2D repeat it.
@@ -510,8 +526,14 @@ fn sample_shape(shape: &Shape, time: f64, m: Matrix, out: &mut Vec<Item>) {
 }
 
 /// `paint` at `time` with `opacity` folded in, or `None` when nothing would
-/// show. Bounding-box gradients map onto `path`'s box.
-fn paint_at(paint: &Paint, time: f64, opacity: f64, path: &Path) -> Option<FramePaint> {
+/// show. Bounding-box gradients and patterns map onto `path`'s box.
+fn paint_at(
+    paint: &Paint,
+    time: f64,
+    opacity: f64,
+    path: &Path,
+    depth: usize,
+) -> Option<FramePaint> {
     let opacity = opacity.clamp(0.0, 1.0);
     if opacity <= 0.0 {
         return None;
@@ -561,5 +583,53 @@ fn paint_at(paint: &Paint, time: f64, opacity: f64, path: &Path) -> Option<Frame
             spread: g.spread,
             transform: space(g.units, g.transform)?,
         },
+        Paint::Pattern(p) => {
+            let b = path.bounds();
+            let tile = match p.units {
+                GradientUnits::UserSpace => p.tile,
+                GradientUnits::BoundingBox => {
+                    let b = b?;
+                    Rect::new(
+                        b.x + p.tile.x * b.width,
+                        b.y + p.tile.y * b.height,
+                        p.tile.width * b.width,
+                        p.tile.height * b.height,
+                    )
+                }
+            };
+            if !(tile.width > 0.0 && tile.height > 0.0) {
+                return None;
+            }
+            let content = match (&p.view_box, p.content_units) {
+                (Some(vb), _) => vb.matrix(tile.width, tile.height),
+                (None, GradientUnits::BoundingBox) => {
+                    let b = b?;
+                    Matrix::scale(b.width, b.height)
+                }
+                (None, GradientUnits::UserSpace) => Matrix::IDENTITY,
+            };
+            let mut items = Vec::new();
+            if opacity < 1.0 {
+                items.push(Item::PushLayer(Layer {
+                    opacity,
+                    blend: BlendMode::Normal,
+                    clip: None,
+                    mask: None,
+                    effects: Vec::new(),
+                }));
+            }
+            sample_group(&p.content, time, content, &mut items, depth + 1);
+            if items.iter().all(|i| matches!(i, Item::PushLayer(_))) {
+                return None;
+            }
+            if opacity < 1.0 {
+                items.push(Item::PopLayer);
+            }
+            FramePaint::Pattern {
+                tile,
+                transform: p.transform,
+                items,
+            }
+        }
     })
 }

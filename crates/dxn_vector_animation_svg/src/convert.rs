@@ -10,9 +10,9 @@ use dxn_vector_animation::{
     Animated, AnimatedPoint, BlendMode, Blur, Clip, ClipShape, Color, Dash, Direction, DropShadow,
     Effect, EllipseStart, Error, Fill, FillRule, Geometry, GradientStop, GradientUnits, Group,
     Image, ImageData, Interpolate, Item, Keyframe, Limits, LineCap, LineJoin, LinearGradient, Mask,
-    MaskKind, Matrix, MotionPath, MotionRotate, Node, Paint, PaintOrder, Path, Point,
+    MaskKind, Matrix, MotionPath, MotionRotate, Node, Paint, PaintOrder, Path, Pattern, Point,
     RadialGradient, Rect, RectStart, Scene, Shape, ShapePath, Spread, Stroke, Timeline, Track,
-    TransformOp, outline::path_length,
+    TransformOp, ViewBox, outline::path_length,
 };
 use roxmltree::Node as XmlNode;
 
@@ -158,6 +158,10 @@ pub(crate) struct Converter<'a, 'input> {
     limits: Limits,
     /// Elements being converted through `use`, against cycles.
     use_stack: Vec<roxmltree::NodeId>,
+    /// The patterns being read (one filling with itself is left out), and
+    /// those read, by their element.
+    pattern_stack: Vec<roxmltree::NodeId>,
+    patterns: HashMap<roxmltree::NodeId, Option<Paint>>,
     depth: usize,
     nodes: usize,
     declared: HashMap<roxmltree::NodeId, Declared>,
@@ -222,6 +226,8 @@ impl<'a, 'input> Converter<'a, 'input> {
             span: TimelineSpan::default(),
             limits,
             use_stack: Vec::new(),
+            pattern_stack: Vec::new(),
+            patterns: HashMap::new(),
             depth: 0,
             nodes: 0,
             declared: HashMap::new(),
@@ -1706,8 +1712,12 @@ impl<'a, 'input> Converter<'a, 'input> {
         let node = *self.ids.get(id)?;
         let tag = node.tag_name().name();
         if tag == "pattern" {
-            self.warn("pattern fills are left out");
-            return Some(None);
+            if let Some(read) = self.patterns.get(&node.id()) {
+                return Some(read.clone());
+            }
+            let paint = self.pattern(node);
+            self.patterns.insert(node.id(), paint.clone());
+            return Some(paint);
         }
         if tag != "linearGradient" && tag != "radialGradient" {
             return None;
@@ -1803,6 +1813,112 @@ impl<'a, 'input> Converter<'a, 'input> {
                 spread,
             })
         }))
+    }
+
+    /// The `<pattern>` `node` (with what its `href` chain gives it) as a
+    /// paint, or `None` when it draws nothing.
+    fn pattern(&mut self, node: XmlNode<'a, 'input>) -> Option<Paint> {
+        if self.pattern_stack.contains(&node.id()) || self.pattern_stack.len() >= 8 {
+            self.warn("a pattern that fills with itself is left out");
+            return None;
+        }
+        let mut chain = vec![node];
+        while let Some(next) = href(*chain.last()?).and_then(|i| self.ids.get(i).copied()) {
+            if chain.len() > 16
+                || chain.iter().any(|n| n.id() == next.id())
+                || !next.has_tag_name("pattern")
+            {
+                break;
+            }
+            chain.push(next);
+        }
+        let attr = |name: &str| chain.iter().find_map(|n| n.attribute(name));
+        let units = match attr("patternUnits") {
+            Some("userSpaceOnUse") => GradientUnits::UserSpace,
+            _ => GradientUnits::BoundingBox,
+        };
+        let content_units = match attr("patternContentUnits") {
+            Some("objectBoundingBox") => GradientUnits::BoundingBox,
+            _ => GradientUnits::UserSpace,
+        };
+        let (vw, vh) = (self.view.width, self.view.height);
+        let coord = |name: &str, reference: f64| {
+            attr(name)
+                .and_then(|v| match units {
+                    GradientUnits::BoundingBox => fraction(v),
+                    GradientUnits::UserSpace => length(v, reference),
+                })
+                .unwrap_or(0.0)
+        };
+        let tile = Rect::new(
+            coord("x", vw),
+            coord("y", vh),
+            coord("width", vw),
+            coord("height", vh),
+        );
+        if !(tile.width > 0.0 && tile.height > 0.0) {
+            return None;
+        }
+        let transform = attr("patternTransform")
+            .and_then(|t| transform_list(t, (0.0, 0.0)))
+            .map(|l| list_matrix(&l))
+            .unwrap_or_default();
+        let view_box = attr("viewBox")
+            .and_then(|v| v.parse::<svgtypes::ViewBox>().ok())
+            .map(|vb| {
+                let aspect: svgtypes::AspectRatio = attr("preserveAspectRatio")
+                    .and_then(|a| a.parse().ok())
+                    .unwrap_or_default();
+                ViewBox {
+                    rect: Rect::new(vb.x, vb.y, vb.w, vb.h),
+                    align: align(aspect.align),
+                    slice: aspect.slice,
+                }
+            });
+        let holder = chain
+            .iter()
+            .copied()
+            .find(|n| n.children().any(|c| c.is_element()))?;
+        let style = self.style_of(holder);
+        self.pattern_stack.push(node.id());
+        let mut content = Group::new();
+        for child in holder.children() {
+            match self.element(child, &style) {
+                Ok(Some(n)) => content.children.push(n),
+                Ok(None) => {}
+                Err(e) => {
+                    self.warn(format!("a pattern's content is left out: {e}"));
+                    content.children.clear();
+                    break;
+                }
+            }
+        }
+        self.pattern_stack.pop();
+        if content.children.is_empty() {
+            return None;
+        }
+        Some(Paint::Pattern(Box::new(Pattern {
+            tile,
+            units,
+            content_units,
+            view_box,
+            transform,
+            content,
+        })))
+    }
+
+    /// The style `node`'s children inherit: its ancestors' and its own, from
+    /// the root down.
+    fn style_of(&mut self, node: XmlNode<'a, 'input>) -> Style {
+        let mut chain: Vec<XmlNode<'a, 'input>> =
+            node.ancestors().filter(|n| n.is_element()).collect();
+        chain.reverse();
+        let mut style = Style::default();
+        for n in chain {
+            let declared = self.cascade(n);
+            style = self.inherit(&style, &declared);
+        }
+        style
     }
 
     /// The clip `clip-path: url(#id)` names.
@@ -2275,6 +2391,24 @@ pub(crate) fn path_data(d: &str) -> Path {
         }
     }
     path
+}
+
+/// Where an alignment puts a view box in the room left along each axis;
+/// `None` stretches it.
+fn align(a: svgtypes::Align) -> Option<(f64, f64)> {
+    use svgtypes::Align::*;
+    Some(match a {
+        None => return Option::None,
+        XMinYMin => (0.0, 0.0),
+        XMidYMin => (0.5, 0.0),
+        XMaxYMin => (1.0, 0.0),
+        XMinYMid => (0.0, 0.5),
+        XMidYMid => (0.5, 0.5),
+        XMaxYMid => (1.0, 0.5),
+        XMinYMax => (0.0, 1.0),
+        XMidYMax => (0.5, 1.0),
+        XMaxYMax => (1.0, 1.0),
+    })
 }
 
 /// The matrix placing view box `vb` in a viewport of `width` × `height`.

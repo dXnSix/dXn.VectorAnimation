@@ -1076,6 +1076,8 @@ pub enum Paint {
     LinearGradient(LinearGradient),
     /// Colors around a center.
     RadialGradient(RadialGradient),
+    /// Content repeated in tiles.
+    Pattern(Box<Pattern>),
 }
 
 impl Paint {
@@ -1131,6 +1133,75 @@ pub struct RadialGradient {
     /// What is drawn past the circle.
     #[cfg_attr(feature = "serde", serde(default))]
     pub spread: Spread,
+}
+
+/// Content repeated in tiles (SVG's `<pattern>`): tiles of `tile`'s size
+/// side by side from `tile`'s corner, each drawing `content`.
+#[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "serde", serde(rename_all = "camelCase"))]
+pub struct Pattern {
+    /// One tile: its corner and size, in `units`.
+    pub tile: Rect,
+    /// The space of `tile`.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub units: GradientUnits,
+    /// The space of `content` (without a view box): the shape's space or
+    /// fractions of the shape's bounding box, from the tile's corner.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub content_units: GradientUnits,
+    /// The content's coordinates placed in each tile, when given.
+    #[cfg_attr(
+        feature = "serde",
+        serde(default, skip_serializing_if = "Option::is_none")
+    )]
+    pub view_box: Option<ViewBox>,
+    /// Applied to the tiles within their space.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub transform: Matrix,
+    /// What each tile draws.
+    pub content: Group,
+}
+
+/// A rectangle of coordinates placed in a viewport (SVG's `viewBox` and
+/// `preserveAspectRatio`).
+#[derive(Debug, Clone, Copy, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "serde", serde(rename_all = "camelCase"))]
+pub struct ViewBox {
+    /// The coordinates shown.
+    pub rect: Rect,
+    /// Where it sits in the room left along each axis (0 start, 0.5 middle,
+    /// 1 end), scaled alike along both; `None` stretches it to fill.
+    pub align: Option<(f64, f64)>,
+    /// Scaled to cover the viewport (cut), not to fit in it.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub slice: bool,
+}
+
+impl ViewBox {
+    /// The matrix placing it in a viewport of `width` × `height` from the
+    /// origin.
+    pub fn matrix(&self, width: f64, height: f64) -> Matrix {
+        let vb = self.rect;
+        if vb.width <= 0.0 || vb.height <= 0.0 {
+            return Matrix::IDENTITY;
+        }
+        let (sx, sy) = (width / vb.width, height / vb.height);
+        let Some((ax, ay)) = self.align else {
+            return Matrix::new(sx, 0.0, 0.0, sy, -vb.x * sx, -vb.y * sy);
+        };
+        let s = if self.slice { sx.max(sy) } else { sx.min(sy) };
+        let (free_x, free_y) = (width - vb.width * s, height - vb.height * s);
+        Matrix::new(
+            s,
+            0.0,
+            0.0,
+            s,
+            free_x * ax - vb.x * s,
+            free_y * ay - vb.y * s,
+        )
+    }
 }
 
 /// A gradient's color at an offset.

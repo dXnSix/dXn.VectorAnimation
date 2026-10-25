@@ -106,9 +106,12 @@ core and the importers build for WebAssembly; a build that plays compiled scenes
   every type, `feComponentTransfer`; in linear light unless `color-interpolation-filters` says sRGB), and
   CSS `filter` of `blur()`, `drop-shadow()`, `grayscale()`, `sepia()`, `saturate()`, `hue-rotate()`,
   `invert()`, `opacity()`, `brightness()`, `contrast()` and `url()`, still or animated by `@keyframes`.
+- Pattern fills: `<pattern>` tiles in user space or the shape's box, content in user space, the box's
+  fractions or a view box, `patternTransform`, attributes and content inherited through `href` (Figma's
+  image fills are such patterns).
 - Left out with a warning: text (export it as outlines), other filters (floods, morphology, lighting,
-  displacement, shadows of a recolored drawing), patterns, pseudo-elements and other pseudo-classes, SMIL
-  begins on events, `end` times and `accumulate`.
+  displacement, shadows of a recolored drawing), pseudo-elements and other pseudo-classes, SMIL begins on
+  events, `end` times and `accumulate`.
 
 **Lottie** (`dxn_vector_animation_lottie`)
 

@@ -198,7 +198,7 @@ fn count_geometry(geometry: &Geometry, stats: &mut Stats) {
     }
 }
 
-fn count_paint(paint: &Paint, stats: &mut Stats) {
+fn count_paint(paint: &Paint, depth: usize, stats: &mut Stats) {
     match paint {
         Paint::Solid { color } => count(color, stats),
         Paint::LinearGradient(g) => {
@@ -216,6 +216,7 @@ fn count_paint(paint: &Paint, stats: &mut Stats) {
             count(&g.radius, stats);
             count(&g.stops, stats);
         }
+        Paint::Pattern(p) => count_group(&p.content, depth + 1, stats),
     }
 }
 
@@ -303,12 +304,12 @@ fn count_group(group: &Group, depth: usize, stats: &mut Stats) {
                 }
                 if let Some(fill) = &shape.fill {
                     count(&fill.opacity, stats);
-                    count_paint(&fill.paint, stats);
+                    count_paint(&fill.paint, depth, stats);
                 }
                 if let Some(stroke) = &shape.stroke {
                     count(&stroke.opacity, stats);
                     count(&stroke.width, stats);
-                    count_paint(&stroke.paint, stats);
+                    count_paint(&stroke.paint, depth, stats);
                     if let Some(dash) = &stroke.dash {
                         for d in &dash.array {
                             count(d, stats);

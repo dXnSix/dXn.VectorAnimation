@@ -53,6 +53,8 @@ pub enum RenderError {
 
 /// The most pixels a rendered image may have (a 8192 × 8192 image).
 const MAX_PIXELS: u64 = 8192 * 8192;
+/// The largest side of a pattern's tile, in pixels.
+const MAX_TILE: u32 = 4096;
 
 /// Renders `frame` into a premultiplied RGBA pixmap. The frame stretches
 /// to the size asked for.
@@ -283,7 +285,9 @@ impl Renderer {
                     paint,
                     rule,
                 } => {
-                    let (Some(path), Some(paint)) = (sk_path(path), self.paint(paint)) else {
+                    let tile = self.tile(paint, *transform);
+                    let (Some(path), Some(paint)) = (sk_path(path), self.paint(paint, &tile))
+                    else {
                         continue;
                     };
                     let rule = match rule {
@@ -305,7 +309,9 @@ impl Renderer {
                     paint,
                     style,
                 } => {
-                    let (Some(path), Some(paint)) = (sk_path(path), self.paint(paint)) else {
+                    let tile = self.tile(paint, *transform);
+                    let (Some(path), Some(paint)) = (sk_path(path), self.paint(paint, &tile))
+                    else {
                         continue;
                     };
                     let target = &mut stack.last_mut()?.0;
@@ -519,8 +525,52 @@ impl Renderer {
         Some(m)
     }
 
-    fn paint(&self, paint: &FramePaint) -> Option<sk::Paint<'static>> {
+    /// A pattern's tile drawn at the pixels it shows at through `item` (the
+    /// item's transform), and the transform from its pixels to the item's
+    /// coordinates; `None` for other paints.
+    fn tile(&mut self, paint: &FramePaint, item: Matrix) -> Option<(sk::Pixmap, sk::Transform)> {
+        let FramePaint::Pattern {
+            tile,
+            transform,
+            items,
+        } = paint
+        else {
+            return None;
+        };
+        let full = self.base * item * *transform;
+        let (kx, ky) = (full.a.hypot(full.b), full.c.hypot(full.d));
+        let side = |v: f64| (v.round().max(1.0) as u32).min(MAX_TILE);
+        let (pw, ph) = (side(tile.width * kx), side(tile.height * ky));
+        let (sx, sy) = (f64::from(pw) / tile.width, f64::from(ph) / tile.height);
+        let mut inner = Renderer {
+            width: pw,
+            height: ph,
+            base: Matrix::scale(sx, sy),
+            images: std::mem::take(&mut self.images),
+        };
+        let drawn = inner.draw(items);
+        self.images = inner.images;
+        let to_item =
+            *transform * Matrix::translate(tile.x, tile.y) * Matrix::scale(1.0 / sx, 1.0 / sy);
+        Some((drawn?, sk_transform(to_item)))
+    }
+
+    fn paint<'a>(
+        &self,
+        paint: &FramePaint,
+        tile: &'a Option<(sk::Pixmap, sk::Transform)>,
+    ) -> Option<sk::Paint<'a>> {
         let shader = match paint {
+            FramePaint::Pattern { .. } => {
+                let (pixmap, transform) = tile.as_ref()?;
+                sk::Pattern::new(
+                    pixmap.as_ref(),
+                    sk::SpreadMode::Repeat,
+                    sk::FilterQuality::Bilinear,
+                    1.0,
+                    *transform,
+                )
+            }
             FramePaint::Solid(c) => sk::Shader::SolidColor(sk_color(*c)),
             FramePaint::Linear {
                 start,

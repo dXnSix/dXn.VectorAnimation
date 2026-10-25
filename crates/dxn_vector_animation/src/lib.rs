@@ -34,9 +34,9 @@ pub use scene::{
     BlendMode, Blur, Clip, ClipShape, ColorEffect, ColorMatrix, ColorOp, Dash, Direction,
     DropShadow, Effect, EllipseStart, Fill, FillRule, Geometry, GradientStop, GradientUnits, Group,
     Image, ImageData, InnerShadow, LineCap, LineJoin, LinearGradient, LoopMode, Marker, Mask,
-    MaskKind, MotionPath, MotionRotate, Node, Paint, PaintOrder, RadialGradient, RectStart, Scene,
-    Shape, ShapePath, Spread, Star, StarKind, Stroke, TimeMap, TimeRange, Timeline, Transfer,
-    TransformOp, Trim, TrimMode,
+    MaskKind, MotionPath, MotionRotate, Node, Paint, PaintOrder, Pattern, RadialGradient,
+    RectStart, Scene, Shape, ShapePath, Spread, Star, StarKind, Stroke, TimeMap, TimeRange,
+    Timeline, Transfer, TransformOp, Trim, TrimMode, ViewBox,
 };
 
 /// The name and version of the compiled scene format
