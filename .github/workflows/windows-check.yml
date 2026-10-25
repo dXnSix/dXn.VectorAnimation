@@ -44,11 +44,17 @@ jobs:
   check:
     runs-on: windows-latest
     timeout-minutes: 90
+    # The player and NSH side by side: NSH inside the player's folder would
+    # take the player's workspace as its own (Cargo finds the workspace of a
+    # patched crate among the roots it has loaded, the player's first).
     defaults:
       run:
         shell: bash
+        working-directory: player
     steps:
       - uses: actions/checkout@v7
+        with:
+          path: player
       - uses: actions/checkout@v7
         with:
           repository: dXnSix/nsh
@@ -59,13 +65,13 @@ jobs:
         uses: Swatinem/rust-cache@v2
         with:
           workspaces: |
-            . -> target
+            player -> target
             nsh -> target
           save-if: ${{ github.ref == 'refs/heads/main' }}
       - name: Build NSH's CLI
         run: |
-          cargo build -p nsh-cli --manifest-path nsh/Cargo.toml
-          echo "NSH: dXnSix/nsh $(git -C nsh rev-parse --short HEAD)" >> "$GITHUB_STEP_SUMMARY"
+          cargo build -p nsh-cli --manifest-path ../nsh/Cargo.toml
+          echo "NSH: dXnSix/nsh $(git -C ../nsh rev-parse --short HEAD)" >> "$GITHUB_STEP_SUMMARY"
       # Its own scenes: the corpus files are not in the repository.
       - name: Write the check set
         run: cargo run --release -p dxn_vector_animation_check -- scenes examples/check
@@ -76,9 +82,9 @@ jobs:
           mkdir -p examples/check/.cargo
           {
             echo "[patch.crates-io]"
-            for manifest in nsh/crates/*/Cargo.toml nsh/crates/gpui/*/Cargo.toml; do
+            for manifest in ../nsh/crates/*/Cargo.toml ../nsh/crates/gpui/*/Cargo.toml; do
               name=$(sed -n 's/^name = "\(.*\)"/\1/p' "$manifest" | head -1)
-              dir=$(dirname "${manifest#nsh/}")
+              dir=$(dirname "${manifest#../nsh/}")
               case "$name" in
                 nsh-*) echo "$name = { path = \"$root/$dir\" }" ;;
               esac
@@ -86,10 +92,10 @@ jobs:
           } > examples/check/.cargo/config.toml
           cat examples/check/.cargo/config.toml
       - name: Hold and photograph the check app in a Win32 window
-        working-directory: examples/check
+        working-directory: player/examples/check
         run: |
           rm -rf shots && mkdir shots
-          ../../nsh/target/debug/nsh test check.test.tsx --target windows
+          ../../../nsh/target/debug/nsh test check.test.tsx --target windows
       - name: Set the photographs beside the reference
         run: |
           cargo run --release -p dxn_vector_animation_check -- \
@@ -118,7 +124,7 @@ jobs:
         with:
           name: windows-check
           path: |
-            examples/check/shots
-            compared
-            compared.txt
+            player/examples/check/shots
+            player/compared
+            player/compared.txt
           if-no-files-found: ignore
