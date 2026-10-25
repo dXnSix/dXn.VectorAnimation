@@ -18,7 +18,7 @@ pub(crate) const MAX_ITERATIONS: usize = 10_000;
 const GRAIN: f64 = 1e6;
 
 /// The timeline the document's animations need: how long one play-through
-/// is and whether it repeats.
+/// is, whether it repeats, and from where.
 #[derive(Debug, Clone, Default)]
 pub(crate) struct TimelineSpan {
     /// Until every animation has ended, or has played once what it repeats.
@@ -26,6 +26,10 @@ pub(crate) struct TimelineSpan {
     pub(crate) endless: bool,
     /// What repeats forever: when each starts, and its period.
     pub(crate) repeats: Vec<(f64, f64)>,
+    /// When the last of what does not repeat forever ends.
+    pub(crate) ends: f64,
+    /// Where the loop starts over: what comes before plays once.
+    pub(crate) loop_start: f64,
 }
 
 impl TimelineSpan {
@@ -34,6 +38,8 @@ impl TimelineSpan {
         if spec.iterations == Iterations::Infinite {
             self.endless = true;
             self.repeat(spec.delay.max(0.0), spec.period());
+        } else {
+            self.ends = self.ends.max(spec.span());
         }
     }
 
@@ -44,19 +50,21 @@ impl TimelineSpan {
         }
     }
 
-    /// Makes the timeline the loop of what repeats forever, as a browser
-    /// plays it: from the last of them to start, as long as it takes all
-    /// of them to come round together (their periods' least common
-    /// multiple), as many times over as what ends needs. Where that is
-    /// longer than `max_duration` or takes one of them more than
+    /// Makes the timeline end in the loop of what repeats forever, as a
+    /// browser plays it: delays and what ends play once, up to the loop
+    /// start (where the last of them to start has started and everything
+    /// else has ended); the loop is as long as it takes all of them to come
+    /// round together (their periods' least common multiple). Where that
+    /// is longer than `max_duration` or takes one of them more than
     /// [`MAX_ITERATIONS`], the timeline stays as long as the longest and
-    /// the warning says so.
+    /// loops from 0, and the warning says so.
     pub(crate) fn close_loop(&mut self, max_duration: f64) -> Option<String> {
         if self.repeats.is_empty() {
             return None;
         }
-        if let Some(length) = self.common_loop(max_duration) {
-            self.duration = length;
+        if let Some((start, length)) = self.common_loop(max_duration) {
+            self.loop_start = start;
+            self.duration = start + length;
             return None;
         }
         let steps = |p: f64| (p * GRAIN).round();
@@ -76,8 +84,9 @@ impl TimelineSpan {
         })
     }
 
-    /// The common loop, when it is within the limits.
-    fn common_loop(&self, max_duration: f64) -> Option<f64> {
+    /// Where the common loop starts and how long it is, when it is within
+    /// the limits.
+    fn common_loop(&self, max_duration: f64) -> Option<(f64, f64)> {
         let mut lcm: u128 = 1;
         let (mut start, mut shortest) = (0.0_f64, f64::INFINITY);
         for &(s, period) in &self.repeats {
@@ -90,9 +99,10 @@ impl TimelineSpan {
             shortest = shortest.min(period);
         }
         let common = lcm as f64 / GRAIN;
-        let times = ((self.duration - start) / common - 1e-9).ceil().max(1.0);
-        let length = start + times * common;
-        (length <= max_duration && length / shortest <= MAX_ITERATIONS as f64).then_some(length)
+        let start = start.max(self.ends);
+        let length = start + common;
+        (length <= max_duration && length / shortest <= MAX_ITERATIONS as f64)
+            .then_some((start, common))
     }
 }
 

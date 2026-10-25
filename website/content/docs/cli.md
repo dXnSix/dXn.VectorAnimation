@@ -45,7 +45,7 @@ lottie-motion.json
 |---|---|
 | `format` | `animated SVG`, `Lottie` or `compiled scene` |
 | `size` | The scene's width and height in user units |
-| `timeline` | Duration, frame rate when the file has one, and `once`, `loops` or `ping-pong` |
+| `timeline` | Duration, frame rate when the file has one, and `once`, `loops` or `ping-pong`, with `from <seconds>` when the loop starts over after the start (`1.400 s, loops from 0.400 s` for a staggered loader) |
 | `marker` | Each named marker: start and duration |
 | `event` | Each event the file plays something on, and the `render` flag that plays it |
 | `nodes`, `animation`, `path points` | The scene's [`Stats`](./limits.md#checking-a-scene) |
@@ -137,7 +137,7 @@ shots/lottie-motion-0001.png  t=1.000s
 
 Without `-o`, one frame goes to `<stem>.png` next to the file and several to a `<stem>-frames/` directory there. An `-o` ending in `.png` is the file for a single frame; any other `-o` is a directory, created when missing. Frames in a directory are named `<stem>-0000.png`, `<stem>-0001.png` and so on. Each line printed is a file and the time it shows.
 
-Times are rendered as given, not wrapped into the loop. `--event` moves what the file plays on an event to that time, as [`Scene::with_events`](./scene-model.md#events) does:
+Times are rendered as given, not wrapped into the loop: `--fps` renders one play-through, what comes before the loop start once and the loop once. `--event` moves what the file plays on an event to that time, as [`Scene::with_events`](./scene-model.md#events) does:
 
 ```bash
 vector-animation render press.svg --event btn.click=0.5 -t 0.6 -o pressed.png

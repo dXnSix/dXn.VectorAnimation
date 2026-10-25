@@ -150,7 +150,7 @@ compiles with `--pretty` to:
 | Enum variants tagged by `type`, unit variants as camelCase strings | `"type": "cubicBezier"`, `"loopMode": "loop"` |
 | An `Animated` value is the plain value when constant, `{ "keyframes": [...] }` when animated | `"opacity": 1.0` |
 | A keyframe's easing is left out when linear | the last keyframe of a linear track has only `time` and `value` |
-| Empty lists, `None` and defaults are left out | no `markers`, no `transform` |
+| Empty lists, `None` and defaults are left out | no `markers`, no `transform`, no `loopStart` when it is 0 |
 | Paths are path data of absolute `M`, `L`, `Q`, `C` and `Z` | `"M0 50C50 0 150 100 200 50"` |
 | Images are `data:` URIs, base64 | `"data:image/png;base64,iVBOR..."` |
 
@@ -170,6 +170,8 @@ The minified form of this file is 846 bytes.
 `to_json` checks the other way: JSON has no NaN or infinity (serde_json would write `null`, which no scene reads back), so a scene holding one is refused with `Error::Unsupported`, naming where it is: ``unsupported: `scene.root.children[0].opacity` is NaN, which the compiled format cannot hold``.
 
 `FORMAT_VERSION` is 1. Compile with the same library commit the player is built with, so both agree on the scene types.
+
+A timeline's `loopStart` (where its loop starts over, after delays that play once) came within version 1: it is written only when set, and a file without it loops its whole timeline. A reader from before it ignores the field and loops a file that has one from 0, as SVG imports looped before: delays play again each time round, which is how the same SVG played then, not a different meaning, so the version stays 1.
 
 :::tip Your own container
 Because the scene types implement `Serialize` and `Deserialize`, a `Scene` can live inside your own JSON (or any serde format). Then nothing checks it: call `scene.check(&limits)` yourself after deserializing data you did not write.

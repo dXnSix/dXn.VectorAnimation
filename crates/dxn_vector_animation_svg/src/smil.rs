@@ -911,6 +911,8 @@ pub(crate) struct Timing {
     pub(crate) lengths: Vec<Vec<f64>>,
     /// Seconds the timeline needs.
     pub(crate) duration: f64,
+    /// When the last of what does not repeat forever ends.
+    pub(crate) ends: f64,
     /// Whether it repeats.
     pub(crate) endless: bool,
     /// What repeats forever: when its last instance begins, and its
@@ -1121,6 +1123,7 @@ pub(crate) fn resolve(anims: &[Smil], horizon: f64, warn: &mut dyn FnMut(String)
             instances,
             lengths,
             duration: period,
+            ends: 0.0,
             endless: true,
             repeats: Vec::new(),
             cyclic: true,
@@ -1129,6 +1132,7 @@ pub(crate) fn resolve(anims: &[Smil], horizon: f64, warn: &mut dyn FnMut(String)
     }
     capped(&|_| true);
     let mut duration: f64 = 0.0;
+    let mut ends: f64 = 0.0;
     let mut endless = false;
     let mut repeats = Vec::new();
     for ((a, list), lengths) in anims.iter().zip(&instances).zip(&lengths) {
@@ -1139,6 +1143,7 @@ pub(crate) fn resolve(anims: &[Smil], horizon: f64, warn: &mut dyn FnMut(String)
         let (last, active) = (list[at], lengths[at]);
         if active.is_finite() {
             duration = duration.max(last + active);
+            ends = ends.max(last + active);
         } else {
             // Held forever (a `set`), or repeating forever.
             if a.repeats_forever() {
@@ -1146,6 +1151,8 @@ pub(crate) fn resolve(anims: &[Smil], horizon: f64, warn: &mut dyn FnMut(String)
                 if let Some(dur) = a.dur {
                     repeats.push((last, dur));
                 }
+            } else {
+                ends = ends.max(last + a.dur.unwrap_or(0.0));
             }
             duration = duration.max(last + a.dur.unwrap_or(0.0));
         }
@@ -1154,6 +1161,7 @@ pub(crate) fn resolve(anims: &[Smil], horizon: f64, warn: &mut dyn FnMut(String)
         instances,
         lengths,
         duration,
+        ends,
         endless,
         repeats,
         cyclic: false,

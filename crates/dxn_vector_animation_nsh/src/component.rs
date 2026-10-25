@@ -263,10 +263,22 @@ pub fn VectorAnimation(
         };
         let scene = scene.as_ref();
         // An event's: once, from its start.
-        let (span, repeat, direction) = match on_event {
-            Some(duration) => ((0.0, duration.max(0.0)), Repeat::Once, Direction::Normal),
+        let (span, loop_start, repeat, direction) = match on_event {
+            Some(duration) => (
+                (0.0, duration.max(0.0)),
+                0.0,
+                Repeat::Once,
+                Direction::Normal,
+            ),
             None => {
-                let span = segment(scene, props.segment.get());
+                let chosen = props.segment.get();
+                // A segment loops whole; the whole timeline from its loop
+                // start.
+                let loop_start = match chosen {
+                    None => scene.timeline.loop_from(),
+                    Some(_) => 0.0,
+                };
+                let span = segment(scene, chosen);
                 let repeat = props
                     .repeat
                     .get()
@@ -282,12 +294,13 @@ pub fn VectorAnimation(
                     }
                     (d, _) => d,
                 };
-                (span, repeat, direction)
+                (span, loop_start, repeat, direction)
             }
         };
         let playback = Playback {
             start: span.0,
             end: span.1,
+            loop_start,
             rate: props.rate.get().abs().max(1e-3),
             direction,
             repeat,

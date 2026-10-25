@@ -300,6 +300,7 @@ impl<'a, 'input> Converter<'a, 'input> {
             for &(start, period) in &converter.smil_timing.repeats {
                 converter.span.repeat(start, period);
             }
+            converter.span.ends = converter.span.ends.max(converter.smil_timing.ends);
             if let Some(w) = converter.span.close_loop(limits.max_duration) {
                 converter.warn(w);
             }
@@ -354,6 +355,7 @@ impl<'a, 'input> Converter<'a, 'input> {
             timeline: Timeline {
                 duration: converter.span.duration,
                 frame_rate: None,
+                loop_start: converter.span.loop_start,
                 loop_mode: if converter.span.endless {
                     dxn_vector_animation::LoopMode::Loop
                 } else {

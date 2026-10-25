@@ -78,13 +78,15 @@ fn smil_repeats_join_the_loop() {
 }
 
 #[test]
-fn what_ends_rounds_the_loop_up_to_whole_periods() {
-    // A 2.5 s animation once, and a 1 s one forever: 3 s.
+fn what_ends_plays_once_before_the_loop() {
+    // A 2.5 s animation once, and a 1 s one forever: the loop starts once
+    // the first has ended and lasts one period.
     let import = read(
         "#a { animation: k 1s linear infinite } #b { animation: k 2.5s linear }",
         "",
     );
-    assert!(close(duration(&import), 3.0), "{}", duration(&import));
+    assert!(close(import.scene.timeline.loop_start, 2.5));
+    assert!(close(duration(&import), 3.5), "{}", duration(&import));
 }
 
 #[test]

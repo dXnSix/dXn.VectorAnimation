@@ -98,6 +98,12 @@ impl Scene {
                 limit: limits.max_duration,
             });
         }
+        let loop_start = self.timeline.loop_start;
+        if !(0.0..=self.timeline.duration.max(0.0)).contains(&loop_start) {
+            return Err(Error::Invalid(format!(
+                "the loop starts at {loop_start} s, outside the timeline"
+            )));
+        }
         let stats = self.stats();
         let over = |count: usize, limit: usize, what: &'static str| {
             (count > limit).then_some(Error::Limit {

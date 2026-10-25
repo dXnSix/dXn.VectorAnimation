@@ -33,6 +33,11 @@ pub struct Timeline {
         serde(default, skip_serializing_if = "Option::is_none")
     )]
     pub frame_rate: Option<f64>,
+    /// Where repeating starts over (seconds, from 0 to `duration`): what
+    /// comes before it plays once, the loop repeats from it to the end. 0,
+    /// the whole timeline, by default.
+    #[cfg_attr(feature = "serde", serde(default, skip_serializing_if = "is_zero"))]
+    pub loop_start: f64,
     /// How it repeats.
     #[cfg_attr(feature = "serde", serde(default))]
     pub loop_mode: LoopMode,
@@ -42,6 +47,56 @@ pub struct Timeline {
         serde(default, skip_serializing_if = "Vec::is_empty")
     )]
     pub markers: Vec<Marker>,
+}
+
+#[cfg(feature = "serde")]
+fn is_zero(value: &f64) -> bool {
+    *value == 0.0
+}
+
+impl Timeline {
+    /// Where the loop starts over: [`loop_start`](Self::loop_start), or 0
+    /// when it is not within the timeline.
+    pub fn loop_from(&self) -> f64 {
+        if self.loop_start > 0.0 && self.loop_start < self.duration {
+            self.loop_start
+        } else {
+            0.0
+        }
+    }
+
+    /// The time of the timeline shown `elapsed` seconds after it started
+    /// playing, repeating as its loop mode says: once, it holds its end;
+    /// looping, it plays to the end once and then from the loop start to
+    /// the end over and over; ping-pong, it goes back to the loop start
+    /// and forwards again. Before 0 it shows 0.
+    pub fn time_at(&self, elapsed: f64) -> f64 {
+        let end = self.duration.max(0.0);
+        if elapsed.is_nan() || elapsed <= 0.0 {
+            return 0.0;
+        }
+        if elapsed <= end {
+            return elapsed;
+        }
+        let from = self.loop_from();
+        let span = end - from;
+        if span <= 0.0 {
+            return end;
+        }
+        let past = elapsed - end;
+        match self.loop_mode {
+            LoopMode::Once => end,
+            LoopMode::Loop => from + past % span,
+            LoopMode::PingPong => {
+                let within = past % (2.0 * span);
+                if within <= span {
+                    end - within
+                } else {
+                    from + (within - span)
+                }
+            }
+        }
+    }
 }
 
 /// How an animation repeats.

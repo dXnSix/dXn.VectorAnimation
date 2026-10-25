@@ -137,6 +137,7 @@ impl<'a> Converter<'a> {
             timeline: Timeline {
                 duration,
                 frame_rate: Some(fr),
+                loop_start: 0.0,
                 loop_mode: LoopMode::Loop,
                 markers,
             },

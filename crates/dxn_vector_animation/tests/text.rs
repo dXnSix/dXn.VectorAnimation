@@ -15,6 +15,7 @@ fn scene(spans: Vec<TextSpan>) -> Scene {
         timeline: Timeline {
             duration: 1.0,
             frame_rate: None,
+            loop_start: 0.0,
             loop_mode: LoopMode::Once,
             markers: vec![],
         },

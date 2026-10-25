@@ -289,9 +289,18 @@ fn describe(file: &Path, format: Format, import: &Import) -> String {
             .map(|f| format!(" at {f} fps"))
             .unwrap_or_default(),
         match t.loop_mode {
-            LoopMode::Once => "once",
-            LoopMode::Loop => "loops",
-            LoopMode::PingPong => "ping-pong",
+            LoopMode::Once => "once".to_owned(),
+            mode => {
+                let name = if mode == LoopMode::Loop {
+                    "loops"
+                } else {
+                    "ping-pong"
+                };
+                match t.loop_from() {
+                    0.0 => name.to_owned(),
+                    from => format!("{name} from {from:.3} s"),
+                }
+            }
         }
     ));
     for m in &t.markers {

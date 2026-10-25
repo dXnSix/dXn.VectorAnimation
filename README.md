@@ -72,8 +72,8 @@ them alone.
   drawn. Every property is a constant or a track.
 - **Tracks.** Keyframes at times in seconds, each segment with its own easing: linear, cubic Bézier, hold, CSS
   `steps()` and `linear()`. Springs arrive as the exporters sample them.
-- **Time.** A duration, a frame-rate hint, a loop mode (once, loop, ping-pong), named markers; groups offset,
-  stretch and remap their time (nested compositions).
+- **Time.** A duration, a frame-rate hint, a loop mode (once, loop, ping-pong), a loop start (what comes
+  before it plays once), named markers; groups offset, stretch and remap their time (nested compositions).
 - **Transforms** are lists of operations (translate, scale, rotate, skew, matrix, motion along a path), each
   value animated on its own. Transform lists animate function by function when their functions match, as CSS
   does, and through matrix decomposition when they differ.
@@ -109,7 +109,8 @@ them alone.
   `transform-box`, `translate`, `rotate`, `scale`, `opacity`, motion along a path (`offset-path`,
   `offset-distance`, `offset-rotate`, `offset-anchor`), fill and stroke colors and opacities, stroke width
   and dashes, and `d`. Animations that repeat forever share one loop, long enough for all of them to come
-  round together (`alternate` ones there and back), as a browser plays them.
+  round together (`alternate` ones there and back), as a browser plays them; delays and what ends play once
+  before it (the timeline's loop start), so staggered loaders do not jump.
 - SMIL, which Figma Motion writes for what CSS cannot animate (`width`, `height`, path `d`): `<animate>`,
   `<set>`, `<animateColor>`, `<animateTransform>` (additive or replacing the attribute) and `<animateMotion>`
   (a `path`, an `<mpath>`, points; `rotate`, `keyPoints`), with `values`, `from` / `to` / `by`, `keyTimes`,
@@ -240,7 +241,7 @@ network capabilities. `examples/gallery` is an app using each.
 |---|---|
 | `src` | A URL, the text of an SVG, Lottie or compiled scene, its bytes (`Uint8Array`), or a Lottie or compiled scene's JSON |
 | `paused` | Stops playback where it is; `false` plays on from there |
-| `repeat` | `true` forever, a number of times in all, `false` once; the file's loop mode when left out |
+| `repeat` | `true` forever, a number of times in all, `false` once; the file's loop mode when left out. Runs after the first start at the timeline's loop start |
 | `direction` | `"normal"`, `"reverse"` or `"alternate"` |
 | `rate` | Playback speed, 1 by default |
 | `segment` | What plays: a marker's name or `[start, end]` in seconds |

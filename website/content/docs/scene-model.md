@@ -49,6 +49,7 @@ fn loader() -> Scene {
         timeline: Timeline {
             duration: 2.0,
             frame_rate: None,
+            loop_start: 0.0,
             loop_mode: LoopMode::Loop,
             markers: Vec::new(),
         },
@@ -266,32 +267,22 @@ The constructors `TransformOp::translate`, `scale`, `rotate` and `matrix` make c
 |---|---|
 | `duration` | Seconds one play-through lasts |
 | `frame_rate` | The rate the animation was made at, when the file says (Lottie's `fr`); a hint, not a grid |
-| `loop_mode` | `LoopMode::Once` (default: plays and holds its last frame), `Loop`, `PingPong` |
+| `loop_start` | Where repeating starts over, from 0 (default: the whole timeline) to `duration`: what comes before it plays once, the loop repeats from it to the end. The SVG importer sets it after [delays](./svg.md#the-loop) |
+| `loop_mode` | `LoopMode::Once` (default: plays and holds its last frame), `Loop` (to the end, then from the loop start, over and over), `PingPong` (to the end, back to the loop start, and on) |
 | `markers` | Named times or spans: `Marker { name, start, duration }`, a duration of 0 for a point in time |
 
-`Scene::frame_at(t)` does not wrap `t`: looping is the player's. To play on a clock, map the elapsed time to scene time first:
+`Scene::frame_at(t)` does not wrap `t`: looping is the player's. To play on a clock, map the elapsed time to scene time first with `Timeline::time_at`:
 
 ```rust
-use dxn_vector_animation::{LoopMode, Timeline};
+use dxn_vector_animation::Scene;
 
-/// The scene time to show `elapsed` seconds after playback started.
-fn scene_time(timeline: &Timeline, elapsed: f64) -> f64 {
-    let d = timeline.duration;
-    if d <= 0.0 {
-        return 0.0;
-    }
-    match timeline.loop_mode {
-        LoopMode::Once => elapsed.clamp(0.0, d),
-        LoopMode::Loop => elapsed.rem_euclid(d),
-        LoopMode::PingPong => {
-            let t = elapsed.rem_euclid(2.0 * d);
-            if t <= d { t } else { 2.0 * d - t }
-        }
-    }
+/// The frame to show `elapsed` seconds after playback started.
+fn frame(scene: &Scene, elapsed: f64) -> dxn_vector_animation::Frame {
+    scene.frame_at(scene.timeline.time_at(elapsed))
 }
 ```
 
-At 2.5 s into a 2 s timeline this gives 2 for `Once`, 0.5 for `Loop` and 1.5 for `PingPong`.
+Up to the end it is the elapsed time. Past it, `Once` holds the end, `Loop` plays from the loop start to the end over and over, and `PingPong` goes back to the loop start and forwards again. At 2.5 s into a 2 s timeline that loops from 0 this gives 2 for `Once`, 0.5 for `Loop` and 1.5 for `PingPong`; looping from 0.5 s, `Loop` gives 1. `Timeline::loop_from()` is the loop start, or 0 when it is not within the timeline. `Scene::check` refuses a loop start outside it.
 
 ### Events
 

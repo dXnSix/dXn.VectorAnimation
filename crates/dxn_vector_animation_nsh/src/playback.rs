@@ -1,6 +1,11 @@
 //! Playback: which part of the timeline plays, how fast, which way and how
 //! often; where it is after some time (the sampled fallback's clock); and
 //! the composite animation of the time value (the native graph's).
+//!
+//! A part with a loop start plays from its start to its end once, then
+//! from the loop start to the end on every later run (alternating, back
+//! to the loop start and forwards again), so what comes before the loop
+//! start plays once. Reversed runs play the whole part.
 
 use nsh_core::{
     animation::Easing,
@@ -28,6 +33,10 @@ pub struct Playback {
     pub start: f64,
     /// Where it ends.
     pub end: f64,
+    /// Where runs after the first start: what comes before plays once.
+    /// `start` (or anything not between `start` and `end`) plays the whole
+    /// part every run.
+    pub loop_start: f64,
     /// Speed (1 as made).
     pub rate: f64,
     /// Which way.
@@ -50,8 +59,19 @@ impl Playback {
         let runs = self.runs();
         match (self.direction, runs) {
             (Direction::Reverse, _) => self.start,
-            (Direction::Alternate, Some(n)) if n % 2 == 0 => self.start,
+            (Direction::Alternate, Some(n)) if n % 2 == 0 => self.loop_from(),
             _ => self.end,
+        }
+    }
+
+    /// Where runs after the first start: the loop start when it is within
+    /// the part and the runs go forwards, else the part's start.
+    pub fn loop_from(&self) -> f64 {
+        let (lo, hi) = (self.start.min(self.end), self.start.max(self.end));
+        if self.direction != Direction::Reverse && self.loop_start > lo && self.loop_start < hi {
+            self.loop_start
+        } else {
+            self.start
         }
     }
 
@@ -94,6 +114,9 @@ impl Playback {
             };
             return (t, false);
         }
+        // Later runs: from the loop start.
+        let from_loop = self.loop_from();
+        let span = (self.end - from_loop).abs();
         let rest = elapsed - first_len;
         let runs_done = (rest / span).floor();
         let within = rest - runs_done * span;
@@ -104,14 +127,14 @@ impl Playback {
             return (self.last(), true);
         }
         let t = match self.direction {
-            Direction::Normal => self.start + within,
+            Direction::Normal => from_loop + within,
             Direction::Reverse => self.end - within,
             // Run 1 went forward; even runs come back.
             Direction::Alternate => {
                 if run % 2 == 1 {
                     self.end - within
                 } else {
-                    self.start + within
+                    from_loop + within
                 }
             }
         };
@@ -129,10 +152,12 @@ impl Playback {
         };
         let jump = |to: f64| Animation::timing(time, to as f32, Timing::new(0.0, Easing::Linear));
         let span = self.span();
+        let from_loop = self.loop_from();
+        let looped = (self.end - from_loop).abs();
         let (first, body) = match self.direction {
             Direction::Normal => (
                 leg(self.end, self.end - from),
-                Animation::sequence([jump(self.start), leg(self.end, span)]),
+                Animation::sequence([jump(from_loop), leg(self.end, looped)]),
             ),
             Direction::Reverse => (
                 leg(self.start, from - self.start),
@@ -140,7 +165,7 @@ impl Playback {
             ),
             Direction::Alternate => (
                 leg(self.end, self.end - from),
-                Animation::sequence([leg(self.start, span), leg(self.end, span)]),
+                Animation::sequence([leg(from_loop, looped), leg(self.end, looped)]),
             ),
         };
         match self.runs() {
@@ -157,7 +182,7 @@ impl Playback {
                             steps.push(body.looped(Some(pairs)).reset_before_iteration(false));
                         }
                         if tail {
-                            steps.push(leg(self.start, span));
+                            steps.push(leg(from_loop, looped));
                         }
                         Animation::sequence(steps)
                     }

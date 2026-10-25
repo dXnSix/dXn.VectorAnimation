@@ -23,6 +23,7 @@ fn scenes_round_trip_through_json() {
         timeline: Timeline {
             duration: 1.5,
             frame_rate: Some(60.0),
+            loop_start: 0.0,
             loop_mode: LoopMode::PingPong,
             markers: vec![],
         },

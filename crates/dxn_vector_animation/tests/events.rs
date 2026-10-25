@@ -14,6 +14,7 @@ fn scene(opacity: Animated<f64>) -> Scene {
         timeline: Timeline {
             duration: 2.0,
             frame_rate: None,
+            loop_start: 0.0,
             loop_mode: LoopMode::Loop,
             markers: vec![
                 Marker {

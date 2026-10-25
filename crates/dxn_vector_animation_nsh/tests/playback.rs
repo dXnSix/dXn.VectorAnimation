@@ -6,6 +6,7 @@ fn playback(direction: Direction, repeat: Repeat) -> Playback {
     Playback {
         start: 1.0,
         end: 3.0,
+        loop_start: 0.0,
         rate: 2.0,
         direction,
         repeat,

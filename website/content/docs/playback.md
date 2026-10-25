@@ -48,6 +48,24 @@ speed: `2` plays a two second animation in one second, `0.5` in four.
 
 A run that ended starts over from the beginning when it plays again.
 
+## Delays that play once
+
+A timeline can loop from a loop start rather than from 0: an SVG whose animations repeat forever after
+delays (a staggered loader, three dots 0.2 s apart) plays its delays once, as a browser does. The player
+plays the timeline from its start to its end once, then from the loop start to the end on every later run:
+
+| Props | With a loop start |
+|---|---|
+| none, `repeat={true}`, `repeat={3}` | The first run from the start, every later run from the loop start |
+| `direction="alternate"` (and the file's ping-pong) | To the end, back to the loop start, and on |
+| `direction="reverse"` | Every run from the end to the start: the whole timeline |
+| `segment` | The segment plays whole every run |
+| `progress` | 0 to 1 over the whole timeline, delays included |
+| `seek(seconds)` | From that time to the end, then from the loop start |
+| Reduced motion | The poster frame, as for any timeline (`first` is 0) |
+
+A paused player resumed before the loop start plays the rest of the delays first.
+
 ## Segments
 
 `segment` plays a part of the timeline: a marker's span (Lottie markers) or `[start, end]` in seconds.
