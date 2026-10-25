@@ -1,6 +1,16 @@
 [workspace]
 resolver = "3"
 members = ["crates/*"]
+# A plain `cargo build` or `cargo test` builds the scene model, the
+# importers, the renderer and the CLI: no NSH. The NSH player and its check
+# tool build with `-p` or `--workspace`.
+default-members = [
+    "crates/dxn_vector_animation",
+    "crates/dxn_vector_animation_svg",
+    "crates/dxn_vector_animation_lottie",
+    "crates/dxn_vector_animation_render",
+    "crates/dxn_vector_animation_cli",
+]
 
 [workspace.package]
 version = "0.1.0"
@@ -15,13 +25,20 @@ dxn_vector_animation = { version = "0.1.0", path = "crates/dxn_vector_animation"
 dxn_vector_animation_svg = { version = "0.1.0", path = "crates/dxn_vector_animation_svg" }
 dxn_vector_animation_lottie = { version = "0.1.0", path = "crates/dxn_vector_animation_lottie" }
 dxn_vector_animation_render = { version = "0.1.0", path = "crates/dxn_vector_animation_render" }
+dxn_vector_animation_nsh = { version = "0.1.0", path = "crates/dxn_vector_animation_nsh" }
 base64 = "0.23.1"
 clap = { version = "4.6.7", features = ["derive"] }
 fontdb = "0.23.0"
 i_overlay = { version = "9.1.0", default-features = false }
 image = { version = "0.25.10", default-features = false, features = ["png", "jpeg"] }
 kurbo = { version = "0.13.1", default-features = false, features = ["std"] }
+log = "0.4"
 miniz_oxide = "0.8.9"
+# NSH by version requirement: an app's own NSH (crates.io, a checkout, a
+# fork) is the one the player builds with.
+nsh-core = "0.2"
+nsh-engine = { version = "0.2", default-features = false }
+nsh-testing = { version = "0.2", default-features = false }
 roxmltree = "0.21.2"
 rustybuzz = "0.20.1"
 serde = { version = "1.0.229", features = ["derive", "rc"] }
@@ -30,6 +47,13 @@ svgtypes = "0.16.1"
 thiserror = "2.0.21"
 ttf-parser = "0.25.1"
 tiny-skia = { version = "0.12.0", default-features = false, features = ["std", "simd", "png-format"] }
+
+# This workspace's own builds and tests of the NSH player run on the dXnSix
+# fork of NSH; apps depending on the player keep theirs.
+[patch.crates-io]
+nsh-core = { git = "https://github.com/dXnSix/nsh", branch = "main" }
+nsh-engine = { git = "https://github.com/dXnSix/nsh", branch = "main" }
+nsh-testing = { git = "https://github.com/dXnSix/nsh", branch = "main" }
 
 [workspace.lints.rust]
 unsafe_code = "forbid"

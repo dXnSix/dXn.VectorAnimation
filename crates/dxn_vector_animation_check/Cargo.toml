@@ -1,0 +1,26 @@
+[package]
+name = "dxn_vector_animation_check"
+description = "Device checks of the VectorAnimation player: the check app's scenes, the comparison of its screenshots with the reference renderer, and what playing each file costs"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+publish = false
+
+[[bin]]
+name = "vector-animation-check"
+path = "src/main.rs"
+
+[dependencies]
+dxn_vector_animation = { workspace = true, features = ["serde"] }
+dxn_vector_animation_lottie.workspace = true
+dxn_vector_animation_nsh.workspace = true
+dxn_vector_animation_render.workspace = true
+dxn_vector_animation_svg.workspace = true
+serde_json.workspace = true
+tiny-skia = { workspace = true, features = ["png-format"] }
+
+[lints]
+workspace = true
