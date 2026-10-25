@@ -2,6 +2,7 @@
 //! Lottie and compiled scenes.
 
 use std::{
+    io::Write as _,
     path::{Path, PathBuf},
     process::ExitCode,
 };
@@ -25,12 +26,12 @@ struct Cli {
 enum Command {
     /// Prints a file's size, timeline, contents and what it leaves out.
     Inspect {
-        /// An animated SVG, a Lottie JSON or a compiled scene.
+        /// An animated SVG, a Lottie JSON, a dotLottie or a compiled scene.
         file: PathBuf,
     },
     /// Reads a file and reports whether it plays; fails on errors.
     Validate {
-        /// An animated SVG, a Lottie JSON or a compiled scene.
+        /// An animated SVG, a Lottie JSON, a dotLottie or a compiled scene.
         file: PathBuf,
         /// Fails on warnings too.
         #[arg(long)]
@@ -38,9 +39,9 @@ enum Command {
     },
     /// Compiles a file into a scene (`.vector-animation.json`).
     Compile {
-        /// An animated SVG or a Lottie JSON.
+        /// An animated SVG, a Lottie JSON, a dotLottie or a compiled scene.
         file: PathBuf,
-        /// Where to write; next to the file by default.
+        /// Where to write (`-` for stdout); next to the file by default.
         #[arg(short, long)]
         output: Option<PathBuf>,
         /// Indented JSON.
@@ -49,7 +50,7 @@ enum Command {
     },
     /// Renders frames as PNG images.
     Render {
-        /// An animated SVG, a Lottie JSON or a compiled scene.
+        /// An animated SVG, a Lottie JSON, a dotLottie or a compiled scene.
         file: PathBuf,
         /// A PNG file for one frame, or a directory for several; next to
         /// the file by default.
@@ -70,7 +71,8 @@ enum Command {
         /// Pixels per user unit when no size is given.
         #[arg(long, default_value_t = 1.0)]
         scale: f64,
-        /// A background color (`#rrggbb`, `#rrggbbaa`, `white`, `black`).
+        /// A background color (`#rrggbb`, `#rrggbbaa`, `white`, `black`,
+        /// `transparent`); transparent by default.
         #[arg(long)]
         background: Option<String>,
         /// An event that happened, `name=seconds` (repeatable): what the
@@ -173,6 +175,10 @@ fn run(command: Command) -> Result<ExitCode, String> {
             }
             let json = compiled::to_json(&import.scene, pretty)
                 .map_err(|e| format!("{}: {e}", file.display()))?;
+            if output.as_deref() == Some(Path::new("-")) {
+                writeln!(std::io::stdout().lock(), "{json}").map_err(|e| format!("stdout: {e}"))?;
+                return Ok(ExitCode::SUCCESS);
+            }
             let output = output.unwrap_or_else(|| file.with_extension("vector-animation.json"));
             std::fs::write(&output, json).map_err(|e| format!("{}: {e}", output.display()))?;
             println!("{}", output.display());
