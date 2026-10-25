@@ -1,0 +1,174 @@
+// The examples the documentation site embeds. The page's address names one,
+// `?demo=<name>` (the web host, host.js, reads it): it fills the frame, with
+// its controls. Without one, every example shows, a grid of tiles.
+//
+// The scenes are the check set (`vector-animation-check scenes examples/docs`
+// writes animations/), and two of this app's own: `playback` and `events`.
+import { mount, Scroll, signal, Text, View } from "nsh";
+import { Button } from "nsh/base";
+import { host } from "nsh/host";
+import { VectorAnimation, type VectorAnimationRef } from "dxn-vector-animation";
+import { scenes } from "./animations/index";
+
+const named = new Map<string, unknown>(scenes as [string, unknown][]);
+
+// A button that plays on a click: SMIL's `begin="click"`, the event
+// `btn.click`, which the ref's `trigger` plays.
+const CLICKED = `<svg xmlns="http://www.w3.org/2000/svg" width="200" height="100" viewBox="0 0 200 100">
+  <rect width="200" height="100" fill="#F4F1EA"/>
+  <rect id="btn" x="20" y="34" width="60" height="32" rx="16" fill="#5B8DEF">
+    <animate attributeName="x" from="20" to="120" dur="0.6s" begin="click" fill="freeze" calcMode="spline" keyTimes="0;1" keySplines="0.4 0 0.2 1"/>
+    <animate attributeName="fill" from="#5B8DEF" to="#2EAD5A" dur="0.6s" begin="click" fill="freeze"/>
+  </rect>
+</svg>`;
+
+const BAR = { flexDirection: "row", flexWrap: "wrap", gap: 6, justifyContent: "center" } as const;
+
+function Control(props: { title: string; onPress: () => void; selected?: boolean }) {
+  return (
+    <Button
+      onPress={props.onPress}
+      style={{
+        backgroundColor: props.selected ? "#1f2937" : "#e5e7eb",
+        borderRadius: 7,
+        paddingHorizontal: 10,
+        paddingVertical: 5,
+      }}
+      activeStyle={{ opacity: 0.7 }}
+    >
+      <Text style={{ fontSize: 12, fontWeight: "600", color: props.selected ? "#ffffff" : "#111827" }}>
+        {props.title}
+      </Text>
+    </Button>
+  );
+}
+
+const RATES = [0.5, 1, 2];
+
+/** One scene filling the frame, with pause and speed. */
+function Single(props: { src: unknown; name: string }) {
+  const paused = signal(false);
+  const rate = signal(1);
+  return (
+    <View style={{ flex: 1, padding: 10, gap: 8 }}>
+      <View style={{ flex: 1 }}>
+        <VectorAnimation
+          src={props.src as never}
+          style={{ width: "100%", height: "100%" }}
+          paused={paused()}
+          rate={rate()}
+          accessibilityLabel={props.name}
+        />
+      </View>
+      <View style={BAR}>
+        <Control title={paused() ? "Play" : "Pause"} onPress={() => paused.set(!paused())} />
+        {RATES.map((r) => (
+          <Control title={`${r}×`} selected={rate() === r} onPress={() => rate.set(r)} />
+        ))}
+      </View>
+    </View>
+  );
+}
+
+/** The Figma Motion export with every playback control. */
+function Playback() {
+  const paused = signal(false);
+  const rate = signal(1);
+  const direction = signal<"normal" | "reverse" | "alternate">("normal");
+  const progress = signal<number | undefined>(undefined);
+  return (
+    <View style={{ flex: 1, padding: 10, gap: 8 }}>
+      <View style={{ flex: 1 }}>
+        <VectorAnimation
+          src={named.get("figma") as never}
+          style={{ width: "100%", height: "100%" }}
+          paused={paused()}
+          rate={rate()}
+          direction={direction()}
+          progress={progress()}
+          accessibilityLabel="A button popping in"
+        />
+      </View>
+      <View style={BAR}>
+        <Control title={paused() ? "Play" : "Pause"} onPress={() => paused.set(!paused())} />
+        {RATES.map((r) => (
+          <Control title={`${r}×`} selected={rate() === r} onPress={() => rate.set(r)} />
+        ))}
+        {(["normal", "reverse", "alternate"] as const).map((d) => (
+          <Control title={d} selected={direction() === d} onPress={() => direction.set(d)} />
+        ))}
+      </View>
+      <View style={BAR}>
+        {[0, 0.25, 0.5, 0.75, 1].map((p) => (
+          <Control title={`${p * 100}%`} selected={progress() === p} onPress={() => progress.set(p)} />
+        ))}
+        <Control title="Release" onPress={() => progress.set(undefined)} />
+      </View>
+    </View>
+  );
+}
+
+/** What a file plays on an event, played by the ref's `trigger`. */
+function Events() {
+  let player: VectorAnimationRef | undefined;
+  const events = signal("");
+  return (
+    <View style={{ flex: 1, padding: 10, gap: 8 }}>
+      <View style={{ flex: 1 }}>
+        <VectorAnimation
+          src={CLICKED}
+          style={{ width: "100%", height: "100%" }}
+          ref={(r: VectorAnimationRef) => (player = r)}
+          onLoad={(info) => events.set(info.events.join(", "))}
+          accessibilityLabel="A button that slides over when clicked"
+        />
+      </View>
+      <View style={BAR}>
+        <Control title="Trigger btn.click" onPress={() => player?.trigger("btn.click")} />
+        <Text style={{ fontSize: 12, opacity: 0.6, alignSelf: "center" }}>{`events: ${events()}`}</Text>
+      </View>
+    </View>
+  );
+}
+
+/** Every scene, a tile each. */
+function All() {
+  return (
+    <Scroll contentStyle={{ padding: 12, flexDirection: "row", flexWrap: "wrap", gap: 10 }}>
+      {(scenes as [string, unknown][]).map(([name, src]) => (
+        <View style={{ gap: 4, alignItems: "center" }}>
+          <VectorAnimation
+            src={src as never}
+            style={{ width: 120, height: 120, borderWidth: 1, borderColor: "#e5e7eb", borderRadius: 8 }}
+            accessibilityLabel={name}
+          />
+          <Text style={{ fontSize: 11, opacity: 0.7 }}>{name}</Text>
+        </View>
+      ))}
+    </Scroll>
+  );
+}
+
+function App() {
+  const demo = signal<string | undefined>(undefined);
+  host
+    .call("demo")
+    .then((d) => demo.set(typeof d === "string" ? d : ""))
+    .catch(() => demo.set(""));
+  return (
+    <View style={{ flex: 1, backgroundColor: "#ffffff" }}>
+      {(() => {
+        const d = demo();
+        if (d === undefined) return null;
+        if (d === "playback") return <Playback />;
+        if (d === "events") return <Events />;
+        const src = named.get(d);
+        if (src !== undefined) return <Single src={src} name={d} />;
+        if (d === "" || d === "all") return <All />;
+        return <Text style={{ margin: 12 }}>{`No example named "${d}".`}</Text>;
+      })()}
+    </View>
+  );
+}
+
+mount(() => <App />);
