@@ -3,14 +3,16 @@
 //! The static document: shapes, paths, groups and their transforms, fills
 //! and strokes, linear and radial gradients, clip paths, masks, opacity,
 //! blend modes, `use`, pattern fills, embedded PNG and JPEG images, live
-//! text (`<text>`, `<tspan>`), and the `<style>`
-//! sheets that style them (simple selectors). Its CSS animations, as Figma
-//! Motion writes them: `@keyframes` with a timing function per stop, the
-//! `animation` shorthand and longhands (delay, iterations, direction, fill
-//! mode), `transform`, `transform-origin`, `transform-box`, `translate`,
-//! `rotate`, `scale`, `opacity`, motion along a path (`offset-path`,
-//! `offset-distance`, `offset-rotate`, `offset-anchor`), fill and stroke
-//! colors and opacities, stroke width and dashes, `d`, and `filter`.
+//! text (`<text>`, `<tspan>`), and the `<style>` sheets that style them
+//! (type, id, class and attribute selectors, structural pseudo-classes,
+//! `:not()`, `:is()` and `:where()`, joined by descendant, child and
+//! sibling combinators). Its CSS animations, as Figma Motion writes them:
+//! `@keyframes` with a timing function per stop, the `animation` shorthand
+//! and longhands (delay, iterations, direction, fill mode), `transform`,
+//! `transform-origin`, `transform-box`, `translate`, `rotate`, `scale`,
+//! `opacity`, motion along a path (`offset-path`, `offset-distance`,
+//! `offset-rotate`, `offset-anchor`), fill and stroke colors and
+//! opacities, stroke width and dashes, `d`, and `filter`.
 //! Filters: `<filter>` chains as Figma writes them (drop and inner shadows,
 //! layer blurs), `feDropShadow`, `feGaussianBlur`, color changes
 //! (`feColorMatrix`, `feComponentTransfer`), and CSS `blur()`,

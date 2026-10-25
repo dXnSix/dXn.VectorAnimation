@@ -20,7 +20,8 @@
 //! scale, skew, rotation, opacity, colors, stroke width and tracking of
 //! each character; text on a mask's path. An animated character is a
 //! group of its own, constant where what selects it is and sampled at the
-//! file's frame rate where that moves, within [`Limits::max_keyframes`].
+//! file's frame rate where that moves: the keyframes of all text together
+//! within half of [`Limits::max_keyframes`].
 //!
 //! Shape modifiers change the outlines listed before them in their group
 //! (nested groups' included) for the fills and strokes after them: merge
