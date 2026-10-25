@@ -396,6 +396,11 @@ const OUTLINE_WINDOWS: usize = 32;
 /// How many times a sampled outline's commands may change.
 const OUTLINE_SWITCHES: usize = 1024;
 
+/// How many copies of a shape whose paths morph between different commands
+/// are drawn, at most: one for each time between switches (a merge baked
+/// at every frame switches at every frame).
+const MORPH_WINDOWS: usize = 32;
+
 /// How many times a second, at least, a sampled outline is sampled.
 const OUTLINE_RATE: f64 = 120.0;
 
@@ -2217,6 +2222,9 @@ impl Compiler {
 
     fn shape(&mut self, s: &Shape, time: NodeId) -> Result<(), Unsupported> {
         let switches = morph_switches(s);
+        if switches.len() >= MORPH_WINDOWS {
+            return unsupported("a shape whose commands change many times");
+        }
         if !switches.is_empty() {
             return self.shape_windows(s, &switches, time);
         }
