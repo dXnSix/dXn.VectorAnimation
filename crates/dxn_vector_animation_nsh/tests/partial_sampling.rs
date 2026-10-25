@@ -350,11 +350,14 @@ fn the_player_plays_the_graph_and_draws_the_part_as_it_moves() {
     app.wait_for("Loaded 2.0s").unwrap();
     app.wait(std::time::Duration::from_millis(100)).unwrap();
     let (before, started) = *seen.lock().unwrap();
-    app.wait(std::time::Duration::from_millis(400)).unwrap();
-    let (after, _) = *seen.lock().unwrap();
     assert!(started, "the rest plays on the graph");
-    assert!(
-        after > before + 3,
-        "the star's canvas is drawn again as the clock moves ({before} → {after})"
-    );
+    // Drawn again and again as the clock moves: four times, however slowly
+    // the machine draws them.
+    let counted = seen.clone();
+    app.wait_until(
+        "the star's canvas drawn again four times",
+        std::time::Duration::from_secs(10),
+        move |_| counted.lock().unwrap().0 > before + 3,
+    )
+    .unwrap();
 }

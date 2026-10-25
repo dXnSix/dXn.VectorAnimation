@@ -4,7 +4,10 @@
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
-use std::sync::{Arc, Mutex};
+use std::{
+    sync::{Arc, Mutex},
+    time::Duration,
+};
 
 use dxn_vector_animation_nsh::{AnimationInfo, Source, vector_animation};
 use nsh_core::{
@@ -68,10 +71,19 @@ fn a_hold_stops_the_looping_run_as_a_whole() {
         }
     });
     app.wait_for("Loaded").unwrap();
-    app.wait(std::time::Duration::from_millis(200)).unwrap();
+    let seen = runs.clone();
+    app.wait_until("a run playing", Duration::from_secs(10), move |_| {
+        !seen.lock().unwrap().started.is_empty()
+    })
+    .unwrap();
     let playing = *runs.lock().unwrap().started.last().expect("it plays a run");
     app.press("hold").unwrap();
-    app.wait(std::time::Duration::from_millis(200)).unwrap();
+    let seen = runs.clone();
+    // Stopped soon; whatever starts after the hold would come with it.
+    let _ = app.wait_until("the run stopped", Duration::from_secs(10), move |_| {
+        seen.lock().unwrap().stopped.contains(&playing)
+    });
+    app.wait(Duration::from_millis(200)).unwrap();
     let r = runs.lock().unwrap();
     assert!(
         r.stopped.contains(&playing),
