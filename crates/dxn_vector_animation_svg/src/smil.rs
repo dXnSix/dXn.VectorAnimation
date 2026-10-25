@@ -18,7 +18,9 @@ use roxmltree::{Node as XmlNode, NodeId};
 
 use crate::values::{angle, color, number, time};
 
-/// How many instances of all animations are resolved, at most.
+/// How many instances of all animations are resolved, at most: this many
+/// on the timeline, and as many again on events, so that a cycle on the
+/// timeline cannot leave out what begins on a click.
 const MAX_INSTANCES: usize = 4_000;
 /// Where what plays on events goes: past any timeline, a segment for each
 /// event, `CUE_STRIDE` apart, at most `CUE_SPAN` long.
@@ -988,8 +990,11 @@ pub(crate) fn resolve(anims: &[Smil], horizon: f64, warn: &mut dyn FnMut(String)
     let mut instances: Vec<Vec<f64>> = vec![Vec::new(); n];
     let mut lengths: Vec<Vec<f64>> = vec![Vec::new(); n];
     let mut from_sync: Vec<Vec<bool>> = vec![Vec::new(); n];
-    let mut count = 0usize;
-    while !events.is_empty() && count < MAX_INSTANCES {
+    // Instances resolved on the timeline and on events, and the beginnings
+    // past either budget.
+    let mut count = [0usize; 2];
+    let mut rest: Vec<(f64, usize, bool)> = Vec::new();
+    while !events.is_empty() {
         // The earliest event next.
         let (k, _) = events
             .iter()
@@ -1003,11 +1008,16 @@ pub(crate) fn resolve(anims: &[Smil], horizon: f64, warn: &mut dyn FnMut(String)
         if instances[i].iter().any(|b| (b - t).abs() < 1e-9) {
             continue;
         }
+        let budget = usize::from(t >= CUE_BASE);
+        if count[budget] >= MAX_INSTANCES {
+            rest.push((t, i, sync));
+            continue;
+        }
         let active = length(i, t);
         instances[i].push(t);
         lengths[i].push(active);
         from_sync[i].push(sync);
-        count += 1;
+        count[budget] += 1;
         for &(j, when, offset) in &dependents[i] {
             let at = match when {
                 When::Begin => t,
@@ -1023,7 +1033,7 @@ pub(crate) fn resolve(anims: &[Smil], horizon: f64, warn: &mut dyn FnMut(String)
         }
     }
     // Beginnings past the cap.
-    let left: Vec<f64> = events
+    let left: Vec<f64> = rest
         .iter()
         .filter(|&&(t, i, _)| {
             t <= limit(t, horizon) && !instances[i].iter().any(|b| (b - t).abs() < 1e-9)
