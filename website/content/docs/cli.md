@@ -94,10 +94,16 @@ assets/hero.vector-animation.json
 
 | Flag | Default | Effect |
 |---|---|---|
-| `-o`, `--output <OUTPUT>` | Next to the file, its extension replaced by `.vector-animation.json` | Where to write |
+| `-o`, `--output <OUTPUT>` | Next to the file, its extension replaced by `.vector-animation.json` | Where to write; `-` for stdout |
 | `--pretty` | off | Indented JSON |
 
-Warnings go to stderr, the path written to stdout. The output is always a file (`-o -` writes a file named `-`). The format is described in [Compiled scenes](./compiled-scenes.md).
+Warnings go to stderr, the path written to stdout. With `-o -` the scene itself goes to stdout instead, for a pipe:
+
+```bash
+vector-animation compile button.svg -o - | gzip > button.vector-animation.json.gz
+```
+
+A scene holding a number JSON cannot hold (NaN or an infinity) is not written: the command prints the error and exits with 1. The format is described in [Compiled scenes](./compiled-scenes.md).
 
 ## render
 

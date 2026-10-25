@@ -43,13 +43,27 @@ The document must be UTF-8 (`Error::Invalid` otherwise). A compressed `.svgz` is
 
 There is no timeline element in SVG, so the importer makes one that every animation fits in:
 
-- The duration is the longest animation: its delay plus its duration times its iterations, one iteration when it repeats forever. SMIL begins and ends count, chained ones included.
+- The duration is the longest animation: its delay plus its duration times its iterations. SMIL begins and ends count, chained ones included.
 - The loop mode is `Loop` when any animation repeats forever (`infinite`, `repeatCount="indefinite"`), `Once` otherwise. SMIL animations that start one another in a cycle make the cycle the loop.
 - There is no frame rate, and the only markers are those of [events](#events).
 
-:::warning One iteration is the loop
-Figma Motion gives every animation of an export the same duration, so its loop is exact. In a hand-written file, infinite animations of different durations (1 s and 1.5 s loop at 1.5 s, cutting the shorter one short), and infinite `alternate` animations (which loop forwards only, jumping back), do not repeat as a browser repeats them.
-:::
+### The loop
+
+A browser plays an animation that repeats forever on its own clock. The timeline holds them all in one loop, long enough for every one of them to come round together, so each plays whole iterations as it does in a browser:
+
+- An animation's period is one iteration, or two for `alternate` and `alternate-reverse`, which play forwards and then backwards.
+- The loop is the least common multiple of the periods, counted from the latest start (a positive delay or SMIL `begin`), and as many times over as the animations that end need.
+- A positive delay plays again each time round; a negative one starts part way through, as in a browser.
+
+| Animations that repeat forever | Loop |
+|---|---|
+| 1 s and 1.5 s | 3 s (three iterations and two) |
+| 1 s `alternate` | 2 s (there and back) |
+| 1 s `alternate` and 1.5 s | 6 s |
+| 1 s, next to one of 2.5 s that plays once | 3 s |
+| 2 s after a 0.5 s delay | 2.5 s |
+
+Figma Motion gives every animation of an export the same duration, so its loop is one iteration. The loop stays within `max_duration` (an hour by default, see [Untrusted input](./limits.md)) and 10,000 iterations of any one animation. Periods that come round together only later (1 s and 1.0001 s, after 10,001 s) keep a loop as long as the longest of them, with a warning that the others are cut short.
 
 ## Figma Motion's CSS animations
 
@@ -107,7 +121,7 @@ caption: An SMIL spinner - stroke-dasharray, stroke-dashoffset and a rotating an
 | `begin` | Offsets (negative ones start part way), other animations' begins, ends and repeats (`a.end + 1s`, `a.repeat(2)`), and events (`click`, `btn.mouseover + 0.5s`); `indefinite` never begins |
 | `end` | Offsets and other animations' begins and ends cut instances short |
 
-Several animations of one attribute apply in the order they began, and CSS wins over SMIL on the same property. At most 4,000 animation instances are resolved and 10,000 iterations of one are unrolled.
+Several animations of one attribute apply in the order they began, and CSS wins over SMIL on the same property. At most 4,000 animation instances are resolved and 10,000 iterations of one are unrolled; a file that asks for more gets a warning saying what is left out. SMIL animations that repeat forever share [the loop](#the-loop) with CSS ones.
 
 ### Events
 
@@ -154,6 +168,8 @@ Each of these reads, with a warning in `Import::warnings`:
 | An `<image>` that is not an embedded PNG or JPEG | Left out |
 | `offset-path` other than `path()`, `clip-path` and `mask` other than `url()` | Left out |
 | Animation of a property the scene does not animate | That animation is left out |
+| More than 10,000 iterations of one animation, more than 4,000 SMIL instances | The rest is left out |
+| Animations repeating forever that come round together only past the limits | The loop is as long as the longest; the others are cut short |
 | A `<use>` of a missing element or of itself | Left out |
 | Rules for interaction states, unsupported selectors, at-rules other than `@keyframes` | The rule does not apply |
 | SMIL `end` on an event | Never happens |

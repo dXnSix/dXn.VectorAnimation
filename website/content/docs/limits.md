@@ -81,12 +81,13 @@ Some work grows with what a file asks for rather than with its size: iterations 
 
 | Where | Bound | Past it |
 |---|---|---|
-| SVG: SMIL | 4,000 animation instances resolved | Later instances are not resolved |
-| SVG: CSS and SMIL | 10,000 iterations of one animation unrolled | Later iterations are not unrolled |
-| Lottie: repeaters | 1,000 copies; 10,000 steps of the transform for one copy | 1,000 copies are kept, with a warning |
+| SVG: SMIL | 4,000 animation instances resolved | Later instances are left out, with a warning |
+| SVG: CSS and SMIL | 10,000 iterations of one animation unrolled | Later iterations are left out, with a warning |
+| SVG: animations repeating forever | One [loop](./svg.md#the-loop) for all of them within `max_duration` and 10,000 iterations of each | The loop is as long as the longest, with a warning |
+| Lottie: repeaters | 1,000 copies; 10,000 steps of the transform for one copy | 1,000 copies are kept, and copies further away stop at 10,000 steps, each with a warning |
 | Lottie: shape modifiers | Baked outlines within half of `max_path_points` and of `max_keyframes`; 20,000 sampled moments and 200,000 points for one outline | Fewer moments or zig zag ridges, or the modifier left out, with a warning |
 | Lottie: merge paths | 20,000 points of flattened outlines and 1,000,000 overlapping segment pairs for one merge | The outlines stay unmerged, with a warning |
-| Lottie: text animators | 2,000,000 letters × animators for one text document; 4,000,000 letters × animators × sampled times; all text keyframes within half of `max_keyframes` | `Error::Limit` (`text animator samples`); sampled less often, with a warning; `Error::Limit` (`keyframes`) when even two samples are too many |
+| Lottie: text animators | 2,000,000 letters × animators for one text document; 4,000,000 letters × animators × sampled times; all text keyframes within half of `max_keyframes` | `Error::Limit` (`the file exceeds the limit of 2000000 text animator samples`); sampled less often, with a warning; `Error::Limit` (`keyframes`) when even two samples are too many |
 | dotLottie | 10,000 archive entries | `Error::Limit` (`archive entries`) |
 
 ### Lottie expressions

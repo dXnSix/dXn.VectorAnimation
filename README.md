@@ -108,7 +108,8 @@ them alone.
   shorthand and longhands (delay, iterations, direction, fill mode), `transform`, `transform-origin`,
   `transform-box`, `translate`, `rotate`, `scale`, `opacity`, motion along a path (`offset-path`,
   `offset-distance`, `offset-rotate`, `offset-anchor`), fill and stroke colors and opacities, stroke width
-  and dashes, and `d`.
+  and dashes, and `d`. Animations that repeat forever share one loop, long enough for all of them to come
+  round together (`alternate` ones there and back), as a browser plays them.
 - SMIL, which Figma Motion writes for what CSS cannot animate (`width`, `height`, path `d`): `<animate>`,
   `<set>`, `<animateColor>`, `<animateTransform>` (additive or replacing the attribute) and `<animateMotion>`
   (a `path`, an `<mpath>`, points; `rotate`, `keyPoints`), with `values`, `from` / `to` / `by`, `keyTimes`,

@@ -15,7 +15,7 @@ use dxn_vector_animation::{Limits, compiled};
 fn main() -> Result<(), Box<dyn Error>> {
     // Ahead of time: read the SVG once and save the scene.
     let scene = dxn_vector_animation_svg::read(&std::fs::read("fixtures/figma-motion.svg")?)?.scene;
-    std::fs::write("button.vector-animation.json", compiled::to_json(&scene, false))?;
+    std::fs::write("button.vector-animation.json", compiled::to_json(&scene, false)?)?;
 
     // At run time: load it with the core alone.
     let data = std::fs::read("button.vector-animation.json")?;
@@ -41,7 +41,7 @@ It adds `serde`, `serde_json` and `base64` and nothing else. The importers and t
 
 | Item | Does |
 |---|---|
-| `compiled::to_json(&scene, pretty) -> String` | The scene in the compiled format; `pretty` indents it |
+| `compiled::to_json(&scene, pretty) -> Result<String, Error>` | The scene in the compiled format; `pretty` indents it. A number that is not finite is `Error::Unsupported` |
 | `compiled::from_json(data, &limits) -> Result<Scene, Error>` | Reads a compiled scene, checked against `limits` |
 | `compiled::sniff(data) -> bool` | Whether the bytes are a compiled scene: JSON whose first 256 bytes name the format |
 | `FORMAT` | `"dxn-vector-animation"` |
@@ -54,7 +54,7 @@ vector-animation compile button.svg                     # writes button.vector-a
 vector-animation compile hero.json -o assets/hero.vector-animation.json --pretty
 ```
 
-`compile` takes an SVG, a Lottie JSON or dotLottie file, prints the warnings to stderr and the path it wrote to stdout. See [The vector-animation CLI](./cli.md#compile).
+`compile` takes an SVG, a Lottie JSON or dotLottie file (or a compiled scene), prints the warnings to stderr and the path it wrote to stdout; `-o -` writes the scene to stdout instead. See [The vector-animation CLI](./cli.md#compile).
 
 ## The format
 
@@ -161,10 +161,13 @@ The minified form of this file is 846 bytes.
 `from_json` treats a compiled scene as untrusted input, like the importers treat files:
 
 1. It refuses a file over `limits.max_bytes` with `Error::Limit`.
-2. It parses the JSON; a document that is not a scene is `Error::Invalid` (``invalid file: missing field `width` at line 1 column 55``).
+2. It reads the envelope's `format` and `version`; a document that is not JSON or lacks them is `Error::Invalid` (``invalid file: missing field `version` at line 1 column 33``).
 3. It checks `format`: another name is `Error::Invalid` (`invalid file: not a dxn-vector-animation file`).
-4. It checks `version`: a newer one is `Error::Unsupported` (`unsupported: format version 2 (this library reads up to 1)`). A newer file whose scene this version cannot parse fails at step 2 instead.
-5. It checks the scene against the limits with `Scene::check`: nodes, keyframes, depth, path points and duration.
+4. It checks `version`: a newer one is `Error::Unsupported` (`unsupported: format version 2 (this library reads up to 1)`), whatever its scene holds.
+5. It parses the scene; one that is not a scene is `Error::Invalid` (``invalid file: missing field `width` at line 1 column 55``).
+6. It checks the scene against the limits with `Scene::check`: nodes, keyframes, depth, path points and duration.
+
+`to_json` checks the other way: JSON has no NaN or infinity (serde_json would write `null`, which no scene reads back), so a scene holding one is refused with `Error::Unsupported`, naming where it is: ``unsupported: `scene.root.children[0].opacity` is NaN, which the compiled format cannot hold``.
 
 `FORMAT_VERSION` is 1. Compile with the same library commit the player is built with, so both agree on the scene types.
 
