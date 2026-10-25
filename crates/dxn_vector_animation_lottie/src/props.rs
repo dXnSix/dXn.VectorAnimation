@@ -108,7 +108,7 @@ pub(crate) fn prop(p: &Value) -> Option<Prop<'_>> {
     Some(Prop::Keys(keys))
 }
 
-/// Whether property `p` holds an expression (which is left out).
+/// Whether property `p` holds an expression (`x`, a string).
 pub(crate) fn has_expression(p: &Value) -> bool {
     p.get("x").is_some_and(|x| x.is_string())
 }

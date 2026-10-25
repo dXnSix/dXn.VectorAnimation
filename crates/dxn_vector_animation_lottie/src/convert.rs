@@ -28,8 +28,8 @@ use crate::{
         twist, zig_zag,
     },
     props::{
-        self, Prop, color, gradient_stops, has_expression, key_times, num, nums, prop, sampled,
-        sampled_color, scalar, shape,
+        self, Prop, color, gradient_stops, key_times, num, nums, prop, sampled, sampled_color,
+        scalar, shape,
     },
 };
 
@@ -797,11 +797,6 @@ impl<'a> Converter<'a> {
         let Some(ks) = ks else {
             return (Vec::new(), Animated::Static(1.0));
         };
-        for key in ["a", "p", "s", "r", "o", "sk", "sa", "rz"] {
-            if ks.get(key).is_some_and(has_expression) {
-                self.warn("expressions are left out: their properties keep their keyframes");
-            }
-        }
         if ks.get("rx").is_some() || ks.get("ry").is_some() || ks.get("or").is_some() {
             self.warn("3D rotations are left out");
         }
@@ -1441,11 +1436,6 @@ impl<'a> Converter<'a> {
 
     /// A modifier item's parameters.
     fn modifier(&mut self, ty: &str, item: &'a Value) -> Modifier {
-        for key in ["r", "a", "c", "s", "pt", "ml"] {
-            if item.get(key).is_some_and(has_expression) {
-                self.warn("expressions are left out: their properties keep their keyframes");
-            }
-        }
         let fr = self.fr;
         // A property, or (as some exporters write it) a plain number.
         let value = |key: &str, default: f64| match item.get(key) {
@@ -1689,14 +1679,9 @@ impl<'a> Converter<'a> {
                 rotation: scalar(item.get("r"), 0, 1.0, 0.0, fr),
                 direction,
             }),
-            "sh" => {
-                if item.get("ks").is_some_and(has_expression) {
-                    self.warn("expressions are left out: their properties keep their keyframes");
-                }
-                Geometry::Path {
-                    path: shape(item.get("ks"), fr)?,
-                }
-            }
+            "sh" => Geometry::Path {
+                path: shape(item.get("ks"), fr)?,
+            },
             _ => return None,
         })
     }

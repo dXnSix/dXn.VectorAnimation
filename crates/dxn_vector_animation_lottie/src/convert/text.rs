@@ -22,7 +22,7 @@ use kurbo::{ParamCurve, ParamCurveArclen, ParamCurveDeriv};
 use serde_json::Value;
 
 use super::{Converter, frame_times, simplify};
-use crate::props::{color, has_expression, num, nums, scalar, shape};
+use crate::props::{color, num, nums, scalar, shape};
 
 /// The most letters × animators × sampled times one text document is
 /// baked at; documents beyond it are sampled less often.
@@ -30,8 +30,6 @@ const MAX_WORK: usize = 4_000_000;
 
 /// How exactly lengths along a text path are measured.
 const ACCURACY: f64 = 1e-4;
-
-const EXPRESSIONS: &str = "expressions are left out: their properties keep their keyframes";
 
 impl<'a> Converter<'a> {
     /// A text layer (`t`): each keyframed document shown until the next,
@@ -281,13 +279,6 @@ impl<'a> Converter<'a> {
         for (n, animator) in list.iter().enumerate() {
             let props = animator.get("a");
             let get = |key: &str| props.and_then(|p| p.get(key));
-            const KEYS: [&str; 16] = [
-                "a", "p", "s", "sk", "sa", "r", "rx", "ry", "o", "sw", "sc", "fc", "fh", "fs",
-                "fb", "t",
-            ];
-            if KEYS.iter().any(|k| get(k).is_some_and(has_expression)) {
-                self.warn(EXPRESSIONS);
-            }
             if get("rx").is_some() || get("ry").is_some() {
                 self.warn("3D rotations are left out");
             }
@@ -365,12 +356,6 @@ impl<'a> Converter<'a> {
             None => return None,
         };
         let get = |key: &str| selector.get(key);
-        let keys = ["s", "e", "o", "xe", "ne", "sm"];
-        if keys.iter().any(|k| get(k).is_some_and(has_expression))
-            || (!by_index && get("a").is_some_and(has_expression))
-        {
-            self.warn(EXPRESSIONS);
-        }
         let fr = self.fr;
         Some(Selector {
             by_index,
@@ -403,12 +388,6 @@ impl<'a> Converter<'a> {
             self.warn("text on a path whose mask is missing is laid out on a line");
             return None;
         };
-        if ["f", "l", "r", "p", "a"]
-            .iter()
-            .any(|k| p.get(k).is_some_and(has_expression))
-        {
-            self.warn(EXPRESSIONS);
-        }
         Some(TextPath {
             outline,
             first_margin: scalar(p.get("f"), 0, 1.0, 0.0, fr),

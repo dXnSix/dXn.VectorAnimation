@@ -149,7 +149,7 @@ fn unsupported_features_are_reported() {
     let data = comp(
         json!([
         { "ty": 5, "ind": 2, "ip": 0, "op": 20, "st": 0, "ks": ks(json!({ "a": 0, "k": [0, 0] })), "t": {} },
-        { "ty": 4, "ind": 1, "ip": 0, "op": 20, "st": 0, "ks": ks(json!({ "a": 0, "k": [0, 0], "x": "wiggle(1,2)" })), "sy": [{ "ty": 3 }], "shapes": shapes }]),
+        { "ty": 4, "ind": 1, "ip": 0, "op": 20, "st": 0, "ks": ks(json!({ "a": 0, "k": [0, 0], "x": "toComp([0, 0])" })), "sy": [{ "ty": 3 }], "shapes": shapes }]),
         json!([]),
     );
     let import = dxn_vector_animation_lottie::read(&data).unwrap();
