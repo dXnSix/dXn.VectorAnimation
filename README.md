@@ -446,6 +446,10 @@ Last run (45 scenes, the check app's 29 and 16 corpus files, each at 25, 50 and 
 | GPUI on macOS | 2 | 1.21% | 0.87% | 4.4% |
 | Windows (GitHub runner, the 29 own scenes) | 1 | 0.42% | 0.42% | 4.9% |
 
+Since then animations that repeat forever loop as a browser plays them, which makes 13 of the scenes longer
+(the `alternate` ones 4 s, both ring spinners 6 s). macOS (AppKit) ran the 45 scenes again: 1.42% at most, the
+13 within 0.51%, live text 4.2%.
+
 At one pixel a point a pixel of anti-aliasing is a larger share: the corpus files of fine detail are the ones
 over 0.5% there. Live text is set in the platform's fonts (Roboto, DejaVu Sans, the system's), the reference in
 the Mac's: the glyphs and their widths differ, not where the lines are anchored or how they move. The pattern
