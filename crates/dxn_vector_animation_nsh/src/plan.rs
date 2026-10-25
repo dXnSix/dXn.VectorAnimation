@@ -1484,8 +1484,18 @@ impl Compiler {
                 let outer = 1 + self.context.iter().map(Vec::len).sum::<usize>();
                 match self.shadow_units(g, local, depth, &content, outer, shadows) {
                     Ok(list) => {
-                        for (i, unit) in list.into_iter().enumerate() {
+                        let (over, under): (Vec<_>, Vec<_>) =
+                            list.into_iter().partition(|(_, inner)| *inner);
+                        for (i, (unit, _)) in under.into_iter().enumerate() {
                             self.open().units.insert(units + i, unit);
+                        }
+                        if !over.is_empty() {
+                            // Inner shadows over the content: the canvas
+                            // ends with it.
+                            self.flush();
+                            for (unit, _) in over {
+                                self.open().units.push(unit);
+                            }
                         }
                     }
                     Err(why) => {

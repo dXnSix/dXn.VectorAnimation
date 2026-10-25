@@ -60,6 +60,8 @@ pub(super) struct CanvasShadow {
     knockout: bool,
     /// Cast by the content's silhouette made all or nothing.
     hard: bool,
+    /// Cast inside the content by what is around it, over it.
+    pub(super) inner: bool,
 }
 
 /// A group's shadows as the canvas draws them.
@@ -376,19 +378,32 @@ impl Compiler {
         if g.effects.iter().any(|e| matches!(e, Effect::Blur(_))) {
             return unsupported("a blur");
         }
-        if g.effects
-            .iter()
-            .any(|e| matches!(e, Effect::InnerShadow(_)))
-        {
-            return unsupported("an inner shadow");
-        }
         let linear = self.still_linear(g);
+        if linear.is_none()
+            && g.effects
+                .iter()
+                .any(|e| matches!(e, Effect::InnerShadow(_)))
+        {
+            return unsupported("an inner shadow of a group that turns or scales");
+        }
         let m = linear.unwrap_or(Matrix::IDENTITY);
         let mut out = Vec::new();
         for effect in &g.effects {
-            let Effect::DropShadow(shadow) = effect else {
-                continue;
+            let (shadow, inner) = match effect {
+                Effect::DropShadow(s) => (s.clone(), false),
+                Effect::InnerShadow(s) => (
+                    dxn_vector_animation::DropShadow {
+                        color: s.color.clone(),
+                        offset: s.offset.clone(),
+                        blur: s.blur.clone(),
+                        knockout: false,
+                        hard: s.hard,
+                    },
+                    true,
+                ),
+                _ => continue,
             };
+            let shadow = &shadow;
             let (offset, blur, unit) = {
                 {
                     let scale = (m.a * m.d - m.b * m.c).abs().sqrt();
@@ -458,6 +473,7 @@ impl Compiler {
                     offset,
                     knockout: shadow.knockout,
                     hard: shadow.hard,
+                    inner,
                 });
             }
         }
@@ -810,7 +826,8 @@ impl Compiler {
 
     /// The layers of `shadows` of `g`, bottom first, cast by its content
     /// `content` (a canvas's operations: the setup of the groups it is in,
-    /// `outer` of them, then what it draws).
+    /// `outer` of them, then what it draws), each with whether it is an
+    /// inner shadow (drawn over the content; drop shadows go under).
     pub(super) fn shadow_units(
         &mut self,
         g: &Group,
@@ -819,7 +836,7 @@ impl Compiler {
         content: &[Op],
         outer: usize,
         shadows: Shadows,
-    ) -> Result<Vec<Unit>, Unsupported> {
+    ) -> Result<Vec<(Unit, bool)>, Unsupported> {
         let (setup, drawn) = content.split_at(outer.min(content.len()));
         let see_through = self.see_through(drawn);
         // A group that turns or scales: its shadows cast in its lengths,
@@ -848,18 +865,76 @@ impl Compiler {
             let moving = shadow.offset.iter().any(|n| matches!(n, Num::Node(_)));
             let past = moving || (!shadow.knockout && see_through);
             let unit = match (&turning, past) {
+                _ if shadow.inner => self.cast_inner(setup, &cast, &shadow),
                 (None, true) => self.cast_past(setup, &cast, &shadow),
                 (None, false) => Unit::Canvas(self.cast_in_place(setup, &cast, &shadow)),
                 (Some(_), past) => self.cast_in_area(&cast, &shadow, past, &clips),
             };
-            units.push(Unit::Layer {
-                opacity: shadow.alpha,
-                blend: BlendMode::Normal,
-                units: vec![unit],
-                transform: turning.clone(),
-            });
+            units.push((
+                Unit::Layer {
+                    opacity: shadow.alpha,
+                    blend: BlendMode::Normal,
+                    units: vec![unit],
+                    transform: turning.clone(),
+                },
+                shadow.inner,
+            ));
         }
         Ok(units)
+    }
+
+    /// Where casters `drawing` (moved by `offset` over time) go past the
+    /// view to cast into it: the canvas's margin past each edge, and how
+    /// far left they are moved. `None` where they draw nothing.
+    fn past_view(&mut self, drawing: &[Op], offset: [Num; 2]) -> Option<([f64; 4], f64)> {
+        let b = self.drawn_bounds(drawing, offset)?;
+        // The view's bottom, about: the scene's in it.
+        let (w, h) = (self.stage.width, self.stage.height);
+        let bottom = [(0.0, 0.0), (w, 0.0), (0.0, h), (w, h)]
+            .iter()
+            .map(|&(x, y)| self.base.apply(Point::new(x, y)).y)
+            .fold(0.0, f64::max);
+        let dx = -(b.x + b.width) - PAST;
+        let margin = [
+            b.width + PAST,
+            (-b.y).max(0.0),
+            0.0,
+            (b.y + b.height - bottom).max(0.0),
+        ]
+        .map(f64::ceil);
+        Some((margin, dx))
+    }
+
+    /// The inner shadow of `cast` (the content's silhouette, in the setup
+    /// `setup`): the silhouette in the shadow's color, less the silhouette
+    /// moved and blurred, which casts from past the view into it and takes
+    /// away (`destination-out`) as it falls.
+    fn cast_inner(&mut self, setup: &[Op], cast: &[Op], s: &CanvasShadow) -> Unit {
+        let transforms = transforms_only(setup);
+        let mut drawing = transforms.clone();
+        drawing.extend(cast.iter().cloned());
+        let Some((margin, dx)) = self.past_view(&drawing, s.offset) else {
+            return Unit::Canvas(Vec::new());
+        };
+        let at = Op::Translate(Num::Const(margin[0]), Num::Const(margin[1]));
+        // The silhouette in the shadow's color, within the groups' clips.
+        let mut ops = vec![Op::Save, at.clone()];
+        ops.extend(setup.iter().cloned());
+        ops.extend(cast.iter().map(|op| match op {
+            Op::FillColor(_) | Op::FillGradient(_) => Op::FillColor(s.color),
+            Op::StrokeColor(_) | Op::StrokeGradient(_) => Op::StrokeColor(s.color),
+            other => other.clone(),
+        }));
+        let mut ops = closed(ops);
+        // Less what the silhouette moved and blurred covers.
+        let moved = self.g.math(MathOp::Add, s.offset[0], Num::Const(dx));
+        let mut away = vec![Op::Save, at, Op::Translate(moved, s.offset[1])];
+        away.extend(transforms);
+        away.push(Op::Blend(BlendMode::DestinationOut));
+        away.push(shadow_op(Paint::Const(0x0000_00ff), s.blur, (-dx, 0.0)));
+        away.extend(cast.iter().cloned());
+        ops.extend(closed(away));
+        Unit::Wide { margin, ops }
     }
 
     /// `cast` as what takes the shadow away again: opaque wherever it draws.
@@ -908,25 +983,10 @@ impl Compiler {
         let transforms = transforms_only(setup);
         let mut drawing = transforms.clone();
         drawing.extend(cast.iter().cloned());
-        // Where the casters are, moved by the offset, over time.
-        let Some(b) = self.drawn_bounds(&drawing, s.offset) else {
+        // Moved left past the view, the canvas reaching over them.
+        let Some((margin, dx)) = self.past_view(&drawing, s.offset) else {
             return Unit::Canvas(Vec::new());
         };
-        // The view's bottom, about: the scene's in it.
-        let (w, h) = (self.stage.width, self.stage.height);
-        let bottom = [(0.0, 0.0), (w, 0.0), (0.0, h), (w, h)]
-            .iter()
-            .map(|&(x, y)| self.base.apply(Point::new(x, y)).y)
-            .fold(0.0, f64::max);
-        // Moved left past the view, the canvas reaching over them.
-        let dx = -(b.x + b.width) - PAST;
-        let margin = [
-            b.width + PAST,
-            (-b.y).max(0.0),
-            0.0,
-            (b.y + b.height - bottom).max(0.0),
-        ]
-        .map(f64::ceil);
         let at = Op::Translate(Num::Const(margin[0]), Num::Const(margin[1]));
         let moved = self.g.math(MathOp::Add, s.offset[0], Num::Const(dx));
         let mut ops = vec![Op::Save, at.clone(), Op::Translate(moved, s.offset[1])];
