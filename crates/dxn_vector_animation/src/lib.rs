@@ -16,6 +16,7 @@ mod color;
 #[cfg(feature = "serde")]
 pub mod compiled;
 mod easing;
+mod events;
 pub mod filter;
 mod frame;
 mod geom;
@@ -27,6 +28,7 @@ pub mod transform;
 pub use animated::{Animated, AnimatedPoint, Interpolate, Keyframe, Track};
 pub use color::Color;
 pub use easing::{Easing, StepPosition};
+pub use events::EVENT_PREFIX;
 pub use frame::{
     ClipPath, Frame, FrameEffect, FrameMask, FramePaint, FrameTextSpan, Item, Layer, StrokeStyle,
     text_bounds,

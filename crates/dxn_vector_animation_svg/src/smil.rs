@@ -7,8 +7,9 @@
 //! animations' begins, ends and repeats (`a.end + 1s`, `a.repeat(2)`),
 //! chains that start one another over and over included; such a cycle
 //! becomes the timeline's loop. `end` lists cut instances short; repeats
-//! accumulate (`accumulate="sum"`). Events (`click`) and `indefinite`
-//! never begin.
+//! accumulate (`accumulate="sum"`). What begins on an event (`click`)
+//! plays in a segment of its own past the timeline's end, under a marker
+//! `on:<element>.<event>`; `indefinite` never begins.
 
 use std::collections::HashMap;
 
@@ -19,6 +20,26 @@ use crate::values::{angle, color, number, time};
 
 /// How many instances of all animations are resolved, at most.
 const MAX_INSTANCES: usize = 4_000;
+/// Where what plays on events goes: past any timeline, a segment for each
+/// event, `CUE_STRIDE` apart, at most `CUE_SPAN` long.
+const CUE_BASE: f64 = 1.0e6;
+const CUE_STRIDE: f64 = 1.0e6;
+const CUE_SPAN: f64 = 1.0e5;
+
+/// Where the segment of the event whose instance begins at `t` starts.
+fn cue_start(t: f64) -> f64 {
+    CUE_BASE + ((t - CUE_BASE) / CUE_STRIDE).floor() * CUE_STRIDE
+}
+
+/// How far instances beginning at `t` play: the timeline's `horizon`, or
+/// their event's segment.
+fn limit(t: f64, horizon: f64) -> f64 {
+    if t >= CUE_BASE {
+        cue_start(t) + CUE_SPAN
+    } else {
+        horizon
+    }
+}
 /// How many iterations of one instance are unrolled, at most.
 const MAX_ITERATIONS: usize = 10_000;
 
@@ -56,6 +77,8 @@ pub(crate) enum Begin {
         iteration: u32,
         offset: f64,
     },
+    /// An event (`btn.click`), plus seconds.
+    Event { name: String, offset: f64 },
 }
 
 /// How many times the simple duration repeats.
@@ -127,15 +150,16 @@ fn clock(s: &str) -> Option<f64> {
     }
 }
 
-fn begins(s: Option<&str>, warn: &mut dyn FnMut(String)) -> Vec<Begin> {
+fn begins(s: Option<&str>, target: Option<&str>, warn: &mut dyn FnMut(String)) -> Vec<Begin> {
     match s {
-        Some(s) => times(s, "begin", warn),
+        Some(s) => times(s, "begin", target, warn),
         None => vec![Begin::Offset(0.0)],
     }
 }
 
-/// The times of a `begin` or `end` list (`what`).
-fn times(s: &str, what: &str, warn: &mut dyn FnMut(String)) -> Vec<Begin> {
+/// The times of a `begin` or `end` list (`what`); events without an
+/// element happen on `target` (the animated element's id).
+fn times(s: &str, what: &str, target: Option<&str>, warn: &mut dyn FnMut(String)) -> Vec<Begin> {
     let mut out = Vec::new();
     for item in s.split(';').map(str::trim).filter(|i| !i.is_empty()) {
         if item == "indefinite" {
@@ -166,6 +190,25 @@ fn times(s: &str, what: &str, warn: &mut dyn FnMut(String)) -> Vec<Begin> {
             .strip_suffix(')')
             .and_then(|h| h.split_once(".repeat("))
             .and_then(|(id, n)| Some((id, n.trim().parse::<u32>().ok()?)));
+        // `id.beginEvent` and `id.endEvent` are its begins and ends.
+        let parsed = parsed.or_else(|| {
+            head.strip_suffix(".beginEvent")
+                .map(|id| (id, false))
+                .or_else(|| head.strip_suffix(".endEvent").map(|id| (id, true)))
+        });
+        // An event: `click`, `btn.click`.
+        let event = {
+            let (element, name) = match head.rsplit_once('.') {
+                Some((element, name)) => (Some(element), name),
+                None => (target, head),
+            };
+            (!name.is_empty() && name.chars().all(|c| c.is_ascii_alphabetic())).then(|| {
+                match element {
+                    Some(e) => format!("{e}.{name}"),
+                    None => name.to_owned(),
+                }
+            })
+        };
         match (parsed, repeat, offset) {
             (Some((id, end)), _, Some(offset)) => out.push(Begin::Sync {
                 id: id.to_owned(),
@@ -177,6 +220,12 @@ fn times(s: &str, what: &str, warn: &mut dyn FnMut(String)) -> Vec<Begin> {
                 iteration,
                 offset,
             }),
+            (None, None, Some(offset)) if what == "begin" && event.is_some() => {
+                out.push(Begin::Event {
+                    name: event.unwrap_or_default(),
+                    offset: offset.max(0.0),
+                })
+            }
             _ => warn(format!(
                 "SMIL {what} `{item}` (an event) never happens here"
             )),
@@ -359,8 +408,9 @@ pub(crate) fn collect<'a>(
             dur,
             repeat,
             repeat_dur,
-            begins: begins(attr("begin"), warn),
-            ends: attr("end").map_or_else(Vec::new, |e| times(e, "end", warn)),
+            begins: begins(attr("begin"), target.attribute("id"), warn),
+            ends: attr("end")
+                .map_or_else(Vec::new, |e| times(e, "end", target.attribute("id"), warn)),
             freeze: attr("fill") == Some("freeze"),
             accumulate: attr("accumulate") == Some("sum"),
             kind,
@@ -637,7 +687,7 @@ pub(crate) fn keyframes(
     let mut out = Vec::new();
     let first = instances.first().map_or(f64::INFINITY, |i| i.0);
     if first > 0.0 {
-        let initial = match instances.last() {
+        let initial = match instances.iter().rev().find(|i| i.0 < CUE_BASE) {
             Some(&(b, k, length)) if loops => {
                 let a = anims[k].0;
                 a.after(&stops[k], length.min(total - b), base)
@@ -648,6 +698,7 @@ pub(crate) fn keyframes(
     }
     for (n, &(b, k, length)) in instances.iter().enumerate() {
         let (a, stops) = (anims[k].0, &stops[k]);
+        let total = limit(b, total);
         let next = instances.get(n + 1).map_or(f64::INFINITY, |i| i.0);
         let dur = a.dur.unwrap_or(f64::INFINITY);
         let end = (b + length).min(next);
@@ -853,6 +904,9 @@ pub(crate) struct Timing {
     pub(crate) endless: bool,
     /// Whether the animations start one another in a cycle of `duration`.
     pub(crate) cyclic: bool,
+    /// The events something plays on: each one's name, where its segment
+    /// starts and how long it is.
+    pub(crate) cues: Vec<(String, f64, f64)>,
 }
 
 /// Resolves the begin times of `anims` up to `horizon` seconds.
@@ -873,10 +927,22 @@ pub(crate) fn resolve(anims: &[Smil], horizon: f64) -> Timing {
     }
     let mut dependents: Vec<Vec<(usize, When, f64)>> = vec![Vec::new(); n];
     let mut events: Vec<(f64, usize, bool)> = Vec::new(); // (time, anim, from a syncbase)
+    let mut cue_names: Vec<String> = Vec::new();
     for (i, a) in anims.iter().enumerate() {
         for b in &a.begins {
             match b {
                 Begin::Offset(t) => events.push((*t, i, false)),
+                Begin::Event { name, offset } => {
+                    let k = match cue_names.iter().position(|n| n == name) {
+                        Some(k) => k,
+                        None => {
+                            cue_names.push(name.clone());
+                            cue_names.len() - 1
+                        }
+                    };
+                    let at = CUE_BASE + k as f64 * CUE_STRIDE + offset.min(CUE_SPAN);
+                    events.push((at, i, false));
+                }
                 Begin::Sync { id, end, offset } => {
                     if let Some(&j) = index.get(id.as_str()) {
                         let when = if *end { When::End } else { When::Begin };
@@ -919,8 +985,8 @@ pub(crate) fn resolve(anims: &[Smil], horizon: f64) -> Timing {
             .min_by(|a, b| a.1.0.total_cmp(&b.1.0))
             .unwrap_or((0, &(0.0, 0, false)));
         let (t, i, sync) = events.swap_remove(k);
-        if t > horizon {
-            break;
+        if t > limit(t, horizon) {
+            continue;
         }
         if instances[i].iter().any(|b| (b - t).abs() < 1e-9) {
             continue;
@@ -965,19 +1031,37 @@ pub(crate) fn resolve(anims: &[Smil], horizon: f64) -> Timing {
             }
         }
     }
-    // A cycle: an animation begun at an offset begins again from a syncbase.
+    // What plays on each event: from its segment's start to the last end
+    // in it.
+    let cues: Vec<(String, f64, f64)> = cue_names
+        .into_iter()
+        .enumerate()
+        .map(|(k, name)| {
+            let start = CUE_BASE + k as f64 * CUE_STRIDE;
+            let end = instances
+                .iter()
+                .zip(&lengths)
+                .flat_map(|(list, lengths)| list.iter().zip(lengths))
+                .filter(|(b, _)| **b >= start && **b < start + CUE_SPAN)
+                .map(|(b, l)| (b + l).min(start + CUE_SPAN))
+                .fold(start, f64::max);
+            (name, start, end - start)
+        })
+        .collect();
+    // A cycle: an animation begun at an offset begins again from a syncbase
+    // (on the timeline).
     let mut cycle: Option<f64> = None;
     for i in 0..n {
         let first_offset = instances[i]
             .iter()
             .zip(&from_sync[i])
-            .find(|(_, s)| !**s)
+            .find(|(t, s)| !**s && **t < CUE_BASE)
             .map(|(t, _)| *t);
         if let Some(t0) = first_offset
             && let Some((t1, _)) = instances[i]
                 .iter()
                 .zip(&from_sync[i])
-                .find(|(t, s)| **s && **t > t0 + 1e-9)
+                .find(|(t, s)| **s && **t > t0 + 1e-9 && **t < CUE_BASE)
         {
             let period = t1 - t0;
             if period > 0.0 && cycle.is_none_or(|p| period < p) {
@@ -987,9 +1071,12 @@ pub(crate) fn resolve(anims: &[Smil], horizon: f64) -> Timing {
     }
     if let Some(period) = cycle {
         for (list, lengths) in instances.iter_mut().zip(lengths.iter_mut()) {
-            let keep = list.iter().take_while(|t| **t < period - 1e-9).count();
-            list.truncate(keep);
-            lengths.truncate(keep);
+            let kept: (Vec<f64>, Vec<f64>) = list
+                .iter()
+                .zip(lengths.iter())
+                .filter(|(t, _)| **t < period - 1e-9 || **t >= CUE_BASE)
+                .unzip();
+            (*list, *lengths) = kept;
         }
         return Timing {
             instances,
@@ -997,14 +1084,17 @@ pub(crate) fn resolve(anims: &[Smil], horizon: f64) -> Timing {
             duration: period,
             endless: true,
             cyclic: true,
+            cues,
         };
     }
     let mut duration: f64 = 0.0;
     let mut endless = false;
     for ((a, list), lengths) in anims.iter().zip(&instances).zip(&lengths) {
-        let (Some(&last), Some(&active)) = (list.last(), lengths.last()) else {
+        // The last instance on the timeline.
+        let Some(at) = list.iter().rposition(|t| *t < CUE_BASE) else {
             continue;
         };
+        let (last, active) = (list[at], lengths[at]);
         if active.is_finite() {
             duration = duration.max(last + active);
         } else {
@@ -1019,5 +1109,6 @@ pub(crate) fn resolve(anims: &[Smil], horizon: f64) -> Timing {
         duration,
         endless,
         cyclic: false,
+        cues,
     }
 }

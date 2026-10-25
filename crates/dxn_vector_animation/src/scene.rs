@@ -58,7 +58,9 @@ pub enum LoopMode {
     PingPong,
 }
 
-/// A named time or span of the timeline.
+/// A named time or span of the timeline. One named `on:<event>` past the
+/// timeline's end holds what plays when that event happens (see
+/// [`Scene::with_events`]).
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(feature = "serde", serde(rename_all = "camelCase"))]

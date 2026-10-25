@@ -73,6 +73,10 @@ enum Command {
         /// A background color (`#rrggbb`, `#rrggbbaa`, `white`, `black`).
         #[arg(long)]
         background: Option<String>,
+        /// An event that happened, `name=seconds` (repeatable): what the
+        /// file plays on it plays from then (`inspect` lists them).
+        #[arg(long = "event")]
+        events: Vec<String>,
     },
 }
 
@@ -182,9 +186,24 @@ fn run(command: Command) -> Result<ExitCode, String> {
             height,
             scale,
             background,
+            events,
         } => {
             let (_, import) = read(&file)?;
-            let scene = import.scene;
+            let mut happened: Vec<(&str, f64)> = Vec::new();
+            for e in &events {
+                let parsed = e
+                    .rsplit_once('=')
+                    .and_then(|(name, t)| Some((name, t.trim().parse::<f64>().ok()?)));
+                match parsed {
+                    Some(p) => happened.push(p),
+                    None => return Err(format!("--event `{e}` is not `name=seconds`")),
+                }
+            }
+            let scene = if happened.is_empty() {
+                import.scene
+            } else {
+                import.scene.with_events(&happened)
+            };
             let background = background
                 .map(|b| parse_color(&b).ok_or_else(|| format!("unknown color `{b}`")))
                 .transpose()?;
@@ -269,10 +288,16 @@ fn describe(file: &Path, format: Format, import: &Import) -> String {
         }
     ));
     for m in &t.markers {
-        line(format!(
-            "  marker       {} at {:.3} s for {:.3} s",
-            m.name, m.start, m.duration
-        ));
+        match m.name.strip_prefix(dxn_vector_animation::EVENT_PREFIX) {
+            Some(event) => line(format!(
+                "  event        {event}: plays for {:.3} s (render --event {event}=<seconds>)",
+                m.duration
+            )),
+            None => line(format!(
+                "  marker       {} at {:.3} s for {:.3} s",
+                m.name, m.start, m.duration
+            )),
+        }
     }
     line(format!(
         "  nodes        {} groups, {} shapes, {} images (depth {})",

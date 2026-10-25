@@ -8,11 +8,12 @@ use std::{
 
 use dxn_vector_animation::{
     Animated, AnimatedPoint, BlendMode, Blur, Clip, ClipShape, Color, Dash, Direction, DropShadow,
-    Effect, EllipseStart, Error, Fill, FillRule, Font, Geometry, GradientStop, GradientUnits,
-    Group, Image, ImageData, Interpolate, Item, Keyframe, Limits, LineCap, LineJoin,
-    LinearGradient, Mask, MaskKind, Matrix, MotionPath, MotionRotate, Node, Paint, PaintOrder,
-    Path, Pattern, Point, RadialGradient, Rect, RectStart, Scene, Shape, ShapePath, Spread, Stroke,
-    Text, TextAnchor, TextSpan, Timeline, Track, TransformOp, ViewBox, outline::path_length,
+    EVENT_PREFIX, Effect, EllipseStart, Error, Fill, FillRule, Font, Geometry, GradientStop,
+    GradientUnits, Group, Image, ImageData, Interpolate, Item, Keyframe, Limits, LineCap, LineJoin,
+    LinearGradient, Marker, Mask, MaskKind, Matrix, MotionPath, MotionRotate, Node, Paint,
+    PaintOrder, Path, Pattern, Point, RadialGradient, Rect, RectStart, Scene, Shape, ShapePath,
+    Spread, Stroke, Text, TextAnchor, TextSpan, Timeline, Track, TransformOp, ViewBox,
+    outline::path_length,
 };
 use roxmltree::Node as XmlNode;
 
@@ -344,7 +345,16 @@ impl<'a, 'input> Converter<'a, 'input> {
                 } else {
                     dxn_vector_animation::LoopMode::Once
                 },
-                markers: Vec::new(),
+                markers: converter
+                    .smil_timing
+                    .cues
+                    .iter()
+                    .map(|(name, start, duration)| Marker {
+                        name: format!("{EVENT_PREFIX}{name}"),
+                        start: *start,
+                        duration: *duration,
+                    })
+                    .collect(),
             },
             root: root_group,
         };

@@ -1,7 +1,7 @@
 //! SMIL timing beyond begins: `end` times (offsets and other animations'
 //! begins and ends) cutting instances short, begins on another's repeats,
-//! and `accumulate="sum"` building each repeat on the last; events never
-//! happen here.
+//! `accumulate="sum"` building each repeat on the last, and begins on
+//! events, played where the scene is told they happened.
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
@@ -129,10 +129,66 @@ fn accumulated_by_and_transforms() {
 }
 
 #[test]
-fn events_never_happen_here() {
+fn what_begins_on_an_event_waits_for_it() {
     let (scene, warnings) = read(&svg(
-        r#"<rect width="10" height="10"><animate attributeName="x" from="0" to="100" dur="1s" begin="click"/></rect>"#,
+        r#"<rect id="btn" width="10" height="10"><animate attributeName="x" from="0" to="100" dur="2s" fill="freeze" begin="click"/></rect>
+<circle cx="50" cy="50" r="5"><animate attributeName="r" to="20" dur="1s" begin="btn.click+0.5s"/></circle>"#,
     ));
-    assert!(close(rect_at(&scene, 0.5).0, 0.0));
+    assert!(warnings.is_empty(), "{warnings:?}");
+    assert_eq!(scene.events(), vec!["btn.click"]);
+    // Until it happens, nothing moves.
+    assert!(close(rect_at(&scene, 1.0).0, 0.0));
+    // Clicked at 1 s: the rectangle moves from then, the circle half a
+    // second later.
+    let clicked = scene.with_events(&[("btn.click", 1.0)]);
+    assert!(close(rect_at(&clicked, 0.5).0, 0.0));
+    assert!(
+        close(rect_at(&clicked, 2.0).0, 50.0),
+        "{:?}",
+        rect_at(&clicked, 2.0)
+    );
+    assert!(close(rect_at(&clicked, 9.0).0, 100.0));
+    let radius = |s: &Scene, t: f64| {
+        s.frame_at(t)
+            .items
+            .iter()
+            .filter_map(|i| match i {
+                Item::Fill { path, .. } => path.bounds().map(|b| b.width / 2.0),
+                _ => None,
+            })
+            .nth(1)
+            .unwrap()
+    };
+    assert!(close(radius(&clicked, 1.4), 5.0));
+    assert!(
+        close(radius(&clicked, 2.0), 12.5),
+        "{}",
+        radius(&clicked, 2.0)
+    );
+}
+
+#[test]
+fn an_event_overrides_what_plays_on_the_timeline_from_then() {
+    let (scene, warnings) = read(&svg(r#"<rect id="r" width="10" height="10">
+  <animate attributeName="x" from="0" to="100" dur="2s" fill="freeze"/>
+  <animate attributeName="x" from="0" to="10" dur="1s" begin="click" fill="freeze"/>
+</rect>"#));
+    assert!(warnings.is_empty(), "{warnings:?}");
+    assert!(close(rect_at(&scene, 1.0).0, 50.0));
+    let clicked = scene.with_events(&[("r.click", 1.0)]);
+    assert!(close(rect_at(&clicked, 0.5).0, 25.0));
+    assert!(
+        close(rect_at(&clicked, 1.5).0, 5.0),
+        "{:?}",
+        rect_at(&clicked, 1.5)
+    );
+    assert!(close(rect_at(&clicked, 3.0).0, 10.0));
+}
+
+#[test]
+fn ends_on_events_never_happen_here() {
+    let (_, warnings) = read(&svg(
+        r#"<rect width="10" height="10"><animate attributeName="x" from="0" to="100" dur="1s" end="click"/></rect>"#,
+    ));
     assert!(warnings.iter().any(|w| w.contains("click")), "{warnings:?}");
 }

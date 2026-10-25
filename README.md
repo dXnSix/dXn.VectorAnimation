@@ -99,8 +99,11 @@ core and the importers build for WebAssembly; a build that plays compiled scenes
   `<set>`, `<animateColor>`, `<animateTransform>` (additive or replacing the attribute) and `<animateMotion>`
   (a `path`, an `<mpath>`, points; `rotate`, `keyPoints`), with `values`, `from` / `to` / `by`, `keyTimes`,
   `keySplines`, every `calcMode`, `dur`, `repeatCount`, `repeatDur`, `fill` and `accumulate`. Begins are
-  offsets (negative ones too) or other animations' begins, ends and repeats; `end` lists of offsets and
-  other animations' begins and ends cut instances short. Animations that start one another in a cycle become
+  offsets (negative ones too), other animations' begins, ends and repeats, or events (`click`,
+  `btn.mouseover + 0.5s`); `end` lists of offsets and other animations' begins and ends cut instances short.
+  What begins on an event plays in a segment past the timeline's end, marked `on:<element>.<event>`, until
+  `Scene::with_events` moves it to when the event happened (`vector-animation render --event
+  btn.click=1.5`). Animations that start one another in a cycle become
   the timeline's loop, and several animations of one attribute apply in the order they began. Shapes'
   geometry animates (`x`, `y`, `width`, `height`, `rx`, `ry`, `cx`, `cy`, `r`, line ends, `points`).
 - Filters: `<filter>` chains as Figma exports drop shadows (several of them), inner shadows and layer blurs
@@ -117,8 +120,7 @@ core and the importers build for WebAssembly; a build that plays compiled scenes
   `font-weight`, `font-style`, `letter-spacing`, fills and strokes; whitespace collapsed unless
   `xml:space="preserve"`.
 - Left out with a warning: positions for each character, text on a path (laid on a line), other filters
-  (floods, morphology, lighting, displacement, shadows of a recolored drawing), SMIL begins and ends on
-  events.
+  (floods, morphology, lighting, displacement, shadows of a recolored drawing), SMIL ends on events.
 
 **Lottie** (`dxn_vector_animation_lottie`)
 
