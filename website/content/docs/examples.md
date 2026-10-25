@@ -58,7 +58,8 @@ dXnSix fork of NSH, writes the scenes and publishes the app for the web into the
 ```bash
 cargo run --release -p dxn_vector_animation_check -- scenes examples/docs
 cd examples/docs
-nsh package "$PWD/App.tsx" --target web --out ../../website/public/examples
+nsh package "$PWD/App.tsx" --target web --out /tmp/examples   # /tmp/examples/Vector Animation Examples/
+cp -R "/tmp/examples/Vector Animation Examples" ../../website/public/examples
 ```
 
 The app reads which example to show from the page's address, `examples/index.html?demo=<name>`, through NSH's web host

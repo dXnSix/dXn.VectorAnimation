@@ -92,13 +92,17 @@ jobs:
               esac
             done
           } > examples/docs/.cargo/config.toml
-      # An absolute entry: NSH resolves the app's directory from it.
+      # An absolute entry: NSH resolves the app's directory from it. It writes
+      # the site into a folder named after the app, inside --out.
       - name: Publish the examples for the web
         working-directory: repo/examples/docs
         run: |
-          "$GITHUB_WORKSPACE/nsh/target/debug/nsh" package "$PWD/App.tsx" --target web \
-            --out "$GITHUB_WORKSPACE/repo/website/public/examples"
-          ls -la "$GITHUB_WORKSPACE/repo/website/public/examples"
+          out="$RUNNER_TEMP/examples"
+          "$GITHUB_WORKSPACE/nsh/target/debug/nsh" package "$PWD/App.tsx" --target web --out "$out"
+          site="$GITHUB_WORKSPACE/repo/website/public/examples"
+          rm -rf "$site"
+          cp -R "$out"/*/ "$site"
+          ls -la "$site"
       - uses: pnpm/action-setup@v6
         with:
           package_json_file: repo/website/package.json
