@@ -1,0 +1,139 @@
+name: Docs
+
+# Builds the documentation site in website/ with its live examples and deploys
+# it to GitHub Pages (https://dxnsix.github.io/dXn.VectorAnimation/). The examples are
+# examples/docs, an NSH app on the player, published for the web with the
+# dXnSix fork of NSH (built here) into website/public/examples/, where the
+# pages' ```example blocks show them. Pull requests only build and check
+# links; a push to main also deploys.
+#
+# One-time setup: Settings -> Pages -> Build and deployment -> Source: GitHub Actions.
+
+on:
+  pull_request:
+    paths:
+      - "website/**"
+      - "examples/docs/**"
+      - "crates/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - ".github/workflows/docs.yml"
+  push:
+    branches: [main]
+    paths:
+      - "website/**"
+      - "examples/docs/**"
+      - "crates/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - ".github/workflows/docs.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_INCREMENTAL: "0"
+  CARGO_PROFILE_DEV_DEBUG: "0"
+  # NSH's toolchain file asks for stable with the release's iOS and Android
+  # targets: its CLI is built with this repository's toolchain instead.
+  RUSTUP_TOOLCHAIN: "1.99.0"
+
+jobs:
+  build:
+    name: build site and examples
+    runs-on: ubuntu-latest
+    steps:
+      # This repository and NSH side by side: NSH inside this one's folder would
+      # take this workspace as its own (Cargo finds the workspace of a patched
+      # crate among the roots it has loaded, this one's first).
+      - uses: actions/checkout@v7
+        with:
+          path: repo
+          persist-credentials: false
+      - uses: actions/checkout@v7
+        with:
+          repository: dXnSix/nsh
+          ref: main
+          path: nsh
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@1.99.0
+        with:
+          targets: wasm32-unknown-unknown
+      # The web runtime (QuickJS, the engine, the player) compiles to
+      # WebAssembly with clang; bindgen needs libclang.
+      - name: Install clang and LLVM
+        run: sudo apt-get update && sudo apt-get install -y clang llvm libclang-dev
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            repo -> target
+            nsh -> target
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - name: Build NSH's CLI
+        run: |
+          cargo build -p nsh-cli --manifest-path nsh/Cargo.toml
+          echo "NSH: dXnSix/nsh $(git -C nsh rev-parse --short HEAD)" >> "$GITHUB_STEP_SUMMARY"
+      - name: Write the examples' scenes
+        working-directory: repo
+        run: cargo run --release -p dxn_vector_animation_check -- scenes examples/docs
+      # As a local `.cargo/config.toml` patches NSH's crates on a desk.
+      - name: Patch NSH's crates into the examples app
+        working-directory: repo
+        run: |
+          mkdir -p examples/docs/.cargo
+          {
+            echo "[patch.crates-io]"
+            for manifest in ../nsh/crates/*/Cargo.toml ../nsh/crates/gpui/*/Cargo.toml; do
+              name=$(sed -n 's/^name = "\(.*\)"/\1/p' "$manifest" | head -1)
+              case "$name" in
+                nsh-cli) ;;
+                nsh-*) echo "$name = { path = \"$GITHUB_WORKSPACE/nsh/$(dirname "${manifest#../nsh/}")\" }" ;;
+              esac
+            done
+          } > examples/docs/.cargo/config.toml
+      # An absolute entry: NSH resolves the app's directory from it.
+      - name: Publish the examples for the web
+        working-directory: repo/examples/docs
+        run: |
+          "$GITHUB_WORKSPACE/nsh/target/debug/nsh" package "$PWD/App.tsx" --target web \
+            --out "$GITHUB_WORKSPACE/repo/website/public/examples"
+          ls -la "$GITHUB_WORKSPACE/repo/website/public/examples"
+      - uses: pnpm/action-setup@v6
+        with:
+          package_json_file: repo/website/package.json
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: repo/website/pnpm-lock.yaml
+      - run: pnpm install --frozen-lockfile
+        working-directory: repo/website
+      - run: pnpm build
+        working-directory: repo/website
+      - run: pnpm check:links
+        working-directory: repo/website
+      - uses: actions/configure-pages@v6
+        if: github.event_name != 'pull_request'
+      - uses: actions/upload-pages-artifact@v5
+        if: github.event_name != 'pull_request'
+        with:
+          path: repo/website/dist
+
+  deploy:
+    name: deploy to GitHub Pages
+    if: github.event_name != 'pull_request'
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    concurrency:
+      group: pages
+      cancel-in-progress: false
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v5

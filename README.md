@@ -1,6 +1,9 @@
 # dXn.VectorAnimation
 
 [![License: MIT OR Apache-2.0](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue.svg)](#license)
+[![Docs](https://img.shields.io/badge/docs-dxnsix.github.io-blue.svg)](https://dxnsix.github.io/dXn.VectorAnimation/)
+
+Documentation, with the player's examples live: https://dxnsix.github.io/dXn.VectorAnimation/
 
 **Animated vector graphics for Rust, independent of any renderer or UI framework.** `dxn_vector_animation`
 reads animated SVG and Lottie into one scene model: groups, shapes, paints and masks whose properties are
@@ -51,7 +54,7 @@ vector-animation render button.svg --fps 30 --width 600 --background white
 |---|---|
 | `dxn_vector_animation` | The scene model, keyframe tracks and easings, the timeline, path geometry, interpolation, sampling (`Scene::frame_at`), the limits that bound untrusted files, and (feature `serde`) the compiled scene format |
 | `dxn_vector_animation_svg` | Reads SVG: the static document, CSS animations (the subset Figma Motion writes) and SMIL |
-| `dxn_vector_animation_lottie` | Reads Lottie JSON |
+| `dxn_vector_animation_lottie` | Reads Lottie JSON and dotLottie archives |
 | `dxn_vector_animation_render` | A reference CPU renderer on tiny-skia: golden tests, poster frames, the CLI's images |
 | `dxn_vector_animation_cli` | The `vector-animation` command: `inspect`, `validate`, `compile` (SVG or Lottie into a scene file), `render` (PNG frames) |
 | `dxn_vector_animation_nsh` | The NSH player: a UI set with the `VectorAnimation` component ([Playing in NSH apps](#playing-in-nsh-apps)) |
@@ -65,8 +68,8 @@ them alone.
 ## The scene model
 
 - **Nodes.** Groups (transform, opacity, clip, mask, blend mode, the time they show, a time of their own) and
-  shapes (outlines filled and stroked together, with dashes and trim), and images. Every property is a
-  constant or a track.
+  shapes (outlines filled and stroked together, with dashes and trim), images, and text set in a font when
+  drawn. Every property is a constant or a track.
 - **Tracks.** Keyframes at times in seconds, each segment with its own easing: linear, cubic Bézier, hold, CSS
   `steps()` and `linear()`. Springs arrive as the exporters sample them.
 - **Time.** A duration, a frame-rate hint, a loop mode (once, loop, ping-pong), named markers; groups offset,

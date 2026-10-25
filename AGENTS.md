@@ -53,6 +53,14 @@ it touches (the core's, the player's, or both) runs once before committing. The 
 the component on a headless engine; the example apps' TSX tests run with an `nsh` CLI (`nsh test
 examples/gallery`, and `examples/check` on devices: `README.md`, "Device checks").
 
+## Documentation
+
+The site (https://dxnsix.github.io/dXn.VectorAnimation/) is `website/`, installed from the dXn.Docs
+workbench (its engine and its `content/vectoranimation/`); its pages are `website/content/`. Its live
+examples are `examples/docs`, an NSH app the Pages workflow (`.github/workflows/docs.yml`) publishes for the
+web with the dXnSix fork of NSH into `website/public/examples/` (ignored), shown by the pages' `example`
+blocks. A change to what the player does updates the page that describes it.
+
 ## Naming
 
 Crates are `dxn_vector_animation` and `dxn_vector_animation_<part>`; the binary is `vector-animation`. The
