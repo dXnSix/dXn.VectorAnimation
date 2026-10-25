@@ -26,6 +26,7 @@ use crate::span;
 
 mod mask;
 mod paint;
+mod pattern;
 mod recolor;
 mod shadow;
 
@@ -2296,6 +2297,14 @@ impl Compiler {
         let mut alone = false;
         let paint = self.recolored_paint(&fill.paint)?;
         match paint.as_ref() {
+            ScenePaint::Pattern(p) => {
+                // The outline clips the tiles.
+                let tiles = self.pattern_fill(s, p, a)?;
+                if !tiles.is_empty() {
+                    ops.push(Op::Clip(fill.rule));
+                    ops.extend(tiles);
+                }
+            }
             ScenePaint::Solid { color } => {
                 ops.push(Op::GlobalAlpha(a));
                 ops.push(Op::FillColor(self.g.color_track(color, time, 1.0)));
