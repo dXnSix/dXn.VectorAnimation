@@ -5,8 +5,8 @@
 use dxn_vector_animation::{
     Animated, AnimatedPoint, Color, Direction, Easing, EllipseStart, Fill, Geometry, GradientStop,
     GradientUnits, Group, Keyframe, LineCap, LineJoin, LinearGradient, LoopMode, Matrix, Node,
-    Paint, RadialGradient, RectStart, Scene, Shape, ShapePath, Spread, Stroke, Timeline, Track,
-    Trim, TrimMode,
+    Paint, RadialGradient, RectStart, Scene, Shape, ShapePath, Spread, Star, StarKind, Stroke,
+    Timeline, Track, Trim, TrimMode,
 };
 
 /// A ring spinner as svg-spinners draws one: a dash growing while its
@@ -401,6 +401,80 @@ fn fade() -> Scene {
     ])
 }
 
+/// Shadows that move and show through: a card whose shadow falls further
+/// as it rises, a half-clear disc whose shadow shows under it (CSS
+/// `drop-shadow()`, cast by coverage, not knocked out), a ring whose
+/// shadow changes hue.
+pub const MOVING_SHADOWS: &str = r##"<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100" viewBox="0 0 100 100">
+  <style>
+    @keyframes rise { 0% { filter: drop-shadow(0px 1px 2px rgba(20, 0, 60, 0.5)); } 100% { filter: drop-shadow(6px 9px 3px rgba(20, 0, 60, 0.5)); } }
+    @keyframes glow { 0% { filter: drop-shadow(2px 3px 2px rgba(230, 30, 20, 0.7)); } 100% { filter: drop-shadow(2px 3px 2px rgba(20, 120, 230, 0.7)); } }
+    #card { animation: rise 2s ease-in-out infinite alternate; }
+    #ring { animation: glow 2s linear infinite alternate; }
+  </style>
+  <rect width="100" height="100" fill="#F4F1EA"/>
+  <g id="card"><rect x="10" y="10" width="44" height="32" rx="5" fill="#F24822"/></g>
+  <g style="filter: drop-shadow(4px 5px 2px rgba(20, 0, 60, 0.8))"><circle cx="68" cy="34" r="20" fill="#1E5AE6" fill-opacity="0.45"/></g>
+  <g id="ring"><circle cx="40" cy="72" r="16" fill="none" stroke="#F5B800" stroke-width="7"/></g>
+</svg>"##;
+
+/// Figma's shadows (hard silhouettes, knocked out) of a card clipping its
+/// content, turning and shrinking, and of a half-clear one.
+pub const CARD_SHADOWS: &str = r##"<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100" viewBox="0 0 100 100">
+  <style>
+    @keyframes turn { 0% { transform: rotate(-15deg) scale(1); } 100% { transform: rotate(25deg) scale(0.8); } }
+    #turning { transform-origin: 38px 36px; animation: turn 2s ease-in-out infinite alternate; }
+  </style>
+  <rect width="100" height="100" fill="#F4F1EA"/>
+  <g id="turning"><g filter="url(#figma)"><g clip-path="url(#card)">
+    <rect x="14" y="14" width="48" height="44" rx="8" fill="#FFFFFF"/>
+    <circle cx="56" cy="50" r="18" fill="#1E5AE6"/>
+  </g></g></g>
+  <g filter="url(#figma)"><rect x="56" y="58" width="34" height="30" rx="6" fill="#F24822" fill-opacity="0.3"/></g>
+  <defs>
+    <clipPath id="card"><rect x="14" y="14" width="48" height="44" rx="8" fill="white"/></clipPath>
+    <filter id="figma" x="-50" y="-50" width="200" height="200" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+      <feFlood flood-opacity="0" result="BackgroundImageFix"/>
+      <feColorMatrix in="SourceAlpha" type="matrix" values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 127 0" result="hardAlpha"/>
+      <feOffset dx="3" dy="6"/>
+      <feGaussianBlur stdDeviation="3"/>
+      <feComposite in2="hardAlpha" operator="out"/>
+      <feColorMatrix type="matrix" values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0.45 0"/>
+      <feBlend mode="normal" in2="BackgroundImageFix" result="effect1_dropShadow"/>
+      <feBlend mode="normal" in="SourceGraphic" in2="effect1_dropShadow" result="shape"/>
+    </filter>
+  </defs>
+</svg>"##;
+
+/// Masks drawn as images of what they hide: a gradient fading content
+/// out, six half-clear discs overlapping, and a mask sliding and turning
+/// as a whole over still content.
+pub const MASK_IMAGES: &str = r##"<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100" viewBox="0 0 100 100">
+  <style>
+    @keyframes slide { 0% { transform: translateX(-12px); } 100% { transform: translateX(12px); } }
+    @keyframes turn { 0% { transform: translate(-10px, 0) rotate(-20deg); } 100% { transform: translate(10px, 0) rotate(30deg); } }
+    .slide { animation: slide 2s ease-in-out infinite alternate; }
+    #moving { transform-origin: 50px 78px; animation: turn 2s ease-in-out infinite alternate; }
+  </style>
+  <linearGradient id="fade" x1="10" y1="0" x2="90" y2="0" gradientUnits="userSpaceOnUse">
+    <stop offset="0" stop-color="#000" stop-opacity="1"/><stop offset="1" stop-color="#000" stop-opacity="0"/>
+  </linearGradient>
+  <mask id="gradient" maskUnits="userSpaceOnUse" x="0" y="0" width="100" height="100" style="mask-type: alpha">
+    <rect x="5" y="4" width="90" height="26" fill="url(#fade)"/>
+  </mask>
+  <mask id="discs" maskUnits="userSpaceOnUse" x="0" y="0" width="100" height="100" style="mask-type: alpha">
+    <circle cx="30" cy="46" r="9" fill="#000" fill-opacity="0.5"/><circle cx="40" cy="42" r="9" fill="#000" fill-opacity="0.5"/>
+    <circle cx="50" cy="46" r="9" fill="#000" fill-opacity="0.5"/><circle cx="60" cy="42" r="9" fill="#000" fill-opacity="0.5"/>
+    <circle cx="70" cy="46" r="9" fill="#000" fill-opacity="0.5"/><circle cx="50" cy="52" r="9" fill="#000" fill-opacity="0.5"/>
+  </mask>
+  <mask id="mover" maskUnits="userSpaceOnUse" x="0" y="0" width="100" height="100" style="mask-type: alpha">
+    <g id="moving"><rect x="30" y="66" width="40" height="22" rx="6" fill="#000" fill-opacity="0.8"/><circle cx="50" cy="77" r="6" fill="#000" fill-opacity="0.4"/></g>
+  </mask>
+  <g mask="url(#gradient)"><g class="slide"><rect x="10" y="4" width="80" height="26" fill="#F24822"/><rect x="40" y="8" width="20" height="18" fill="#1E5AE6"/></g></g>
+  <g mask="url(#discs)"><rect x="15" y="30" width="70" height="34" fill="#1E5AE6"/></g>
+  <g mask="url(#mover)"><rect x="10" y="62" width="80" height="34" fill="#F5B800"/><rect x="44" y="62" width="12" height="34" fill="#F24822"/></g>
+</svg>"##;
+
 /// The check set's own scenes, by name.
 pub fn built_in(fixtures: &std::path::Path) -> Result<Vec<(String, Scene)>, String> {
     let read = |name: &str| -> Result<Vec<u8>, String> {
@@ -432,5 +506,133 @@ pub fn built_in(fixtures: &std::path::Path) -> Result<Vec<(String, Scene)>, Stri
         ("turning-clip".into(), svg(TURNING_MASKS[0].as_bytes())?),
         ("turning-mask".into(), svg(TURNING_MASKS[1].as_bytes())?),
         ("turning-masks".into(), svg(TURNING_MASKS[2].as_bytes())?),
+        ("moving-shadows".into(), svg(MOVING_SHADOWS.as_bytes())?),
+        ("card-shadows".into(), svg(CARD_SHADOWS.as_bytes())?),
+        ("mask-images".into(), svg(MASK_IMAGES.as_bytes())?),
+        ("trims-moving".into(), trims_moving()),
+        ("stop-counts".into(), stop_counts()),
+        ("dash-slots".into(), dash_slots()),
+        ("switching-star".into(), switching_star()),
     ])
+}
+
+/// A star turning and deepening, drawn on and off, filled and stroked
+/// through a trim; a disc's fill trimmed as it runs round.
+fn trims_moving() -> Scene {
+    let star = ShapePath::new(Geometry::Star(Star {
+        kind: StarKind::Star,
+        center: AnimatedPoint::fixed(36.0, 40.0),
+        points: Animated::Static(5.0),
+        outer_radius: Animated::Static(28.0),
+        inner_radius: track(&[(0.0, 10.0), (2.0, 18.0)]),
+        outer_roundness: Animated::Static(0.0),
+        inner_roundness: Animated::Static(0.0),
+        rotation: track(&[(0.0, 0.0), (2.0, 72.0)]),
+        direction: Direction::Clockwise,
+    }));
+    let trim = |start: Animated<f64>, end: Animated<f64>, offset: Animated<f64>| {
+        Some(Trim {
+            start,
+            end,
+            offset,
+            mode: TrimMode::Combined,
+        })
+    };
+    scene(vec![
+        Node::shape(Shape {
+            paths: vec![star],
+            fill: Some(Fill {
+                paint: Paint::solid(GOLD),
+                opacity: Animated::Static(1.0),
+                rule: Default::default(),
+            }),
+            stroke: Some(stroke(Paint::solid(BLUE), 3.0, LineCap::Round)),
+            trim: trim(
+                track(&[(0.0, 0.0), (2.0, 0.4)]),
+                track(&[(0.0, 0.3), (1.0, 1.0)]),
+                Animated::Static(0.0),
+            ),
+            ..Default::default()
+        }),
+        Node::shape(Shape {
+            paths: vec![ellipse(68.0, 70.0, 22.0)],
+            fill: Some(Fill {
+                paint: Paint::solid(RED),
+                opacity: Animated::Static(1.0),
+                rule: Default::default(),
+            }),
+            trim: trim(
+                Animated::Static(0.0),
+                track(&[(0.0, 0.3), (2.0, 0.8)]),
+                track(&[(0.0, 0.0), (2.0, 0.9)]),
+            ),
+            ..Default::default()
+        }),
+    ])
+}
+
+/// A gradient gaining and losing stops as they move.
+fn stop_counts() -> Scene {
+    let keys = vec![
+        (0.0, stops(&[(0.0, RED), (1.0, BLUE)]), Easing::EASE_IN_OUT),
+        (
+            0.8,
+            stops(&[(0.0, RED), (0.5, GOLD), (1.0, BLUE)]),
+            Easing::Linear,
+        ),
+        (1.3, stops(&[(0.2, GOLD), (0.9, BLUE)]), Easing::Linear),
+        (2.0, stops(&[(0.5, RED), (1.0, GOLD)]), Easing::Linear),
+    ];
+    let paint = linear(
+        AnimatedPoint::fixed(8.0, 0.0),
+        AnimatedPoint::fixed(92.0, 0.0),
+        Animated::Track(Track::new(
+            keys.into_iter()
+                .map(|(t, v, e)| Keyframe::new(t, v, e))
+                .collect(),
+        )),
+    );
+    scene(vec![filled(square(8.0, 20.0, 84.0), paint, 1.0)])
+}
+
+/// A hundred dashes round a circle growing, their offset running on.
+fn dash_slots() -> Scene {
+    let mut s = stroke(Paint::solid(BLUE), 4.0, LineCap::Round);
+    s.dash = Some(dxn_vector_animation::Dash {
+        array: vec![track(&[(0.0, 0.5), (2.0, 3.0)]), Animated::Static(2.5)],
+        offset: track(&[(0.0, 0.0), (2.0, -60.0)]),
+    });
+    scene(vec![stroked(ellipse(50.0, 50.0, 40.0), s, None)])
+}
+
+/// A star of five points and six, forty times over, turning.
+fn switching_star() -> Scene {
+    let star = ShapePath::new(Geometry::Star(Star {
+        kind: StarKind::Star,
+        center: AnimatedPoint::fixed(50.0, 50.0),
+        points: Animated::Track(Track::new(
+            (0..=40)
+                .map(|k| {
+                    let points = if k % 2 == 0 { 5.0 } else { 6.0 };
+                    Keyframe::new(f64::from(k) * 0.05, points, Easing::Hold)
+                })
+                .collect(),
+        )),
+        outer_radius: Animated::Static(40.0),
+        inner_radius: Animated::Static(18.0),
+        outer_roundness: Animated::Static(0.0),
+        inner_roundness: Animated::Static(0.0),
+        rotation: track(&[(0.0, 0.0), (2.0, 144.0)]),
+        direction: Direction::Clockwise,
+    }));
+    scene(vec![Node::shape(Shape {
+        paths: vec![star],
+        fill: Some(Fill {
+            paint: Paint::solid(RED),
+            opacity: Animated::Static(1.0),
+            rule: Default::default(),
+        }),
+        stroke: Some(stroke(Paint::solid(BLUE), 3.0, LineCap::Round)),
+        ..Default::default()
+    })])
 }
