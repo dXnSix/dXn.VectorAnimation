@@ -1,6 +1,6 @@
 //! Text layers drawn with the file's glyphs (`chars`), laid out as
 //! lottie-web lays them out; without glyphs they are left out with a
-//! warning.
+//! warning. Their animators are in `text_animators.rs`.
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
@@ -112,7 +112,7 @@ fn keyframed_documents_take_turns() {
 }
 
 #[test]
-fn text_without_glyphs_and_animators_are_left_out_with_warnings() {
+fn text_without_glyphs_is_left_out_with_a_warning() {
     let import = read(&doc(0.0, "ab", ""), false, "");
     assert!(glyphs(&import.scene, 0.0).is_empty());
     assert!(
@@ -120,11 +120,8 @@ fn text_without_glyphs_and_animators_are_left_out_with_warnings() {
         "{:?}",
         import.warnings
     );
+    // An animator that changes nothing leaves the text as it is.
     let import = read(&doc(0.0, "ab", ""), true, r#"{"s":{},"a":{}}"#);
     assert_eq!(glyphs(&import.scene, 0.0).len(), 2);
-    assert!(
-        import.warnings.iter().any(|w| w.contains("animators")),
-        "{:?}",
-        import.warnings
-    );
+    assert!(import.warnings.is_empty(), "{:?}", import.warnings);
 }

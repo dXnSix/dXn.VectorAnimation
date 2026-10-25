@@ -2,6 +2,8 @@
 //! composition, solid, image), parenting, time offsets, stretches and
 //! remapping, masks and track mattes, and shape groups.
 
+mod text;
+
 use std::{
     collections::{BTreeSet, HashMap},
     sync::Arc,
@@ -11,9 +13,9 @@ use dxn_vector_animation::{
     Animated, AnimatedPoint, BlendMode, Blur, Clip, ClipShape, Color, Dash, Direction, DropShadow,
     Easing, Effect, EllipseStart, Error, Fill, FillRule, Geometry, Group, Image, ImageData,
     Keyframe, Limits, LineCap, LineJoin, LinearGradient, LoopMode, Marker, Mask, MaskKind, Matrix,
-    MotionPath, MotionRotate, Node, Paint, PaintOrder, Path, Point, RadialGradient, Rect,
-    RectStart, Scene, Shape, ShapePath, Star, StarKind, Stroke, TimeMap, TimeRange, Timeline,
-    Track, TransformOp, Trim, TrimMode, outline::path_length, transform::transform_at,
+    MotionPath, MotionRotate, Node, Paint, Path, Point, RadialGradient, Rect, RectStart, Scene,
+    Shape, ShapePath, Star, StarKind, Stroke, TimeMap, TimeRange, Timeline, Track, TransformOp,
+    Trim, TrimMode, outline::path_length, transform::transform_at,
 };
 use serde_json::Value;
 
@@ -39,6 +41,8 @@ pub(crate) struct Converter<'a> {
     chars: Vec<&'a Value>,
     /// Glyph outlines by their `chars` index, converted once.
     glyphs: HashMap<usize, Vec<ShapePath>>,
+    /// Keyframes text animators were sampled into so far.
+    text_keyframes: usize,
 }
 
 impl<'a> Converter<'a> {
@@ -96,6 +100,7 @@ impl<'a> Converter<'a> {
                 .map(|l| l.iter().collect())
                 .unwrap_or_default(),
             glyphs: HashMap::new(),
+            text_keyframes: 0,
         };
         let children = converter.composition(layers)?;
         let markers = root
@@ -830,247 +835,6 @@ impl<'a> Converter<'a> {
         self.depth -= 1;
         drawn.reverse();
         Ok((drawn, outlines))
-    }
-
-    /// A text layer drawn with the file's glyphs (`chars`), as lottie-web
-    /// lays text out: each glyph at a hundredth of the size, advanced by
-    /// its width and the tracking, lines `lh` apart and justified, box
-    /// text wrapped at spaces; each keyframed document shown until the
-    /// next. Text animators and text on a path are left out.
-    fn text(&mut self, layer: &'a Value) -> Result<Vec<Node>, Error> {
-        let fr = self.fr;
-        let t = layer.get("t");
-        if t.and_then(|t| t.get("a"))
-            .and_then(Value::as_array)
-            .is_some_and(|a| !a.is_empty())
-        {
-            self.warn("text animators are left out");
-        }
-        if t.and_then(|t| t.get("p"))
-            .and_then(|p| p.get("m"))
-            .is_some()
-        {
-            self.warn("text on a path is laid out on a line");
-        }
-        if self.chars.is_empty() {
-            self.warn("text layers without glyphs are left out: export them with glyphs (chars)");
-            return Ok(Vec::new());
-        }
-        let docs: Vec<(f64, &'a Value)> = t
-            .and_then(|t| t.get("d"))
-            .and_then(|d| d.get("k"))
-            .and_then(Value::as_array)
-            .map(|k| {
-                k.iter()
-                    .filter_map(|k| {
-                        Some((k.get("t").and_then(num).unwrap_or(0.0) / fr, k.get("s")?))
-                    })
-                    .collect()
-            })
-            .unwrap_or_default();
-        let mut out = Vec::new();
-        for (i, (start, doc)) in docs.iter().enumerate() {
-            let Some(shapes) = self.document(doc)? else {
-                continue;
-            };
-            let active = (docs.len() > 1).then(|| TimeRange {
-                start: if i == 0 { f64::NEG_INFINITY } else { *start },
-                end: docs.get(i + 1).map_or(f64::INFINITY, |d| d.0),
-            });
-            out.push(Node::Group(Group {
-                active,
-                children: shapes,
-                ..Group::new()
-            }));
-        }
-        Ok(out)
-    }
-
-    /// One text document (`s`) as shapes: its glyphs filled and stroked.
-    fn document(&mut self, doc: &'a Value) -> Result<Option<Vec<Node>>, Error> {
-        let text = doc.get("t").and_then(Value::as_str).unwrap_or("");
-        let size = doc.get("s").and_then(num).unwrap_or(10.0);
-        let font = doc.get("f").and_then(Value::as_str).unwrap_or("");
-        let justify = doc.get("j").and_then(num).unwrap_or(0.0) as i64;
-        let tracking = doc.get("tr").and_then(num).unwrap_or(0.0) / 1000.0 * size;
-        let line_height = doc.get("lh").and_then(num).unwrap_or(size * 1.2);
-        let k = size / 100.0;
-        let entry = self
-            .fonts
-            .iter()
-            .find(|f| f.get("fName").and_then(Value::as_str) == Some(font))
-            .copied();
-        let family = entry
-            .and_then(|f| f.get("fFamily").and_then(Value::as_str))
-            .unwrap_or(font);
-        let style = entry
-            .and_then(|f| f.get("fStyle").and_then(Value::as_str))
-            .unwrap_or("");
-        let ascent = entry
-            .and_then(|f| f.get("ascent").and_then(num))
-            .unwrap_or(75.0);
-        let chars = self.chars.clone();
-        // The glyph of `ch`: its index among the chars and its advance.
-        let find = |ch: char| -> Option<(usize, f64)> {
-            let ch = ch.to_string();
-            let fits = |c: &Value, strict: bool| {
-                c.get("ch").and_then(Value::as_str) == Some(ch.as_str())
-                    && (!strict
-                        || (c.get("fFamily").and_then(Value::as_str) == Some(family)
-                            && c.get("style").and_then(Value::as_str) == Some(style)))
-            };
-            let i = chars
-                .iter()
-                .position(|c| fits(c, true))
-                .or_else(|| chars.iter().position(|c| fits(c, false)))?;
-            Some((i, chars[i].get("w").and_then(num).unwrap_or(0.0)))
-        };
-        let advance = |c: char| find(c).map_or(0.0, |(_, w)| w * k) + tracking;
-        let measure = |s: &str| s.chars().map(advance).sum::<f64>();
-        // Lines: breaks, and in a box, wraps at spaces.
-        let normalized = text.replace("\r\n", "\r").replace(['\n', '\u{3}'], "\r");
-        let box_size = doc
-            .get("sz")
-            .and_then(nums)
-            .filter(|s| s.len() >= 2 && s[0] > 0.0);
-        let box_at = doc.get("ps").and_then(nums).filter(|p| p.len() >= 2);
-        let mut lines: Vec<String> = Vec::new();
-        for paragraph in normalized.split('\r') {
-            let Some(sz) = &box_size else {
-                lines.push(paragraph.to_owned());
-                continue;
-            };
-            let mut line = String::new();
-            for word in paragraph.split_inclusive(' ') {
-                if !line.is_empty() && measure(&line) + measure(word.trim_end()) > sz[0] {
-                    lines.push(std::mem::take(&mut line).trim_end().to_owned());
-                }
-                line.push_str(word);
-            }
-            lines.push(line.trim_end().to_owned());
-        }
-        let (x0, y0, box_width) = match (&box_at, &box_size) {
-            (Some(ps), Some(sz)) => (ps[0], ps[1] + ascent * k, sz[0]),
-            _ => (0.0, 0.0, 0.0),
-        };
-        let mut paths = Vec::new();
-        for (row, line) in lines.iter().enumerate() {
-            let width = measure(line) - if line.is_empty() { 0.0 } else { tracking };
-            // Left, right or centered: on the anchor, or within the box.
-            let mut x = if box_width > 0.0 {
-                x0 + match justify {
-                    1 => box_width - width,
-                    2 => (box_width - width) / 2.0,
-                    _ => 0.0,
-                }
-            } else {
-                match justify {
-                    1 => -width,
-                    2 => -width / 2.0,
-                    _ => 0.0,
-                }
-            };
-            let y = y0 + row as f64 * line_height;
-            for c in line.chars() {
-                let Some((index, w)) = find(c) else {
-                    if !c.is_whitespace() {
-                        self.warn(format!("text has characters with no glyph (`{c}`)"));
-                    }
-                    x += tracking;
-                    continue;
-                };
-                for glyph in self.glyph(index)? {
-                    let mut transform = vec![
-                        TransformOp::Translate {
-                            x: Animated::Static(x),
-                            y: Animated::Static(y),
-                        },
-                        TransformOp::Scale {
-                            x: Animated::Static(k),
-                            y: Animated::Static(k),
-                        },
-                    ];
-                    transform.extend(glyph.transform);
-                    paths.push(ShapePath {
-                        geometry: glyph.geometry,
-                        transform,
-                    });
-                }
-                x += w * k + tracking;
-            }
-        }
-        if paths.is_empty() {
-            return Ok(None);
-        }
-        self.nodes += paths.len();
-        if self.nodes > self.limits.max_nodes {
-            return Err(Error::Limit {
-                what: "nodes",
-                limit: self.limits.max_nodes as f64,
-            });
-        }
-        let color = |key: &str| -> Option<Color> {
-            let c = doc.get(key).and_then(nums)?;
-            let s = if c.iter().take(3).any(|v| *v > 1.0) {
-                255.0
-            } else {
-                1.0
-            };
-            Some(Color::rgba(
-                *c.first()? / s,
-                *c.get(1)? / s,
-                *c.get(2)? / s,
-                1.0,
-            ))
-        };
-        let fill = color("fc").map(|c| Fill {
-            paint: Paint::solid(c),
-            opacity: Animated::Static(1.0),
-            rule: FillRule::NonZero,
-        });
-        let width = doc.get("sw").and_then(num).unwrap_or(0.0);
-        let stroke = color("sc").filter(|_| width > 0.0).map(|c| Stroke {
-            paint: Paint::solid(c),
-            opacity: Animated::Static(1.0),
-            width: Animated::Static(width),
-            cap: LineCap::Butt,
-            join: LineJoin::Miter,
-            miter_limit: 4.0,
-            dash: None,
-        });
-        // `of`: the stroke over the fill.
-        let over = doc.get("of").and_then(Value::as_bool).unwrap_or(true);
-        Ok(Some(vec![Node::shape(Shape {
-            paths,
-            fill,
-            stroke,
-            paint_order: if over {
-                PaintOrder::FillFirst
-            } else {
-                PaintOrder::StrokeFirst
-            },
-            ..Shape::default()
-        })]))
-    }
-
-    /// The outlines of glyph `index` of `chars`, at size 100.
-    fn glyph(&mut self, index: usize) -> Result<Vec<ShapePath>, Error> {
-        if let Some(paths) = self.glyphs.get(&index) {
-            return Ok(paths.clone());
-        }
-        let Some(char) = self.chars.get(index).copied() else {
-            return Ok(Vec::new());
-        };
-        let items = char
-            .get("data")
-            .and_then(|d| d.get("shapes"))
-            .and_then(Value::as_array)
-            .map(Vec::as_slice)
-            .unwrap_or(&[]);
-        let (_, outlines) = self.shapes(items)?;
-        let paths: Vec<ShapePath> = outlines.into_iter().map(|o| o.path).collect();
-        self.glyphs.insert(index, paths.clone());
-        Ok(paths)
     }
 
     /// A repeater (`rp`): what comes before it in its group (`drawn`, top

@@ -136,9 +136,18 @@ core and the importers build for WebAssembly; a build that plays compiled scenes
 - Text layers drawn with the file's glyphs (`chars`), laid out as lottie-web lays them out: glyphs at a
   hundredth of the size advanced by their widths and the tracking, lines justified, box text wrapped at
   spaces, keyframed documents in turn.
+- Text animators, as lottie-web animates text: range selectors (start, end and offset in percent or by
+  index; over characters, characters but spaces, words or lines; square, ramp up, ramp down, triangle, round
+  and smooth; ease high and low, smoothness and amount; in a randomized order, the same every time) and the
+  expression selector After Effects writes by default, changing the anchor, position, scale, skew, rotation,
+  opacity, fill color, hue, saturation and brightness, stroke color and width, and tracking; several
+  animators in turn, as lottie-web combines them. Each character is then a group of its own: constant where
+  what selects and changes it is, sampled at the file's frame rate where that moves. Text on a path: along a
+  layer mask's outline from the first margin, turned with it or upright, reversed, or spread to the last
+  margin.
 - dotLottie archives (versions 1 and 2): the first animation, its images embedded, unpacked within the limits.
-- Left out with a warning: expressions, text animators, text without glyphs, other effects, merge paths and
-  other shape modifiers.
+- Left out with a warning: expressions, wiggly and other expression text selectors (and animators with no
+  other selector), text without glyphs, other effects, merge paths and other shape modifiers.
 
 ## Untrusted input
 
@@ -161,8 +170,9 @@ Tests are grouped by feature, one file each in a crate's `tests/` (`cargo test -
 ## Roadmap
 
 1. **Done:** the scene model, Figma Motion's SVG subset, Lottie, the reference renderer and the CLI;
-   effects, dotLottie archives, repeaters, Lottie text with glyphs, CSS selectors with combinators.
-2. Merge paths, text animators, inner shadows.
+   effects, dotLottie archives, repeaters, Lottie text with glyphs, its animators and paths, CSS selectors
+   with combinators.
+2. Merge paths, inner shadows.
 
 ## License
 
