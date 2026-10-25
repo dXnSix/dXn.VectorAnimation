@@ -41,7 +41,7 @@ fn limit(t: f64, horizon: f64) -> f64 {
     }
 }
 /// How many iterations of one instance are unrolled, at most.
-const MAX_ITERATIONS: usize = 10_000;
+const MAX_ITERATIONS: usize = crate::animate::MAX_ITERATIONS;
 
 /// What a SMIL element animates.
 #[derive(Debug, Clone, PartialEq)]
@@ -669,6 +669,7 @@ pub(crate) fn keyframes(
     total: f64,
     loops: bool,
     base: &str,
+    warn: &mut dyn FnMut(String),
 ) -> Vec<Keyframe<String>> {
     let stops: Vec<Vec<(f64, String, Easing)>> =
         anims.iter().map(|(a, _, _)| a.stops(base)).collect();
@@ -706,7 +707,15 @@ pub(crate) fn keyframes(
         loop {
             // (`0 × ∞` is not 0: an indefinite duration has one iteration.)
             let start = if i == 0 { b } else { b + i as f64 * dur };
-            if (i > 0 && start >= end) || start > total || i >= MAX_ITERATIONS {
+            if (i > 0 && start >= end) || start > total {
+                break;
+            }
+            if i >= MAX_ITERATIONS {
+                warn(format!(
+                    "SMIL animation of `{}` on <{}> runs more than {MAX_ITERATIONS} iterations: \
+                     only the first {MAX_ITERATIONS} play",
+                    a.attribute, a.target_tag
+                ));
                 break;
             }
             for (offset, value, easing) in stops {
@@ -902,6 +911,9 @@ pub(crate) struct Timing {
     pub(crate) duration: f64,
     /// Whether it repeats.
     pub(crate) endless: bool,
+    /// What repeats forever: when its last instance begins, and its
+    /// duration.
+    pub(crate) repeats: Vec<(f64, f64)>,
     /// Whether the animations start one another in a cycle of `duration`.
     pub(crate) cyclic: bool,
     /// The events something plays on: each one's name, where its segment
@@ -910,7 +922,7 @@ pub(crate) struct Timing {
 }
 
 /// Resolves the begin times of `anims` up to `horizon` seconds.
-pub(crate) fn resolve(anims: &[Smil], horizon: f64) -> Timing {
+pub(crate) fn resolve(anims: &[Smil], horizon: f64, warn: &mut dyn FnMut(String)) -> Timing {
     let n = anims.len();
     let index: HashMap<&str, usize> = anims
         .iter()
@@ -1010,6 +1022,22 @@ pub(crate) fn resolve(anims: &[Smil], horizon: f64) -> Timing {
             }
         }
     }
+    // Beginnings past the cap.
+    let left: Vec<f64> = events
+        .iter()
+        .filter(|&&(t, i, _)| {
+            t <= limit(t, horizon) && !instances[i].iter().any(|b| (b - t).abs() < 1e-9)
+        })
+        .map(|e| e.0)
+        .collect();
+    let mut capped = |kept: &dyn Fn(f64) -> bool| {
+        if left.iter().any(|&t| kept(t)) {
+            warn(format!(
+                "SMIL animations begin more than {MAX_INSTANCES} times: later beginnings are \
+                 left out"
+            ));
+        }
+    };
     // Ends at other animations' begins and ends cut instances short too
     // (what began on their ends kept the whole length).
     for i in 0..n {
@@ -1070,6 +1098,7 @@ pub(crate) fn resolve(anims: &[Smil], horizon: f64) -> Timing {
         }
     }
     if let Some(period) = cycle {
+        capped(&|t| t < period - 1e-9 || t >= CUE_BASE);
         for (list, lengths) in instances.iter_mut().zip(lengths.iter_mut()) {
             let kept: (Vec<f64>, Vec<f64>) = list
                 .iter()
@@ -1083,12 +1112,15 @@ pub(crate) fn resolve(anims: &[Smil], horizon: f64) -> Timing {
             lengths,
             duration: period,
             endless: true,
+            repeats: Vec::new(),
             cyclic: true,
             cues,
         };
     }
+    capped(&|_| true);
     let mut duration: f64 = 0.0;
     let mut endless = false;
+    let mut repeats = Vec::new();
     for ((a, list), lengths) in anims.iter().zip(&instances).zip(&lengths) {
         // The last instance on the timeline.
         let Some(at) = list.iter().rposition(|t| *t < CUE_BASE) else {
@@ -1099,7 +1131,12 @@ pub(crate) fn resolve(anims: &[Smil], horizon: f64) -> Timing {
             duration = duration.max(last + active);
         } else {
             // Held forever (a `set`), or repeating forever.
-            endless |= a.repeats_forever();
+            if a.repeats_forever() {
+                endless = true;
+                if let Some(dur) = a.dur {
+                    repeats.push((last, dur));
+                }
+            }
             duration = duration.max(last + a.dur.unwrap_or(0.0));
         }
     }
@@ -1108,6 +1145,7 @@ pub(crate) fn resolve(anims: &[Smil], horizon: f64) -> Timing {
         lengths,
         duration,
         endless,
+        repeats,
         cyclic: false,
         cues,
     }

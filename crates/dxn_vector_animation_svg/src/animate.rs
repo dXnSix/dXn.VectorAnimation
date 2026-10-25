@@ -12,21 +12,95 @@ use crate::{
 };
 
 /// At most this many iterations of one animation are unrolled.
-const MAX_ITERATIONS: usize = 10_000;
+pub(crate) const MAX_ITERATIONS: usize = 10_000;
+
+/// Periods line up on a grid of this many steps a second (microseconds).
+const GRAIN: f64 = 1e6;
 
 /// The timeline the document's animations need: how long one play-through
 /// is and whether it repeats.
-#[derive(Debug, Clone, Copy, Default)]
+#[derive(Debug, Clone, Default)]
 pub(crate) struct TimelineSpan {
+    /// Until every animation has ended, or has played once what it repeats.
     pub(crate) duration: f64,
     pub(crate) endless: bool,
+    /// What repeats forever: when each starts, and its period.
+    pub(crate) repeats: Vec<(f64, f64)>,
 }
 
 impl TimelineSpan {
     pub(crate) fn add(&mut self, spec: &AnimationSpec) {
         self.duration = self.duration.max(spec.span());
-        self.endless |= spec.iterations == Iterations::Infinite;
+        if spec.iterations == Iterations::Infinite {
+            self.endless = true;
+            self.repeat(spec.delay.max(0.0), spec.period());
+        }
     }
+
+    /// Something that repeats every `period` seconds from `start` on.
+    pub(crate) fn repeat(&mut self, start: f64, period: f64) {
+        if period > 0.0 && period.is_finite() && start.is_finite() {
+            self.repeats.push((start, period));
+        }
+    }
+
+    /// Makes the timeline the loop of what repeats forever, as a browser
+    /// plays it: from the last of them to start, as long as it takes all
+    /// of them to come round together (their periods' least common
+    /// multiple), as many times over as what ends needs. Where that is
+    /// longer than `max_duration` or takes one of them more than
+    /// [`MAX_ITERATIONS`], the timeline stays as long as the longest and
+    /// the warning says so.
+    pub(crate) fn close_loop(&mut self, max_duration: f64) -> Option<String> {
+        if self.repeats.is_empty() {
+            return None;
+        }
+        if let Some(length) = self.common_loop(max_duration) {
+            self.duration = length;
+            return None;
+        }
+        let steps = |p: f64| (p * GRAIN).round();
+        let (shortest, longest) = self
+            .repeats
+            .iter()
+            .fold((f64::INFINITY, 0.0_f64), |(lo, hi), &(_, p)| {
+                (lo.min(p), hi.max(p))
+            });
+        (steps(shortest) != steps(longest)).then(|| {
+            format!(
+                "animations repeating forever every {shortest} s to {longest} s come round \
+                 together only past {max_duration} s or {MAX_ITERATIONS} iterations: the \
+                 timeline loops at {} s, cutting some of them short",
+                self.duration
+            )
+        })
+    }
+
+    /// The common loop, when it is within the limits.
+    fn common_loop(&self, max_duration: f64) -> Option<f64> {
+        let mut lcm: u128 = 1;
+        let (mut start, mut shortest) = (0.0_f64, f64::INFINITY);
+        for &(s, period) in &self.repeats {
+            let steps = ((period * GRAIN).round() as u128).max(1);
+            lcm = (lcm / gcd(lcm, steps)).checked_mul(steps)?;
+            if lcm as f64 / GRAIN > max_duration {
+                return None;
+            }
+            start = start.max(s);
+            shortest = shortest.min(period);
+        }
+        let common = lcm as f64 / GRAIN;
+        let times = ((self.duration - start) / common - 1e-9).ceil().max(1.0);
+        let length = start + times * common;
+        (length <= max_duration && length / shortest <= MAX_ITERATIONS as f64).then_some(length)
+    }
+}
+
+fn gcd(mut a: u128, mut b: u128) -> u128 {
+    while b != 0 {
+        (a, b) = (b, a % b);
+    }
+    a
 }
 
 /// The keyframes, as text, of every property `specs` animate on one element:
@@ -36,6 +110,7 @@ pub(crate) fn property_keyframes(
     sheet: &Stylesheet,
     base: &dyn Fn(&str) -> String,
     total: f64,
+    warn: &mut dyn FnMut(String),
 ) -> HashMap<String, Vec<Keyframe<String>>> {
     let mut out = HashMap::new();
     for spec in specs {
@@ -76,7 +151,7 @@ pub(crate) fn property_keyframes(
             if list.last().is_none_or(|s| s.0 < 1.0) {
                 list.push((1.0, base_value.clone(), Easing::Linear));
             }
-            out.insert(name, unroll(spec, &list, &base_value, total));
+            out.insert(name, unroll(spec, &list, &base_value, total, warn));
         }
     }
     out
@@ -109,6 +184,7 @@ fn unroll(
     stops: &[(f64, String, Easing)],
     base: &str,
     total: f64,
+    warn: &mut dyn FnMut(String),
 ) -> Vec<Keyframe<String>> {
     let reversed = |i: usize| match spec.direction {
         PlayDirection::Normal => false,
@@ -118,11 +194,19 @@ fn unroll(
     };
     // A negative delay starts part-way through.
     let delay = spec.delay;
-    let count = match spec.iterations {
-        Iterations::Count(n) => n.ceil().max(0.0) as usize,
-        Iterations::Infinite => (((total - delay) / spec.duration).ceil().max(1.0)) as usize,
+    let wanted = match spec.iterations {
+        Iterations::Count(n) => n.ceil().max(0.0),
+        // (A timeline its iterations fill exactly takes no more.)
+        Iterations::Infinite => ((total - delay) / spec.duration - 1e-9).ceil().max(1.0),
+    };
+    if wanted > MAX_ITERATIONS as f64 {
+        warn(format!(
+            "CSS animation `{}` runs more than {MAX_ITERATIONS} iterations: only the first \
+             {MAX_ITERATIONS} play",
+            spec.name
+        ));
     }
-    .min(MAX_ITERATIONS);
+    let count = (wanted as usize).min(MAX_ITERATIONS);
     let mut out = Vec::new();
     if count == 0 {
         out.push(Keyframe::new(0.0, base.to_owned(), Easing::Linear));
@@ -139,7 +223,7 @@ fn unroll(
     let mut last = None;
     for i in 0..count {
         let start = delay + i as f64 * spec.duration;
-        if i > 0 && start >= total {
+        if i > 0 && start >= total - 1e-9 {
             break;
         }
         for (offset, value, easing) in iteration_stops(stops, reversed(i)) {

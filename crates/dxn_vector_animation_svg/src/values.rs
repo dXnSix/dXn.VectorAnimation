@@ -402,13 +402,21 @@ impl Default for AnimationSpec {
 
 impl AnimationSpec {
     /// Seconds from the start of the timeline to the end of its last
-    /// iteration (one iteration when endless).
+    /// iteration (one period when endless).
     pub(crate) fn span(&self) -> f64 {
-        let count = match self.iterations {
-            Iterations::Count(n) => n.max(0.0),
-            Iterations::Infinite => 1.0,
-        };
-        self.delay.max(0.0) + self.duration * count
+        match self.iterations {
+            Iterations::Count(n) => self.delay.max(0.0) + self.duration * n.max(0.0),
+            Iterations::Infinite => self.delay.max(0.0) + self.period(),
+        }
+    }
+
+    /// Seconds after which it plays the same again: one iteration, two
+    /// when it alternates (forwards, then backwards).
+    pub(crate) fn period(&self) -> f64 {
+        match self.direction {
+            PlayDirection::Normal | PlayDirection::Reverse => self.duration,
+            PlayDirection::Alternate | PlayDirection::AlternateReverse => 2.0 * self.duration,
+        }
     }
 }
 

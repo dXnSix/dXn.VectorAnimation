@@ -271,7 +271,13 @@ impl<'a, 'input> Converter<'a, 'input> {
         for w in smil_warnings {
             converter.warn(w);
         }
-        converter.smil_timing = smil::resolve(&converter.smil, limits.max_duration);
+        let mut smil_warnings = Vec::new();
+        converter.smil_timing = smil::resolve(&converter.smil, limits.max_duration, &mut |w| {
+            smil_warnings.push(w);
+        });
+        for w in smil_warnings {
+            converter.warn(w);
+        }
         for (i, a) in converter.smil.iter().enumerate() {
             converter.smil_targets.entry(a.target).or_default().push(i);
         }
@@ -291,6 +297,12 @@ impl<'a, 'input> Converter<'a, 'input> {
         } else {
             converter.smil_timing.cyclic = false;
             converter.span.duration = converter.span.duration.max(smil_span.0);
+            for &(start, period) in &converter.smil_timing.repeats {
+                converter.span.repeat(start, period);
+            }
+            if let Some(w) = converter.span.close_loop(limits.max_duration) {
+                converter.warn(w);
+            }
         }
         converter.span.endless |= smil_span.1;
         if converter.span.duration > limits.max_duration {
@@ -1075,7 +1087,11 @@ impl<'a, 'input> Converter<'a, 'input> {
                 _ => String::new(),
             }
         };
-        let mut tracks = property_keyframes(&specs, &self.sheet, &base, self.span.duration);
+        let mut warnings = Vec::new();
+        let mut tracks =
+            property_keyframes(&specs, &self.sheet, &base, self.span.duration, &mut |w| {
+                warnings.push(w)
+            });
         let from_css: Vec<String> = tracks.keys().cloned().collect();
         // SMIL animations (several of one attribute merged by when each
         // began); CSS animations win.
@@ -1112,8 +1128,17 @@ impl<'a, 'input> Converter<'a, 'input> {
                     )
                 })
                 .collect();
-            let keys = smil::keyframes(&anims, self.span.duration, self.smil_timing.cyclic, &start);
+            let keys = smil::keyframes(
+                &anims,
+                self.span.duration,
+                self.smil_timing.cyclic,
+                &start,
+                &mut |w| warnings.push(w),
+            );
             tracks.insert(key, keys);
+        }
+        for w in warnings {
+            self.warn(w);
         }
         for name in tracks.keys() {
             if !ANIMATABLE.contains(&name.as_str()) && !name.starts_with("smil-") {

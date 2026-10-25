@@ -246,7 +246,8 @@ fn plays_on_the_native_graph_of_the_engine() {
             }
         }
     });
-    app.wait_for("Loaded 2.0s").unwrap();
+    // The dash's 1.5 s and the turn's 2 s come round together at 6 s.
+    app.wait_for("Loaded 6.0s").unwrap();
     let drawn = seen.clone();
     let _ = app.wait_until(
         "the ring drawn and playback started",
