@@ -645,7 +645,7 @@ impl<'a> Converter<'a> {
         if work > MAX_WORK / 2 {
             return Err(Error::Limit {
                 what: "text animator samples",
-                limit: MAX_WORK as f64,
+                limit: (MAX_WORK / 2) as f64,
             });
         }
         let indexes: Vec<(Vec<f64>, f64)> = animators

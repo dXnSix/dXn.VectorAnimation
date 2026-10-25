@@ -1142,6 +1142,13 @@ impl<'a> Converter<'a> {
         // Otherwise a moving offset changes how many steps a copy takes:
         // each copy's matrix, sampled frame by frame while anything moves.
         let sampled_steps = !closed && matches!(offsets, Animated::Track(_));
+        // Copies further than `MAX_STEPS` steps away stop there.
+        let capped = std::cell::Cell::new(false);
+        let steps = |whole: f64| {
+            let n = whole.abs();
+            capped.set(capped.get() || n > MAX_STEPS as f64);
+            (n as usize).min(MAX_STEPS)
+        };
         let step_times = if sampled_steps {
             let mut keys = offset_times.clone();
             for key in ["p", "a", "s", "r"] {
@@ -1164,7 +1171,7 @@ impl<'a> Converter<'a> {
                         let j = k as f64 + o;
                         let whole = j.trunc();
                         let back = usize::from(whole < 0.0);
-                        let n = (whole.abs() as usize).min(MAX_STEPS);
+                        let n = steps(whole);
                         while powers[back].len() <= n {
                             let last = powers[back][powers[back].len() - 1];
                             powers[back].push(last * units[back]);
@@ -1231,7 +1238,7 @@ impl<'a> Converter<'a> {
             let whole = j.trunc();
             let mut ops = Vec::new();
             let unit = if whole < 0.0 { -1.0 } else { 1.0 };
-            for _ in 0..(whole.abs() as usize).min(MAX_STEPS) {
+            for _ in 0..steps(whole) {
                 ops.extend(step(unit));
             }
             if j - whole != 0.0 {
@@ -1307,6 +1314,12 @@ impl<'a> Converter<'a> {
                     });
                 }
             }
+        }
+        if capped.get() {
+            self.warn(format!(
+                "repeater copies more than {MAX_STEPS} steps of the transform away stop at \
+                 {MAX_STEPS}"
+            ));
         }
         Ok(())
     }
