@@ -511,6 +511,39 @@ impl<'g> Replay<'g> {
                     offset,
                 } => self.state.shadow = (*color, *blur, *offset),
                 Op::Image(data, rect) => self.image(data, *rect, out),
+                Op::Text {
+                    text,
+                    font,
+                    anchor,
+                    stroke,
+                } => {
+                    // Set as the reference sets it, in the system's fonts.
+                    let span = dxn_vector_animation::FrameTextSpan {
+                        text: text.to_string(),
+                        position: Some(Point::new(0.0, 0.0)),
+                        shift: Point::new(0.0, 0.0),
+                        anchor: *anchor,
+                        families: font.families.clone(),
+                        size: font.size,
+                        weight: font.weight,
+                        italic: font.italic,
+                        letter_spacing: 0.0,
+                        fill: None,
+                        stroke: None,
+                        paint_order: Default::default(),
+                    };
+                    let outline = dxn_vector_animation_render::text_layout(&[span]);
+                    let kept = std::mem::replace(&mut self.path, Path::new());
+                    if let Some(p) = outline.first() {
+                        self.add_path(p);
+                    }
+                    if *stroke {
+                        self.stroke(out);
+                    } else {
+                        self.fill(FillRule::NonZero, out);
+                    }
+                    self.path = kept;
+                }
             }
         }
     }

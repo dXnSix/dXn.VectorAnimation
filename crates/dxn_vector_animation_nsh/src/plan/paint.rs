@@ -262,6 +262,7 @@ impl Compiler {
             }
         };
         match paint {
+            ScenePaint::Pattern(_) => unsupported("a pattern fill"),
             ScenePaint::LinearGradient(g) => {
                 let m = space(g.units, g.transform)?;
                 let moving = g.start.is_animated() || g.end.is_animated();

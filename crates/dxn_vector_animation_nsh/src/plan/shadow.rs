@@ -189,7 +189,14 @@ fn silhouette_paint(paint: &ScenePaint, hard: bool) -> ScenePaint {
             g.stops = stops(&g.stops);
             ScenePaint::RadialGradient(g)
         }
+        // Its own content casts it (not drawn on the graph).
+        ScenePaint::Pattern(p) => ScenePaint::Pattern(p.clone()),
     }
+}
+
+/// A color as a silhouette casts it: black, its alpha hardened.
+pub(super) fn silhouette_color(color: &Animated<Color>, hard: bool) -> Animated<Color> {
+    mapped(color, |c| Color::rgba(0.0, 0.0, 0.0, harden(c.a, hard)))
 }
 
 /// `s` as its silhouette casts it.
@@ -249,6 +256,7 @@ fn fills_whole(fill: &Fill, hard: bool) -> bool {
             ScenePaint::RadialGradient(g) => {
                 values(&g.stops).iter().flatten().all(|s| full(s.color.a))
             }
+            ScenePaint::Pattern(_) => false,
         }
 }
 

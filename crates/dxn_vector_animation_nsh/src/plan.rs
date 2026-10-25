@@ -12,10 +12,11 @@
 use std::sync::Arc;
 
 use dxn_vector_animation::{
-    Animated, BlendMode, Clip, Dash, Direction, Fill, FillRule, Frame, FramePaint, Geometry, Group,
-    ImageData, Item, Keyframe, LineCap, LineJoin, Mask, Matrix, MotionPath, MotionRotate, Node,
-    Paint as ScenePaint, PaintOrder, Path, PathEl, Point, Rect, Scene, Shape, ShapePath, Stroke,
-    TimeMap, TimeRange, Track, TransformOp, Trim, TrimMode,
+    Animated, BlendMode, Clip, Dash, Direction, Fill, FillRule, Frame, FramePaint, FrameTextSpan,
+    Geometry, Group, ImageData, Item, Keyframe, LineCap, LineJoin, Mask, Matrix, MotionPath,
+    MotionRotate, Node, Paint as ScenePaint, PaintOrder, Path, PathEl, Point, Rect, Scene, Shape,
+    ShapePath, Stroke, Text, TextAnchor, TextSpan, TimeMap, TimeRange, Track, TransformOp, Trim,
+    TrimMode,
     outline::{geometry_path, path_length, trim_paths},
     transform::{decompose, point_along, transform_at, unwrap_angles},
 };
@@ -136,7 +137,9 @@ pub fn has_soft_masks(node: &Node) -> bool {
                             .as_ref()
                             .is_some_and(|f| partial(&f.opacity) || faint(&f.paint))
                 }
-                Node::Image(_) => true,
+                // Images, and text (its outline is the font's): drawn as
+                // they are.
+                Node::Image(_) | Node::Text(_) => true,
             })
     }
     match node {
@@ -535,6 +538,63 @@ pub enum Op {
     },
     /// `drawImage(image, x, y, w, h)`.
     Image(Arc<ImageData>, Rect),
+    /// `font`, `textAlign` and `fillText(text, 0, 0)` (`strokeText` when
+    /// `stroke`): one line from the origin on its baseline.
+    Text {
+        /// The characters.
+        text: Arc<str>,
+        /// The font.
+        font: Arc<TextFont>,
+        /// Which point of the line the origin is.
+        anchor: TextAnchor,
+        /// Stroked, not filled.
+        stroke: bool,
+    },
+}
+
+/// A font text is set in.
+#[derive(Debug, Clone, PartialEq)]
+pub struct TextFont {
+    /// Family names, the preferred first (CSS's generic ones too).
+    pub families: Vec<String>,
+    /// The size (the em), in the coordinates current when it draws.
+    pub size: f64,
+    /// The weight, 100 to 900.
+    pub weight: u16,
+    /// Italic.
+    pub italic: bool,
+}
+
+impl TextFont {
+    /// As CSS's `font` shorthand writes it (`italic 700 16px "A B", serif`).
+    pub fn css(&self) -> String {
+        let families: Vec<String> = self
+            .families
+            .iter()
+            .map(|f| {
+                let generic = matches!(
+                    f.as_str(),
+                    "serif" | "sans-serif" | "monospace" | "cursive" | "fantasy" | "system-ui"
+                );
+                if generic || !f.contains(' ') {
+                    f.clone()
+                } else {
+                    format!("\"{f}\"")
+                }
+            })
+            .collect();
+        format!(
+            "{}{} {}px {}",
+            if self.italic { "italic " } else { "" },
+            self.weight,
+            self.size,
+            if families.is_empty() {
+                "sans-serif".to_owned()
+            } else {
+                families.join(", ")
+            }
+        )
+    }
 }
 
 /// A gradient in the coordinates current when it paints.
@@ -887,6 +947,15 @@ fn frame_items(items: &[Item], base: Matrix, alpha: &mut Vec<f64>, ops: &mut Vec
                 ops.push(Op::Image(data.clone(), *rect));
                 ops.push(Op::Restore);
             }
+            Item::Text { spans, transform } => {
+                ops.push(Op::Save);
+                ops.push(Op::Transform(consts(base * *transform)));
+                ops.push(Op::GlobalAlpha(a(alpha)));
+                for line in frame_lines(spans) {
+                    ops.extend(line);
+                }
+                ops.push(Op::Restore);
+            }
             Item::PushLayer(layer) => {
                 ops.push(Op::Save);
                 let current = *alpha.last().unwrap_or(&1.0);
@@ -943,6 +1012,71 @@ fn frame_items(items: &[Item], base: Matrix, alpha: &mut Vec<f64>, ops: &mut Vec
     }
 }
 
+/// A frame's text: each line (from a placed span to the next) drawn from
+/// where it is placed, its spans one after another as one text in the first
+/// one's style (the fallback has no measures to place them apart).
+fn frame_lines(spans: &[FrameTextSpan]) -> Vec<Vec<Op>> {
+    let mut out = Vec::new();
+    let mut pen = Point::new(0.0, 0.0);
+    let mut i = 0;
+    while i < spans.len() {
+        let first = &spans[i];
+        if let Some(p) = first.position {
+            pen = p;
+        }
+        let mut text = first.text.clone();
+        let mut j = i + 1;
+        while j < spans.len() && spans[j].position.is_none() {
+            text.push_str(&spans[j].text);
+            j += 1;
+        }
+        let at = Point::new(pen.x + first.shift.x, pen.y + first.shift.y);
+        let font = Arc::new(TextFont {
+            families: first.families.clone(),
+            size: first.size,
+            weight: first.weight,
+            italic: first.italic,
+        });
+        let c = Num::Const;
+        let mut ops = vec![Op::Save, Op::Translate(c(at.x), c(at.y))];
+        let fill = first.fill.as_ref().map(|p| (p, None));
+        let stroke = first.stroke.as_ref().map(|(p, st)| (p, Some(st)));
+        let order = match first.paint_order {
+            PaintOrder::FillFirst => [fill, stroke],
+            PaintOrder::StrokeFirst => [stroke, fill],
+        };
+        for (paint, style) in order.into_iter().flatten() {
+            let color = match frame_paint(paint) {
+                Ok(c) => c,
+                // Text takes its gradient's first color here.
+                Err(g) => match g.as_ref() {
+                    Gradient::Linear { stops, .. } | Gradient::Radial { stops, .. } => {
+                        stops.first().map_or(0, |s| s.1)
+                    }
+                },
+            };
+            match style {
+                None => ops.push(Op::FillColor(Paint::Const(color))),
+                Some(st) => {
+                    ops.push(Op::StrokeColor(Paint::Const(color)));
+                    ops.push(Op::LineWidth(c(st.width)));
+                    ops.push(Op::LineJoin(st.join));
+                }
+            }
+            ops.push(Op::Text {
+                text: text.as_str().into(),
+                font: font.clone(),
+                anchor: first.anchor,
+                stroke: style.is_some(),
+            });
+        }
+        ops.push(Op::Restore);
+        out.push(ops);
+        i = j;
+    }
+    out
+}
+
 /// A frame's paint: a color, or the gradient (with its transform folded
 /// in only when it is the identity; the fallback draws others flat).
 fn frame_paint(paint: &FramePaint) -> Result<u32, Arc<Gradient>> {
@@ -975,6 +1109,9 @@ fn frame_paint(paint: &FramePaint) -> Result<u32, Arc<Gradient>> {
                 stops: stops.iter().map(|s| (s.offset, pack(s.color))).collect(),
             }))
         }
+        // The fallback draws a pattern in a middle gray (its parts drawn
+        // as the reference draws them are rasters).
+        FramePaint::Pattern { .. } => Ok(0x8080_80ff),
     }
 }
 
@@ -1365,7 +1502,121 @@ impl Compiler {
                 ]);
                 Ok(())
             }
+            Node::Text(text) => self.text(text, time),
         }
+    }
+
+    /// Text set by the platform: each line (from a placed span to the next)
+    /// one `fillText` (and `strokeText`) placed and sized by the graph.
+    /// Lines of several styles, spaced letters and paints other than colors
+    /// are sampled.
+    fn text(&mut self, t: &Text, time: NodeId) -> Result<(), Unsupported> {
+        let mut i = 0;
+        while i < t.spans.len() {
+            let first = &t.spans[i];
+            let Some(position) = &first.position else {
+                return unsupported("text placed after text of another style");
+            };
+            let mut text = first.text.clone();
+            let mut j = i + 1;
+            while j < t.spans.len() && t.spans[j].position.is_none() {
+                let next = &t.spans[j];
+                if !same_style(first, next) || next.shift != Point::new(0.0, 0.0) {
+                    return unsupported("a line of text in several styles");
+                }
+                text.push_str(&next.text);
+                j += 1;
+            }
+            i = j;
+            if text.trim().is_empty() {
+                continue;
+            }
+            if first.letter_spacing.is_animated()
+                || first
+                    .letter_spacing
+                    .as_static()
+                    .is_some_and(|s| s.abs() > 1e-9)
+            {
+                return unsupported("spaced text");
+            }
+            let size = match &first.font.size {
+                Animated::Static(s) => *s,
+                Animated::Track(track) => {
+                    track.keyframes.iter().map(|k| k.value).fold(0.0, f64::max)
+                }
+            };
+            if size.is_nan() || size <= 0.0 {
+                continue;
+            }
+            let font = Arc::new(TextFont {
+                families: first.font.families.clone(),
+                size,
+                weight: first.font.weight,
+                italic: first.font.italic,
+            });
+            let x = self.g.track(&position.x, time, |v| v);
+            let y = self.g.track(&position.y, time, |v| v);
+            let c = Num::Const;
+            let mut ops = vec![Op::Save, Op::Translate(x, y)];
+            if first.shift != Point::new(0.0, 0.0) {
+                ops.push(Op::Translate(c(first.shift.x), c(first.shift.y)));
+            }
+            // An animated size scales the text set at its largest.
+            let k = self.g.track(&first.font.size, time, |s| s.max(0.0) / size);
+            if !k.is(1.0) {
+                ops.push(Op::Scale(k, k));
+            }
+            let alpha = self.open().alpha;
+            let mut paints = Vec::new();
+            if let Some(fill) = &first.fill {
+                paints.push((false, &fill.paint, &fill.opacity, None));
+            }
+            if let Some(stroke) = &first.stroke {
+                paints.push((true, &stroke.paint, &stroke.opacity, Some(stroke)));
+            }
+            if first.paint_order == PaintOrder::StrokeFirst {
+                paints.reverse();
+            }
+            for (stroked, paint, opacity, stroke) in paints {
+                let ScenePaint::Solid { color } = paint else {
+                    return unsupported("text painted with a gradient or a pattern");
+                };
+                let opacity = self.g.track(opacity, time, |o| o.clamp(0.0, 1.0));
+                let mut a = self.mul(alpha, opacity);
+                let color = match self.casting {
+                    Some(hard) => {
+                        a = self.hardened(a, hard);
+                        let shade = shadow::silhouette_color(color, hard);
+                        self.g.color_track(&shade, time, 1.0)
+                    }
+                    None => self.g.color_track(color, time, 1.0),
+                };
+                ops.push(Op::GlobalAlpha(a));
+                if let Some(stroke) = stroke {
+                    let width = self.g.track(&stroke.width, time, |w| w.max(0.0));
+                    // In the text's lengths, as the stroke is not scaled.
+                    let width = if k.is(1.0) {
+                        width
+                    } else {
+                        self.g.math(MathOp::Div, width, k)
+                    };
+                    ops.push(Op::LineWidth(width));
+                    ops.push(Op::LineJoin(stroke.join));
+                    ops.push(Op::StrokeColor(color));
+                } else {
+                    ops.push(Op::FillColor(color));
+                }
+                ops.push(Op::Text {
+                    text: text.as_str().into(),
+                    font: font.clone(),
+                    anchor: first.anchor,
+                    stroke: stroked,
+                });
+            }
+            ops.push(Op::Restore);
+            self.draw(ops);
+        }
+        Ok(())
     }
 
     /// 1 while `range` holds `time`, else 0.
@@ -2606,13 +2857,22 @@ fn static_paths(s: &Shape) -> Result<Vec<Path>, Unsupported> {
         .collect()
 }
 
+/// Whether `a` and `b` set text alike (font, spacing and paints).
+fn same_style(a: &TextSpan, b: &TextSpan) -> bool {
+    a.font == b.font
+        && a.letter_spacing == b.letter_spacing
+        && a.fill == b.fill
+        && a.stroke == b.stroke
+        && a.paint_order == b.paint_order
+}
+
 /// How many of `g`'s descendants draw, counting up to `limit`.
 fn drawables(g: &Group, limit: usize) -> usize {
     let mut n = 0;
     for child in &g.children {
         n += match child {
             Node::Group(c) => drawables(c, limit - n.min(limit)),
-            Node::Shape(_) | Node::Image(_) => 1,
+            Node::Shape(_) | Node::Image(_) | Node::Text(_) => 1,
         };
         if n >= limit {
             return n;

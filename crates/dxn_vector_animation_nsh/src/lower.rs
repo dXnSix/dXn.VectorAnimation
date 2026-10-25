@@ -4,7 +4,7 @@
 
 use std::{f64::consts::TAU, sync::Arc};
 
-use dxn_vector_animation::{BlendMode, FillRule, LineCap, LineJoin};
+use dxn_vector_animation::{BlendMode, FillRule, LineCap, LineJoin, TextAnchor};
 use nsh_core::{
     Color,
     animation::{Easing as NshEasing, Extrapolate, Output},
@@ -330,6 +330,41 @@ pub(crate) fn painter(ops: &[Op], nodes: &Nodes) -> Painter {
                     source: None,
                     dest: [rect.x, rect.y, rect.width, rect.height]
                         .map(|v| canvas::Num::Const(v as f32)),
+                }
+            }
+            Op::Text {
+                text,
+                font,
+                anchor,
+                stroke,
+            } => {
+                let font = canvas::CanvasFont::parse(&font.css()).unwrap_or_default();
+                p = p
+                    .op(CanvasOp::Font(font))
+                    .op(CanvasOp::TextAlign(match anchor {
+                        TextAnchor::Start => canvas::CanvasTextAlign::Start,
+                        TextAnchor::Middle => canvas::CanvasTextAlign::Center,
+                        TextAnchor::End => canvas::CanvasTextAlign::End,
+                    }));
+                let (text, x, y) = (
+                    text.clone(),
+                    canvas::Num::Const(0.0),
+                    canvas::Num::Const(0.0),
+                );
+                if *stroke {
+                    CanvasOp::StrokeText {
+                        text,
+                        x,
+                        y,
+                        max_width: None,
+                    }
+                } else {
+                    CanvasOp::FillText {
+                        text,
+                        x,
+                        y,
+                        max_width: None,
+                    }
                 }
             }
         };

@@ -751,7 +751,7 @@ impl Compiler {
                         children.push(Tree::Shape { index, luma, alpha });
                     }
                 }
-                Node::Image(_) => return Ok(None),
+                Node::Image(_) | Node::Text(_) => return Ok(None),
             }
         }
         Ok(Some(Tree::Group {
