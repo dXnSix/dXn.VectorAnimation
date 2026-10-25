@@ -11,7 +11,7 @@ exercises one part of [What it plays natively](./capabilities.md).
 ```example
 demo: all
 height: 760
-caption: The check scenes, each in a tile; the frame scrolls.
+caption: The check scenes, each in a tile.
 ```
 
 ## The scenes
@@ -64,7 +64,8 @@ cp -R "/tmp/examples/Vector Animation Examples" ../../website/public/examples
 
 The app reads which example to show from the page's address, `examples/index.html?demo=<name>`, through NSH's web host
 (`host.js`, named by `web.host` in its `nsh.json`); without a name it shows them all. Each page embeds one in an
-iframe.
+iframe. The grid of all of them reports its height to the page, which sizes the frame to it: the page scrolls,
+not the frame, and the grid wraps into more rows on a narrow screen.
 
 :::note Load size
 The examples' web runtime holds the engine, QuickJS, the player and the importers: about 5.7 MB gzipped, loaded

@@ -4,9 +4,14 @@
 // holds `key: value` lines:
 //
 //   demo: trims                       the example to show (required)
-//   height: 260                       the frame's height in pixels (default 260)
+//   height: 260                       the frame's height in pixels (default 260); an app that
+//                                     reports its content's height (below) overrides it
 //   caption: A trim drawing on.       a line under the frame (optional)
 //   title: Trims                      the frame's accessible name (default: the caption, or the demo)
+//
+// An example may size its frame to its content: the app posts
+// `{ type: 'dxn-example-height', height }` (CSS pixels) to its parent window and the page's
+// script (DocsLayout) sets the frame's height to it, so the page scrolls rather than the frame.
 //
 // The app itself is built by the library's own workflow into `public/examples/`;
 // the link checker fails the build when it is missing.

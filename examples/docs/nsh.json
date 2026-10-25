@@ -2,6 +2,6 @@
   "name": "Vector Animation Examples",
   "id": "com.dxn.vectoranimation.examples",
   "rust": "../../crates/dxn_vector_animation_nsh",
-  "capabilities": { "host": ["demo"] },
+  "capabilities": { "host": ["demo", "height"] },
   "web": { "host": "./host.js" }
 }

@@ -131,20 +131,31 @@ function Events() {
   );
 }
 
-/** Every scene, a tile each. */
+/**
+ * Every scene, a tile each. The grid's height goes to the page that frames
+ * it (the host's `height`), which sizes the frame to it, so the page scrolls
+ * and no bar is wanted in the frame; the `Scroll` is for a frame left as it was.
+ */
 function All() {
   return (
-    <Scroll contentStyle={{ padding: 12, flexDirection: "row", flexWrap: "wrap", gap: 10 }}>
-      {(scenes as [string, unknown][]).map(([name, src]) => (
-        <View style={{ gap: 4, alignItems: "center" }}>
-          <VectorAnimation
-            src={src as never}
-            style={{ width: 120, height: 120, borderWidth: 1, borderColor: "#e5e7eb", borderRadius: 8 }}
-            accessibilityLabel={name}
-          />
-          <Text style={{ fontSize: 11, opacity: 0.7 }}>{name}</Text>
-        </View>
-      ))}
+    <Scroll>
+      <View
+        style={{ padding: 12, flexDirection: "row", flexWrap: "wrap", gap: 10 }}
+        onLayout={(e) => {
+          host.call("height", Math.ceil(e.size.height)).catch(() => {});
+        }}
+      >
+        {(scenes as [string, unknown][]).map(([name, src]) => (
+          <View style={{ gap: 4, alignItems: "center" }}>
+            <VectorAnimation
+              src={src as never}
+              style={{ width: 120, height: 120, borderWidth: 1, borderColor: "#e5e7eb", borderRadius: 8 }}
+              accessibilityLabel={name}
+            />
+            <Text style={{ fontSize: 11, opacity: 0.7 }}>{name}</Text>
+          </View>
+        ))}
+      </View>
     </Scroll>
   );
 }
