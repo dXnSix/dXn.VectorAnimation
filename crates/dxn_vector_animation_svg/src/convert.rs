@@ -98,6 +98,8 @@ const ANIMATABLE: &[&str] = &[
     "y2",
     "points",
     "filter",
+    "font-size",
+    "letter-spacing",
 ];
 
 /// The winning declarations of one element: property → value.
@@ -780,25 +782,56 @@ impl<'a, 'input> Converter<'a, 'input> {
         if let Some(y) = y {
             self.y = y;
         }
-        let mut position = (first || x.is_some() || y.is_some())
-            .then(|| AnimatedPoint::fixed(x.unwrap_or(0.0), self.y));
+        // What CSS and SMIL animate of it.
+        let declared = self.cascade(node);
+        let animations = self.animations(node, &declared, style);
+        let font_size = style.font_size;
+        let ems = move |v: &str| match v.trim().strip_suffix("em").and_then(number) {
+            Some(em) if !v.trim().ends_with("rem") => Some(em * font_size),
+            _ => length(v, font_size),
+        };
+        let track = |s: &mut Self, name: &str, fallback: f64| match animations.get(name) {
+            Some(keys) => s.track(keys, name, ems, fallback),
+            None => Animated::Static(fallback),
+        };
+        let moving_x = track(self, "x", x.unwrap_or(0.0));
+        let moving_y = track(self, "y", y.unwrap_or(self.y));
+        let size = track(self, "font-size", style.font_size);
+        let spacing = track(self, "letter-spacing", style.letter_spacing);
+        let placed =
+            first || x.is_some() || y.is_some() || moving_x.is_animated() || moving_y.is_animated();
+        let mut position = placed.then_some(AnimatedPoint {
+            x: moving_x,
+            y: moving_y,
+        });
         let mut shift = Point::new(
             coord("dx", self.view.width).unwrap_or(0.0),
             coord("dy", self.view.height).unwrap_or(0.0),
         );
+        let opacity = |s: &mut Self, name: &str, fallback: f64| match animations.get(name) {
+            Some(keys) => s.track(
+                keys,
+                name,
+                |v| fraction(v).map(|o| o.clamp(0.0, 1.0)),
+                fallback,
+            ),
+            None => Animated::Static(fallback),
+        };
+        let fill_opacity = opacity(self, "fill-opacity", style.fill_opacity);
         let fill = self
-            .paint(&style.fill, style, None, "fill")
+            .paint(&style.fill, style, animations.get("fill"), "fill")
             .map(|paint| Fill {
                 paint,
-                opacity: Animated::Static(style.fill_opacity),
+                opacity: fill_opacity,
                 rule: FillRule::NonZero,
             });
+        let stroke_opacity = opacity(self, "stroke-opacity", style.stroke_opacity);
         let stroke = self
-            .paint(&style.stroke, style, None, "stroke")
+            .paint(&style.stroke, style, animations.get("stroke"), "stroke")
             .filter(|_| style.stroke_width > 0.0)
             .map(|paint| Stroke {
                 paint,
-                opacity: Animated::Static(style.stroke_opacity),
+                opacity: stroke_opacity,
                 width: Animated::Static(style.stroke_width),
                 cap: style.cap,
                 join: style.join,
@@ -826,11 +859,11 @@ impl<'a, 'input> Converter<'a, 'input> {
                     anchor: style.anchor,
                     font: Font {
                         families: style.font_families.clone(),
-                        size: Animated::Static(style.font_size),
+                        size: size.clone(),
                         weight: style.font_weight,
                         italic: style.italic,
                     },
-                    letter_spacing: Animated::Static(style.letter_spacing),
+                    letter_spacing: spacing.clone(),
                     fill: fill.clone(),
                     stroke: stroke.clone(),
                     paint_order: style.paint_order,

@@ -118,3 +118,22 @@ fn unfilled_or_empty_text_draws_nothing() {
     }
     assert!(!any_text(&import.scene.root));
 }
+
+#[test]
+fn text_moves_grows_and_changes_color() {
+    let import = read(&svg(
+        r##"<style>#t { animation: k 1s linear both; } @keyframes k { from { fill: #000; } to { fill: #f00; } }</style>
+<text id="t" x="10" y="50" font-size="10">Hi<animate attributeName="font-size" from="10" to="30" dur="1s"/><animate attributeName="x" from="10" to="50" dur="1s"/></text>"##,
+    ));
+    assert!(import.warnings.is_empty(), "{:?}", import.warnings);
+    let t = text(&import);
+    let span = &t.spans[0];
+    assert_eq!(span.font.size.sample(0.5), 20.0);
+    let position = span.position.as_ref().unwrap();
+    assert_eq!(position.x.sample(0.5), 30.0);
+    assert_eq!(position.y.sample(0.5), 50.0);
+    let Paint::Solid { color } = &span.fill.as_ref().unwrap().paint else {
+        panic!();
+    };
+    assert!((color.sample(0.5).r - 0.5).abs() < 0.01);
+}
