@@ -263,7 +263,7 @@ sRGB first.
   with `--force-device-scale-factor=2` (the runner's own Chrome draws at one).
 
 Last run (45 scenes, the check app's 29 and 16 corpus files, each at 25, 50 and 75%; NSH from the fork's
-`main` of 2026-10-25):
+`main` at 4faf2cfd, upstream merged, 2026-10-25):
 
 | Platform | Pixels a point | Tiles off the reference by, at most (live text aside) | This round's scenes (inner shadows, color effects, patterns, image shadows, moving layers, clear stops) | Live text |
 |---|---|---|---|---|
@@ -271,7 +271,7 @@ Last run (45 scenes, the check app's 29 and 16 corpus files, each at 25, 50 and 
 | Android emulator | 2.75 | 1.6% (anti-aliasing of fine strokes and bands) | 0.99% | 6.8% |
 | Chrome | 1 | 2.9% | 0.26% | 3.8% |
 | Chrome | 2 | 1.25% | 0.22% | 4.2% |
-| GTK on Linux | 1 | 2.75% | 0.31% | 8.8% |
+| GTK on Linux | 1 | 2.75% | 0.20% | 8.8% |
 | GPUI on Linux | 1 | 3.6% (the moving layer of small checks) | 3.6% | 9.2% |
 | GPUI on macOS | 2 | 1.21% | 0.87% | 4.4% |
 
