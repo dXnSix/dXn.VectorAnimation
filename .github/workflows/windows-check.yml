@@ -1,0 +1,137 @@
+name: Windows check
+
+# The check app (`examples/check`) on Windows: its own scenes, held at 25,
+# 50 and 75% in a Win32 window by `nsh test --target windows`, photographed
+# and set beside the reference renderer's frames (`vector-animation-check
+# compare`), as the README's device checks are on the other platforms. NSH
+# is the dXnSix fork's, built from its `main` (or the ref given), its crates
+# patched into the check app as on a desk.
+#
+# Needs the `DXN_REPOS_TOKEN` secret: Cargo fetches the private
+# dXn.VectorAnimation with it.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      nsh_ref:
+        description: The dXnSix/nsh ref to build
+        default: main
+
+permissions:
+  contents: read
+
+concurrency:
+  group: windows-check-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_INCREMENTAL: "0"
+  CARGO_PROFILE_DEV_DEBUG: "0"
+  CARGO_NET_GIT_FETCH_WITH_CLI: "true"
+  # NSH's toolchain file asks for stable with the release's iOS and Android
+  # targets: its CLI is built with the player's toolchain instead.
+  RUSTUP_TOOLCHAIN: "1.99.0"
+  # QuickJS is C: bindgen needs libclang, which the image's LLVM has.
+  LIBCLANG_PATH: C:\Program Files\LLVM\bin
+  # rustc can overflow its default stack on the `windows` crate's bindings.
+  RUST_MIN_STACK: "268435456"
+  # What a tile other than live text may differ by, in percent of its
+  # pixels (the other platforms' tiles of these scenes at one pixel a
+  # point: 0.7% at most, 3.6% for a layer GPUI resamples; a tile showing
+  # another moment, or nothing, differs by far more). Live text is set in
+  # the platform's fonts: reported, not checked.
+  LIMIT: "5"
+
+jobs:
+  check:
+    runs-on: windows-latest
+    timeout-minutes: 90
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/checkout@v7
+        with:
+          repository: dXnSix/nsh
+          ref: ${{ inputs.nsh_ref || 'main' }}
+          path: nsh
+      - uses: dtolnay/rust-toolchain@1.99.0
+      - name: Fetch the private repositories with the token
+        env:
+          TOKEN: ${{ secrets.DXN_REPOS_TOKEN }}
+        run: |
+          if [[ -z "$TOKEN" ]]; then
+            echo "::error::The DXN_REPOS_TOKEN secret is not set: Cargo cannot fetch dXn.VectorAnimation."
+            exit 1
+          fi
+          git config --global url."https://x-access-token:${TOKEN}@github.com/".insteadOf "https://github.com/"
+      - name: Cache Cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            . -> target
+            nsh -> target
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - name: Build NSH's CLI
+        run: |
+          cargo build -p nsh-cli --manifest-path nsh/Cargo.toml
+          echo "NSH: dXnSix/nsh $(git -C nsh rev-parse --short HEAD)" >> "$GITHUB_STEP_SUMMARY"
+      # Its own scenes: the corpus files are not in the repository.
+      - name: Write the check set
+        run: cargo run --release -p dxn_vector_animation_check -- scenes examples/check
+      # As `.cargo/config.toml` patches NSH's crates on a desk.
+      - name: Patch NSH's crates into the check app
+        run: |
+          root=$(cygpath -m "$GITHUB_WORKSPACE/nsh")
+          mkdir -p examples/check/.cargo
+          {
+            echo "[patch.crates-io]"
+            for manifest in nsh/crates/*/Cargo.toml nsh/crates/gpui/*/Cargo.toml; do
+              name=$(sed -n 's/^name = "\(.*\)"/\1/p' "$manifest" | head -1)
+              dir=$(dirname "${manifest#nsh/}")
+              case "$name" in
+                nsh-*) echo "$name = { path = \"$root/$dir\" }" ;;
+              esac
+            done
+          } > examples/check/.cargo/config.toml
+          cat examples/check/.cargo/config.toml
+      - name: Hold and photograph the check app in a Win32 window
+        working-directory: examples/check
+        run: |
+          rm -rf shots && mkdir shots
+          ../../nsh/target/debug/nsh test check.test.tsx --target windows
+      - name: Set the photographs beside the reference
+        run: |
+          cargo run --release -p dxn_vector_animation_check -- \
+            compare examples/check/shots examples/check --out compared | tee compared.txt
+      - name: Check the tiles
+        run: |
+          scenes=$(grep -c '"name"' examples/check/animations/index.json)
+          awk -v scenes="$scenes" -v limit="$LIMIT" '
+            /^frame-/ { frame = $1; sub(/:$/, "", frame) }
+            /^  / && /shifted/ {
+              share = $3; gsub(/[(%]/, "", share); share += 0; tiles++
+              if ($1 == "live-text") { if (share > text) text = share; next }
+              if (share > worst) { worst = share; at = $1 " " frame }
+              if (share > limit) { over = over "\n- " $1 " " frame " " share "%" }
+            }
+            END {
+              printf "Tiles: %d of %d\n\n", tiles, scenes * 3
+              printf "Worst tile, live text aside: %.2f%% (%s)\n\n", worst, at
+              printf "Live text (the platform'\''s fonts): %.2f%% at most\n", text
+              if (over != "") printf "\nOver %s%%:%s\n", limit, over
+              exit (tiles != scenes * 3 || over != "")
+            }' compared.txt | tee -a "$GITHUB_STEP_SUMMARY"
+      - name: Keep the photographs and the comparison
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-check
+          path: |
+            examples/check/shots
+            compared
+            compared.txt
+          if-no-files-found: ignore
