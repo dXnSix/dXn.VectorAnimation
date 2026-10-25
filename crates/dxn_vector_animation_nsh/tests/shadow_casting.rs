@@ -352,8 +352,9 @@ fn a_shadow_of_a_card_clipping_its_content_plays_on_the_graph() {
 }
 
 #[test]
-fn a_shadow_of_content_clipped_otherwise_is_drawn_as_the_reference_draws_it() {
-    // The background half see-through: the clip is not the silhouette.
+fn a_shadow_of_content_clipped_otherwise_casts_from_an_image_of_it() {
+    // The background half see-through: the clip is not the silhouette;
+    // the content holds still, so an image of it casts.
     let s = on_ground(Group {
         effects: vec![Effect::DropShadow(shadow(
             dark(0.4),
@@ -368,8 +369,9 @@ fn a_shadow_of_content_clipped_otherwise_is_drawn_as_the_reference_draws_it() {
         ..Group::new()
     });
     let plan = plan::compile(&s, Matrix::IDENTITY).unwrap();
-    assert_eq!(kinds(&plan.units), (0, 0, 1));
-    assert!(worst(&s) <= 0.001);
+    assert!(plan.sampled.is_empty(), "{:?}", plan.sampled);
+    assert_eq!(kinds(&plan.units), (1, 0, 0));
+    assert!(worst(&s) <= 0.004);
 }
 
 /// The card and disc turning about the middle and shrinking, with a shadow
