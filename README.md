@@ -234,12 +234,14 @@ Last run (38 scenes, the check app's 26 and 12 corpus files, each at 25, 50 and 
 | Chrome | 2 | 1.25% | 0.43% |
 | GTK on Linux | 1 | 2.75% | 0.66% |
 | GPUI on Linux | 1 | 2.4% | 0.19% |
-| GPUI on macOS | 2 | not run again: the Mac's screen was locked (GPUI's window draws no frames then); before the new scenes, 1.4% on the first two pages | – |
+| GPUI on macOS | 2 | 1.2% for each tile's better of two runs; in each run, two to six tiles held at a page's first moment show another moment | 0.15% |
 
 At one pixel a point a pixel of anti-aliasing is a larger share: the scenes over 0.5% there are corpus files of
-fine detail. Every scene of shadows, blurs and masks is within 0.5% on every platform run. On GPUI on macOS,
-tiles of the last page showed a state of another time after the page changed, also with holds four times as
-long; GPUI on Linux, with the same plans, does not: it is the macOS GPUI host's, not the plans'.
+fine detail. Every scene of shadows, blurs and masks is within 0.5% on every platform (on GPUI on macOS, in
+its better run). On GPUI on macOS, some tiles held at a page's first moment show another moment of their
+animation, different tiles in each run (the same tiles are exact at the page's other moments, and earlier runs
+saw this with holds four times as long); GPUI on Linux, with the same plans, does not: it is the macOS GPUI
+host's, not the plans'.
 
 ## What playing costs
 
