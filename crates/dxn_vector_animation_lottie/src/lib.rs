@@ -10,13 +10,25 @@
 //! paths (auto-orient included), and the layer effects Drop Shadow and
 //! Gaussian Blur.
 //!
-//! What a file holds beyond that (expressions, text layers, other effects,
-//! repeaters, merge paths) is left out with a warning in
+//! Shape modifiers change the outlines listed before them in their group
+//! (nested groups' included) for the fills and strokes after them: merge
+//! paths (merge, add, subtract, intersect, exclude intersections, as
+//! skottie merges, each outline's inside by the non-zero rule; the fills
+//! and strokes before a merge draw nothing, as in After Effects), round
+//! corners, pucker and bloat, zig zag and offset path (as lottie-web
+//! changes outlines), and twist (points turned about its center, the
+//! more the nearer). What they make is outline geometry: a constant path,
+//! or, while anything it depends on moves, a path keyframe each frame,
+//! within half the limits of path points and keyframes.
+//!
+//! What a file holds beyond that (expressions, text animators, text
+//! without glyphs, other effects) is left out with a warning in
 //! [`Import::warnings`]. dotLottie archives (ZIP) are read too: their first
 //! animation, its images embedded.
 
 mod convert;
 mod dotlottie;
+mod modifiers;
 mod props;
 
 use dxn_vector_animation::{Error, Import, Limits};
