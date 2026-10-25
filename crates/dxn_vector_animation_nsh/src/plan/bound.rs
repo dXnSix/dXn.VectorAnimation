@@ -25,7 +25,7 @@ pub(super) struct Bound {
 
 /// Whether `g`'s content draws the same at every time of `stage`'s
 /// timeline.
-fn still_content(g: &Group, stage: &Scene) -> bool {
+pub(super) fn still_content(g: &Group, stage: &Scene) -> bool {
     let scene = Scene {
         root: Group {
             children: g.children.clone(),

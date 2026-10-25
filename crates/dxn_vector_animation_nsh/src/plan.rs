@@ -1425,9 +1425,18 @@ impl Compiler {
             Some(k) => self.mul(opacity, k),
             None => opacity,
         };
+        // A layer fades as one; one that only fades (its content still) is
+        // a layer too, so its canvas never draws again as it fades.
         let isolate = !g.blend.is_normal()
             || (!opacity.is(1.0) && drawables(g, 2) > 1)
-            || !shadows.is_empty();
+            || !shadows.is_empty()
+            || (matches!(opacity, Num::Node(_))
+                && self.casting.is_none()
+                && !self
+                    .ancestors
+                    .iter()
+                    .any(|(a, _)| a.mask.is_some() || !a.effects.is_empty())
+                && bound::still_content(g, &self.stage));
         let outer_alpha = self.open().alpha;
         if isolate {
             self.flush();

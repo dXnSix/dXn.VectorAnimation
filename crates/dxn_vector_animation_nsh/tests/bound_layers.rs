@@ -1,6 +1,7 @@
 //! Groups that only move (and fade) are layers the platform moves: their
 //! still content drawn once, in their own lengths scaled up to stay sharp,
-//! on canvases whose operations hold no animated value. Groups whose
+//! on canvases whose operations hold no animated value; groups that only
+//! fade are layers it fades. Groups whose
 //! content moves, or that need the view's coordinates (inside a clip,
 //! casting a shadow), are drawn as before. All draw what the reference
 //! draws.
@@ -129,4 +130,21 @@ fn groups_whose_content_moves_or_that_need_the_view_are_drawn_as_before() {
     let plan = plan::compile(&scene, Matrix::IDENTITY).unwrap();
     assert_eq!(moving_layers(&plan.units).0, 0);
     assert_matches(&scene, 0.004);
+}
+
+#[test]
+fn a_group_that_only_fades_is_a_layer_it_fades() {
+    let scene = read(
+        r##"<g transform="translate(50 50)"><animate attributeName="opacity" values="1; 0.2; 1" dur="1s" fill="freeze"/>
+<circle r="20" fill="#3070e0"/></g>"##,
+    );
+    let plan = plan::compile(&scene, Matrix::IDENTITY).unwrap();
+    let layer = plan.units.iter().find_map(|u| match u {
+        Unit::Layer { opacity, units, .. } => Some((*opacity, units.clone())),
+        _ => None,
+    });
+    let (opacity, units) = layer.expect("a layer");
+    assert!(matches!(opacity, Num::Node(_)), "its opacity bound");
+    assert!(moving_layers(&units).1, "its canvas still");
+    assert_matches(&scene, 0.002);
 }
