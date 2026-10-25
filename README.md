@@ -234,14 +234,14 @@ Last run (38 scenes, the check app's 26 and 12 corpus files, each at 25, 50 and 
 | Chrome | 2 | 1.25% | 0.43% |
 | GTK on Linux | 1 | 2.75% | 0.66% |
 | GPUI on Linux | 1 | 2.4% | 0.19% |
-| GPUI on macOS | 2 | 1.2% for each tile's better of two runs; in each run, two to six tiles held at a page's first moment show another moment | 0.15% |
+| GPUI on macOS | 2 | 1.21% | 0.15% |
 
 At one pixel a point a pixel of anti-aliasing is a larger share: the scenes over 0.5% there are corpus files of
-fine detail. Every scene of shadows, blurs and masks is within 0.5% on every platform (on GPUI on macOS, in
-its better run). On GPUI on macOS, some tiles held at a page's first moment show another moment of their
-animation, different tiles in each run (the same tiles are exact at the page's other moments, and earlier runs
-saw this with holds four times as long); GPUI on Linux, with the same plans, does not: it is the macOS GPUI
-host's, not the plans'.
+fine detail. Every scene of shadows, blurs and masks is within 0.5% on every platform. GPUI showed some tiles
+held at a moment at another moment of their animation, on a busy display (two pixels a point): each canvas whose
+values move its whole drawing queued a worker rasterization every frame, and the workers fell behind. The fork's
+NSH keeps one in flight per canvas (dXnSix/nsh#38, to go upstream as `pr/gpui/01-canvas-one-job`); the run above
+is with it.
 
 ## What playing costs
 
@@ -262,8 +262,8 @@ the platforms' UI threads, and frame times on real phones, are not measured here
    masks (as images where they move as a whole); drop shadows that move, show through, turn with their group
    or are Figma's hard ones, on the graph; blurs; dotLottie; device checks on iOS, Android, the web, Linux
    (GTK, GPUI) and GPUI on macOS.
-2. Windows run (it compiles; running it needs a Windows machine or CI), real phones and their frame times, the
-   stale frames of GPUI on macOS, views with bound transforms for groups that only move or fade.
+2. Windows run (it compiles; running it needs a Windows machine or CI), real phones and their frame times,
+   views with bound transforms for groups that only move or fade.
 
 ## License
 
