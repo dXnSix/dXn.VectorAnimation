@@ -630,6 +630,22 @@ impl<'g> Replay<'g> {
         let Ok(image) = dxn_vector_animation_render::render(&frame, &options) else {
             return;
         };
+        // An image casts a shadow too (of its alpha, as drawn).
+        if self.state.shadow.0 & 0xff > 0 {
+            let mut shape = sk::Pixmap::new(self.w, self.h).unwrap();
+            shape.draw_pixmap(
+                0,
+                0,
+                image.as_ref(),
+                &sk::PixmapPaint {
+                    opacity: self.state.alpha.clamp(0.0, 1.0) as f32,
+                    ..Default::default()
+                },
+                sk::Transform::identity(),
+                None,
+            );
+            self.cast_shadow(&shape, out);
+        }
         let paint = sk::PixmapPaint {
             opacity: self.state.alpha.clamp(0.0, 1.0) as f32,
             blend_mode: sk_blend(self.state.blend),

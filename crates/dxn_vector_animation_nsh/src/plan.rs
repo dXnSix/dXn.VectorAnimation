@@ -1470,20 +1470,37 @@ impl Compiler {
             }
         }
         if !shadows.is_empty() {
-            // Cast by one canvas of the content, drawn as it is.
-            let content = closed(self.open().canvas.clone());
-            let composited = content
-                .iter()
-                .any(|op| matches!(op, Op::Blend(_) | Op::Atop | Op::Shadow { .. }));
-            if self.open().units.len() != units || composited {
-                self.undo(start);
-                return unsupported("a drop shadow of more than one canvas");
+            // The content: the setup of the groups it is in (the fit, then
+            // theirs, this one's last), then what its canvases draw.
+            let mut content = vec![Op::Transform(consts(self.base))];
+            content.extend(self.context.iter().flatten().cloned());
+            let outer = content.len();
+            let mut several = false;
+            for unit in &self.open().units[units..] {
+                several = true;
+                if let Unit::Canvas(ops) = unit {
+                    content.extend(ops.iter().cloned());
+                }
             }
-            if !content.is_empty() {
-                // The canvas starts with the fit and the setup of the groups
-                // it is in, this one's last.
-                let outer = 1 + self.context.iter().map(Vec::len).sum::<usize>();
-                match self.shadow_units(g, local, depth, &content, outer, shadows) {
+            let open = &self.open().canvas;
+            content.extend(
+                open.get(outer.min(open.len())..)
+                    .unwrap_or_default()
+                    .iter()
+                    .cloned(),
+            );
+            // Composited content casts as an image of it.
+            let several = several
+                || content
+                    .iter()
+                    .any(|op| matches!(op, Op::Blend(_) | Op::Atop | Op::Shadow { .. }));
+            if content.len() > outer || several {
+                let content = shadow::Content {
+                    ops: &content,
+                    outer,
+                    several,
+                };
+                match self.shadow_units(g, local, depth, content, shadows) {
                     Ok(list) => {
                         let (over, under): (Vec<_>, Vec<_>) =
                             list.into_iter().partition(|(_, inner)| *inner);

@@ -251,8 +251,9 @@ fn a_blur_is_drawn_as_the_reference_draws_it() {
 }
 
 #[test]
-fn a_shadow_of_layers_is_drawn_as_the_reference_draws_it() {
-    // A faded group of two inside: a layer of its own, a second canvas.
+fn a_shadow_of_layers_is_cast_from_their_silhouettes() {
+    // A faded group of two inside: a layer of its own, a second canvas;
+    // still, an image of it casts on the graph.
     let mut s = scene(
         vec![shadow(
             Animated::Static(0.5),
@@ -271,8 +272,10 @@ fn a_shadow_of_layers_is_drawn_as_the_reference_draws_it() {
         })];
     }
     let plan = plan::compile(&s, Matrix::IDENTITY).unwrap();
-    assert_eq!(kinds(&plan.units), (0, 1));
-    assert!(worst(&s) <= 0.001);
+    assert!(plan.sampled.is_empty(), "{:?}", plan.sampled);
+    assert_eq!(kinds(&plan.units), (1, 0));
+    let share = worst(&s);
+    assert!(share <= 0.004, "{:.2}% of the pixels differ", share * 100.0);
 }
 
 /// A player of `scene` (compiled), and how many canvases it mounted after

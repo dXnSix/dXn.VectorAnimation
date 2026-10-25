@@ -46,6 +46,9 @@ const PROBE_RATE: f64 = 60.0;
 /// The most times it is sampled.
 const PROBES: usize = 600;
 
+/// The most pixels an image of content casting a shadow has.
+const CASTER_IMAGE_PIXELS: f64 = 2048.0 * 2048.0;
+
 /// A drop shadow as the canvas draws it.
 pub(super) struct CanvasShadow {
     /// Its color, opaque: still, or a node.
@@ -62,6 +65,15 @@ pub(super) struct CanvasShadow {
     hard: bool,
     /// Cast inside the content by what is around it, over it.
     pub(super) inner: bool,
+}
+
+/// What casts a group's shadows: the setup of the groups it is in (the
+/// first `outer` operations), then what its canvases draw; `several` where
+/// that is more than one canvas, or composited.
+pub(super) struct Content<'a> {
+    pub(super) ops: &'a [Op],
+    pub(super) outer: usize,
+    pub(super) several: bool,
 }
 
 /// A group's shadows as the canvas draws them.
@@ -334,6 +346,29 @@ fn clips_after(ops: &[Op]) -> Vec<Op> {
         }
     }
     out
+}
+
+/// `data` (a PNG) opaque wherever it draws at all; as it is where it is
+/// not a PNG.
+fn opaque_image(
+    data: &std::sync::Arc<dxn_vector_animation::ImageData>,
+) -> std::sync::Arc<dxn_vector_animation::ImageData> {
+    let Ok(mut pixmap) = tiny_skia::Pixmap::decode_png(&data.bytes) else {
+        return data.clone();
+    };
+    for px in pixmap.pixels_mut() {
+        if px.alpha() > 0 {
+            *px = tiny_skia::PremultipliedColorU8::from_rgba(0, 0, 0, 255)
+                .unwrap_or(tiny_skia::PremultipliedColorU8::TRANSPARENT);
+        }
+    }
+    match pixmap.encode_png() {
+        Ok(bytes) => std::sync::Arc::new(dxn_vector_animation::ImageData {
+            mime: "image/png".into(),
+            bytes,
+        }),
+        Err(_) => data.clone(),
+    }
 }
 
 /// The shadow's operation.
@@ -824,21 +859,21 @@ impl Compiler {
         })
     }
 
-    /// The layers of `shadows` of `g`, bottom first, cast by its content
-    /// `content` (a canvas's operations: the setup of the groups it is in,
-    /// `outer` of them, then what it draws), each with whether it is an
-    /// inner shadow (drawn over the content; drop shadows go under).
+    /// The layers of `shadows` of `g`, bottom first, cast by its
+    /// `content`, each with whether it is an inner shadow (drawn over the
+    /// content; drop shadows go under).
     pub(super) fn shadow_units(
         &mut self,
         g: &Group,
         local: NodeId,
         depth: usize,
-        content: &[Op],
-        outer: usize,
+        content: Content<'_>,
         shadows: Shadows,
     ) -> Result<Vec<(Unit, bool)>, Unsupported> {
-        let (setup, drawn) = content.split_at(outer.min(content.len()));
-        let see_through = self.see_through(drawn);
+        let several = content.several;
+        let (setup, drawn) = content.ops.split_at(content.outer.min(content.ops.len()));
+        // Content on several canvases may show through where they overlap.
+        let see_through = several || self.see_through(drawn);
         // A group that turns or scales: its shadows cast in its lengths,
         // in layers moving as it does (the groups' clips would not).
         let turning = shadows.turning;
@@ -850,13 +885,27 @@ impl Compiler {
             }
             _ => Vec::new(),
         };
-        // Soft and hard silhouettes, as the shadows need them.
+        // Soft and hard silhouettes, as the shadows need them: from the
+        // content's operations, or, where the canvas cannot cast those
+        // (clipped, masked or shadowed content, content on several
+        // canvases), an image of the content where it holds still.
         let mut casters: [Option<Vec<Op>>; 2] = [None, None];
         let mut units = Vec::new();
         for shadow in shadows.list {
             let k = usize::from(shadow.hard);
             if casters[k].is_none() {
-                casters[k] = Some(self.casters(g, local, depth, shadow.hard)?);
+                // Layers' silhouettes are not their shapes' (where they
+                // overlap faded, they add up): an image of them.
+                let cast = if several {
+                    self.image_casters(g, shadow.hard)
+                        .map_err(|_| Unsupported("a drop shadow of more than one canvas".into()))
+                } else {
+                    match self.casters(g, local, depth, shadow.hard) {
+                        Ok(cast) => Ok(cast),
+                        Err(why) => self.image_casters(g, shadow.hard).map_err(|_| why),
+                    }
+                };
+                casters[k] = Some(cast?);
             }
             let cast = casters[k].clone().unwrap_or_default();
             if cast.is_empty() {
@@ -937,7 +986,61 @@ impl Compiler {
         Unit::Wide { margin, ops }
     }
 
-    /// `cast` as what takes the shadow away again: opaque wherever it draws.
+    /// The silhouette `g`'s content casts (in `g`'s lengths) as an image
+    /// the reference renderer makes of it, black with its alpha (made all
+    /// or nothing where `hard`), where the content holds still.
+    fn image_casters(&mut self, g: &Group, hard: bool) -> Result<Vec<Op>, Unsupported> {
+        let scene = Scene {
+            root: Group {
+                children: g.children.clone(),
+                ..Group::new()
+            },
+            ..self.stage.clone()
+        };
+        if !super::still(&scene) {
+            return unsupported("a shadow of moving content the canvas cannot cast");
+        }
+        let frame = scene.frame_at(0.0);
+        let Some(bounds) = frame.bounds() else {
+            return Ok(Vec::new());
+        };
+        let mut k = self.pixels * self.largest_scale(g).max(1e-6);
+        let area = bounds.width * bounds.height * k * k;
+        if area > CASTER_IMAGE_PIXELS {
+            k *= (CASTER_IMAGE_PIXELS / area).sqrt();
+        }
+        // Whole pixels, with a pixel of room.
+        let x0 = (bounds.x * k).floor() / k - 1.0 / k;
+        let y0 = (bounds.y * k).floor() / k - 1.0 / k;
+        let x1 = ((bounds.x + bounds.width) * k).ceil() / k + 1.0 / k;
+        let y1 = ((bounds.y + bounds.height) * k).ceil() / k + 1.0 / k;
+        let rect = Rect::new(x0, y0, x1 - x0, y1 - y0);
+        let Ok(mut pixmap) = dxn_vector_animation_render::render_region(&frame, rect, k) else {
+            return unsupported("a shadow of content too large to image");
+        };
+        for px in pixmap.pixels_mut() {
+            let a = harden(f64::from(px.alpha()) / 255.0, hard);
+            let a = (a * 255.0).round().clamp(0.0, 255.0) as u8;
+            *px = tiny_skia::PremultipliedColorU8::from_rgba(0, 0, 0, a)
+                .unwrap_or(tiny_skia::PremultipliedColorU8::TRANSPARENT);
+        }
+        let Ok(bytes) = pixmap.encode_png() else {
+            return unsupported("a shadow of content too large to image");
+        };
+        let data = std::sync::Arc::new(dxn_vector_animation::ImageData {
+            mime: "image/png".into(),
+            bytes,
+        });
+        Ok(vec![
+            Op::Save,
+            Op::GlobalAlpha(Num::Const(1.0)),
+            Op::Image(data, rect),
+            Op::Restore,
+        ])
+    }
+
+    /// `cast` as what takes the shadow away again: opaque wherever it draws
+    /// (images too).
     fn cut(&mut self, cast: &[Op]) -> Vec<Op> {
         cast.iter()
             .map(|op| match op {
@@ -946,6 +1049,7 @@ impl Compiler {
                     Op::StrokeColor(Paint::Const(0x0000_00ff))
                 }
                 Op::GlobalAlpha(a) => Op::GlobalAlpha(self.g.step(*a, 0.0, true)),
+                Op::Image(data, rect) => Op::Image(opaque_image(data), *rect),
                 other => other.clone(),
             })
             .collect()

@@ -148,8 +148,8 @@ fn a_blur_clipped_after_keeps_the_displays_pixels() {
 
 #[test]
 fn a_blurred_shadow_of_sharp_content_keeps_the_displays_pixels() {
-    // A shadow under a blur of the content that casts it: sharp content
-    // over a blurred shadow is not blurred throughout.
+    // A shadow under the sharp content that casts it: not blurred
+    // throughout.
     let mut s = scene(
         vec![Effect::DropShadow(DropShadow {
             color: Animated::Static(Color::rgba(0.0, 0.0, 0.0, 0.5)),
@@ -160,12 +160,36 @@ fn a_blurred_shadow_of_sharp_content_keeps_the_displays_pixels() {
         })],
         None,
     );
-    // Content on two canvases: a faded group inside.
+    // Content the canvas cannot cast, moving: clipped inside, sliding.
     if let Node::Group(g) = &mut s.root.children[1] {
         let inner = std::mem::take(&mut g.children);
         g.children = vec![Node::Group(Group {
-            opacity: Animated::Static(0.7),
-            children: inner,
+            clip: Some(Clip {
+                shapes: vec![ClipShape {
+                    geometry: rect(20.0, 20.0, 50.0, 50.0),
+                    transform: Vec::new(),
+                    rule: FillRule::NonZero,
+                }],
+            }),
+            children: vec![Node::Group(Group {
+                transform: vec![dxn_vector_animation::TransformOp::Translate {
+                    x: Animated::Track(dxn_vector_animation::Track::new(vec![
+                        dxn_vector_animation::Keyframe::new(
+                            0.0,
+                            0.0,
+                            dxn_vector_animation::Easing::Linear,
+                        ),
+                        dxn_vector_animation::Keyframe::new(
+                            2.0,
+                            10.0,
+                            dxn_vector_animation::Easing::Linear,
+                        ),
+                    ])),
+                    y: Animated::Static(0.0),
+                }],
+                children: inner,
+                ..Group::new()
+            })],
             ..Group::new()
         })];
     }
