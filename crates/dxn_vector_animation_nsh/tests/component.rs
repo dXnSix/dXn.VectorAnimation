@@ -103,7 +103,7 @@ fn reports_what_it_loaded() {
 }
 
 #[test]
-fn draws_canvases_the_native_graph_moves() {
+fn draws_canvases_and_layers_the_native_graph_moves() {
     use std::sync::{Arc, Mutex};
 
     use nsh_core::{MountItem, animation::AnimationOp};
@@ -128,7 +128,24 @@ fn draws_canvases_the_native_graph_moves() {
     app.wait(std::time::Duration::from_millis(100)).unwrap();
     let (canvases, slots, started) = *seen.lock().unwrap();
     assert!(canvases > 0, "the scene is drawn on canvases");
-    assert!(slots > 0, "their numbers are animated values");
+    // Its groups only move and fade: layers the graph moves, their
+    // canvases still (other scenes' numbers are animated values).
+    let scene = dxn_vector_animation_nsh::source::read(FIGMA.as_bytes())
+        .unwrap()
+        .scene;
+    let plan =
+        dxn_vector_animation_nsh::plan::compile(&scene, dxn_vector_animation::Matrix::IDENTITY)
+            .unwrap();
+    let moving = plan.units.iter().any(|u| {
+        matches!(
+            u,
+            dxn_vector_animation_nsh::plan::Unit::Layer {
+                transform: Some(_),
+                ..
+            }
+        )
+    });
+    assert!(slots > 0 || moving, "the graph moves numbers or layers");
     assert!(
         started,
         "playback is a composite animation of the time value"

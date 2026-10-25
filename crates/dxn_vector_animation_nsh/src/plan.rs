@@ -24,6 +24,7 @@ use dxn_vector_animation::{
 use crate::graph::{Curve, Expr, Graph, MathOp, NodeId, Num, Paint, STEP, TIME, pack};
 use crate::span;
 
+mod bound;
 mod mask;
 mod paint;
 mod pattern;
@@ -740,6 +741,9 @@ struct Compiler {
     /// The color effects of the groups drawn inside, outermost first: what
     /// the colors drawn now go through.
     recolor: Vec<Vec<dxn_vector_animation::ColorEffect>>,
+    /// While a group is drawn as a moving layer: where its canvases' setup
+    /// starts.
+    bound: Option<bound::Bound>,
 }
 
 /// Where the compiler was before a node: what drawing it is undone to.
@@ -814,6 +818,7 @@ pub fn compile_for(scene: &Scene, base: Matrix, pixels: f64) -> Result<Plan, Uns
         casting: None,
         pixels: if pixels > 0.0 { pixels } else { 1.0 },
         recolor: Vec::new(),
+        bound: None,
     };
     c.group(&scene.root, TIME, 0)?;
     c.flush();
@@ -1171,8 +1176,16 @@ impl Compiler {
     /// and the groups' setup when it is new.
     fn draw(&mut self, ops: Vec<Op>) {
         if self.open().canvas.is_empty() {
-            let mut prologue = vec![Op::Transform(consts(self.base))];
-            for frame in &self.context {
+            // From the fit and every group's setup; in a moving layer, from
+            // its group's lengths, scaled up.
+            let (mut prologue, from) = match self.bound {
+                Some(b) => (
+                    vec![Op::Scale(Num::Const(b.scale), Num::Const(b.scale))],
+                    b.origin,
+                ),
+                None => (vec![Op::Transform(consts(self.base))], 0),
+            };
+            for frame in &self.context[from.min(self.context.len())..] {
                 prologue.extend(frame.iter().cloned());
             }
             self.open().canvas = prologue;
@@ -1354,6 +1367,17 @@ impl Compiler {
             Some(map) => self.local_time(map, time),
             None => time,
         };
+        // A group that only moves: a layer the platform moves.
+        if self.can_bind(g) {
+            let mark = self.mark();
+            match self.bound_group(g, local, depth, visible) {
+                Ok(true) => return Ok(()),
+                _ => {
+                    self.bound = None;
+                    self.undo(mark);
+                }
+            }
+        }
         let shadows = self.canvas_shadows(g, local)?;
         let mut frame = vec![Op::Save];
         frame.extend(self.transform(&g.transform, local)?);

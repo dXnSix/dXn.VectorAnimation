@@ -20,7 +20,7 @@ use dxn_vector_animation::{
     MotionRotate, Node, Paint as ScenePaint, Path, Point, Rect, Scene, Shape, ShapePath, Track,
     TransformOp,
     outline::geometry_path,
-    transform::{decompose, transform_at, unwrap_angles},
+    transform::{decompose, transform_at},
 };
 
 use super::{
@@ -104,7 +104,7 @@ enum ViewBlur {
 
 /// Times from 0 to `duration`, [`PROBE_RATE`] a second, at most
 /// [`PROBES`] of them.
-fn probe_times(duration: f64) -> Vec<f64> {
+pub(super) fn probe_times(duration: f64) -> Vec<f64> {
     let d = duration.max(0.0);
     let n = ((d * PROBE_RATE).ceil() as usize).clamp(1, PROBES);
     (0..=n).map(|k| d * k as f64 / n as f64).collect()
@@ -578,29 +578,105 @@ impl Compiler {
     /// frames, as a layer's transform (`g` not yet among the groups drawn
     /// inside).
     fn chain_transform(&mut self, g: &Group) -> LayerTransform {
+        let (times, matrices) = self.chain_samples(g);
+        self.layer_transform(&times, &matrices)
+    }
+
+    /// `g`'s matrix to the view sampled over the playback: at
+    /// [`probe_times`], and on both sides of where it jumps (a held
+    /// keyframe), found between them.
+    pub(super) fn chain_samples(&self, g: &Group) -> (Vec<f64>, Vec<Matrix>) {
         let times = probe_times(self.stage.timeline.duration);
         let matrices = self.chain_matrices(g, &times);
+        let parts = |m: &Matrix| [m.a, m.b, m.c, m.d, m.e, m.f];
+        let apart = |a: &Matrix, b: &Matrix| {
+            parts(a)
+                .iter()
+                .zip(parts(b))
+                .map(|(x, y)| (x - y).abs())
+                .fold(0.0, f64::max)
+        };
+        let n = times.len();
+        let steps: Vec<f64> = (1..n)
+            .map(|i| apart(&matrices[i - 1], &matrices[i]))
+            .collect();
+        let mut out: Vec<(f64, Matrix)> = times
+            .iter()
+            .copied()
+            .zip(matrices.iter().copied())
+            .collect();
+        for i in 0..steps.len() {
+            let around = [
+                i.checked_sub(1).map(|j| steps[j]),
+                steps.get(i + 1).copied(),
+            ]
+            .into_iter()
+            .flatten()
+            .fold(0.0, f64::max);
+            if steps[i] <= 4.0 * around + 1e-6 {
+                continue;
+            }
+            // A jump between them: where most of the change is.
+            let (mut a, mut b) = ((times[i], matrices[i]), (times[i + 1], matrices[i + 1]));
+            for _ in 0..30 {
+                let mid = (a.0 + b.0) / 2.0;
+                let Some(m) = self.chain_matrices(g, &[mid]).first().copied() else {
+                    break;
+                };
+                if apart(&a.1, &m) > apart(&m, &b.1) {
+                    b = (mid, m);
+                } else {
+                    a = (mid, m);
+                }
+            }
+            out.push(a);
+            out.push(b);
+        }
+        out.sort_by(|x, y| x.0.total_cmp(&y.0));
+        out.dedup_by(|x, y| x.0 == y.0);
+        out.into_iter().unzip()
+    }
+
+    /// `matrices` at `times` (of the playback) as a layer's transform:
+    /// each part sampled where a line does not stand for it.
+    pub(super) fn layer_transform(&mut self, times: &[f64], matrices: &[Matrix]) -> LayerTransform {
         let mut parts: [Vec<f64>; 6] = Default::default();
-        for m in matrices {
+        let mut previous: Option<f64> = None;
+        for &m in matrices {
             let d = decompose(m);
+            // A matrix turned half a turn with both scales negated is the
+            // same: of the two, the one turned nearer the sample before
+            // (a mirrored matrix's decomposition flips between them).
+            let (mut angle, mut scale) = (d.angle, d.scale);
+            let wrap = |a: f64| (a + 180.0).rem_euclid(360.0) - 180.0;
+            if let Some(p) = previous
+                && wrap(angle - p).abs() > 90.0
+            {
+                angle += 180.0;
+                scale = (-scale.0, -scale.1);
+            }
+            let angle = match previous {
+                Some(p) => p + wrap(angle - p),
+                None => angle,
+            };
+            previous = Some(angle);
             let values = [
                 d.translate.0,
                 d.translate.1,
-                d.angle,
+                angle,
                 d.skew.atan().to_degrees(),
-                d.scale.0,
-                d.scale.1,
+                scale.0,
+                scale.1,
             ];
             for (list, v) in parts.iter_mut().zip(values) {
                 list.push(v);
             }
         }
-        unwrap_angles(&mut parts[2]);
         // Within a twentieth of a point, a hundredth of a degree, a
         // thousandth of a scale.
         let tolerances = [0.05, 0.05, 0.01, 0.01, 1e-3, 1e-3];
         let [tx, ty, rotate, skew, sx, sy] = [0, 1, 2, 3, 4, 5].map(|i| {
-            let n = self.sampled_num(&times, &parts[i], tolerances[i]);
+            let n = self.sampled_num(times, &parts[i], tolerances[i]);
             Num::Node(self.node(n))
         });
         LayerTransform {
