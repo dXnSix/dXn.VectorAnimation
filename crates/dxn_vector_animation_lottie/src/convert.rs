@@ -1,10 +1,11 @@
 //! A Lottie composition turned into a scene: layers (shape, null, nested
 //! composition, solid, image), parenting, time offsets, stretches and
-//! remapping, masks and track mattes, and shape groups.
+//! remapping, masks and track mattes, shape groups and their modifiers.
 
 mod text;
 
 use std::{
+    cell::Cell,
     collections::{BTreeSet, HashMap},
     sync::Arc,
 };
@@ -15,13 +16,21 @@ use dxn_vector_animation::{
     Keyframe, Limits, LineCap, LineJoin, LinearGradient, LoopMode, Marker, Mask, MaskKind, Matrix,
     MotionPath, MotionRotate, Node, Paint, Path, Point, RadialGradient, Rect, RectStart, Scene,
     Shape, ShapePath, Star, StarKind, Stroke, TimeMap, TimeRange, Timeline, Track, TransformOp,
-    Trim, TrimMode, outline::path_length, transform::transform_at,
+    Trim, TrimMode,
+    outline::{geometry_path, path_length, trim_paths},
+    transform::transform_at,
 };
 use serde_json::Value;
 
-use crate::props::{
-    self, Prop, color, gradient_stops, has_expression, key_times, num, nums, prop, sampled,
-    sampled_color, scalar, shape,
+use crate::{
+    modifiers::{
+        Join, MAX_POINTS, MergeMode, contours, merge, offset, path_of, pucker_bloat, round_corners,
+        twist, zig_zag,
+    },
+    props::{
+        self, Prop, color, gradient_stops, has_expression, key_times, num, nums, prop, sampled,
+        sampled_color, scalar, shape,
+    },
 };
 
 /// A rectangle far larger than any composition: what an inverted mask
@@ -43,6 +52,10 @@ pub(crate) struct Converter<'a> {
     glyphs: HashMap<usize, Vec<ShapePath>>,
     /// Keyframes text animators were sampled into so far.
     text_keyframes: usize,
+    /// Path points and keyframes left for the outlines shape modifiers
+    /// make.
+    bake_points: usize,
+    bake_keys: usize,
 }
 
 impl<'a> Converter<'a> {
@@ -101,6 +114,8 @@ impl<'a> Converter<'a> {
                 .unwrap_or_default(),
             glyphs: HashMap::new(),
             text_keyframes: 0,
+            bake_points: limits.max_path_points / 2,
+            bake_keys: limits.max_keyframes / 2,
         };
         let children = converter.composition(layers)?;
         let markers = root
@@ -703,7 +718,10 @@ impl<'a> Converter<'a> {
     ///
     /// A style draws the outlines listed before it (above it, in After
     /// Effects), nested groups' included; the first style listed is on top.
-    /// A trim cuts the outlines listed before it.
+    /// A trim cuts the outlines listed before it, and the other modifiers
+    /// change them: a merge makes them one outline (the styles before it
+    /// drawing nothing, as in After Effects); round corners, pucker and
+    /// bloat, twist, zig zag and offset path change each one.
     fn shapes(&mut self, items: &'a [Value]) -> Result<(Vec<Node>, Vec<Outline>), Error> {
         if self.depth >= self.limits.max_depth {
             return Err(Error::Limit {
@@ -824,11 +842,13 @@ impl<'a> Converter<'a> {
                 }
                 "tr" => {}
                 "rp" => self.repeat(item, &mut drawn, &mut outlines)?,
-                "mm" => self.warn("merge paths are left out"),
-                "rd" => self.warn("rounded corners are left out"),
-                "pb" | "tw" | "zz" | "op" => {
-                    self.warn("shape modifiers (pucker, twist, zig-zag, offset) are left out")
+                "mm" => {
+                    // The styles before a merge draw nothing (skottie and
+                    // lottie-android hide them too).
+                    drawn.clear();
+                    self.merge_paths(item, &mut outlines);
                 }
+                "rd" | "pb" | "tw" | "zz" | "op" => self.modify(ty, item, &mut outlines),
                 _ => {}
             }
         }
@@ -1082,6 +1102,335 @@ impl<'a> Converter<'a> {
         Ok(())
     }
 
+    /// Merge paths (`mm`): the outlines before it as one, merged in its
+    /// group's space (or the space they share, keeping its transform).
+    fn merge_paths(&mut self, item: &Value, outlines: &mut Vec<Outline>) {
+        let mode = match item.get("mm").and_then(num).map(|m| m.round() as i64) {
+            None | Some(1) => MergeMode::Merge,
+            Some(2) => MergeMode::Add,
+            Some(3) => MergeMode::Subtract,
+            Some(4) => MergeMode::Intersect,
+            Some(5) => MergeMode::Exclude,
+            Some(other) => {
+                self.warn(format!(
+                    "merge mode {other} is not a Lottie merge mode and merges"
+                ));
+                MergeMode::Merge
+            }
+        };
+        if outlines.is_empty() {
+            return;
+        }
+        self.untrim(outlines);
+        let over = Cell::new(false);
+        let faded = outlines.iter().any(|o| o.faded);
+        let inputs: Vec<ShapePath> = std::mem::take(outlines)
+            .into_iter()
+            .map(|o| o.path)
+            .collect();
+        let shared = inputs.iter().all(|p| p.transform == inputs[0].transform);
+        let mut times = Vec::new();
+        let mut animated = false;
+        for p in &inputs {
+            times.extend(geometry_times(&p.geometry));
+            animated |= p.geometry.is_animated();
+            if !shared {
+                times.extend(ops_times(&p.transform));
+                animated |= p.transform.iter().any(TransformOp::is_animated);
+            }
+        }
+        let at = |t: f64| -> Path {
+            let paths: Vec<Path> = inputs
+                .iter()
+                .map(|p| {
+                    if shared {
+                        geometry_path(&p.geometry, t)
+                    } else {
+                        shape_path_at(p, t)
+                    }
+                })
+                .collect();
+            merge(&paths, mode, &over)
+        };
+        let baked = self.bake(animated, &times, at);
+        if over.get() {
+            self.warn(
+                "merge paths of outlines too detailed to merge within the limits keep them as they are",
+            );
+        }
+        match baked {
+            Some(path) => outlines.push(Outline {
+                path: ShapePath {
+                    geometry: Geometry::Path { path },
+                    transform: if shared {
+                        inputs[0].transform.clone()
+                    } else {
+                        Vec::new()
+                    },
+                },
+                trim: None,
+                faded,
+            }),
+            None => {
+                self.warn(OVER_LIMIT);
+                outlines.extend(inputs.into_iter().map(|path| Outline {
+                    path,
+                    trim: None,
+                    faded,
+                }));
+            }
+        }
+    }
+
+    /// A modifier that changes each outline before it on its own, in the
+    /// outline's space (as lottie-web modifies them).
+    fn modify(&mut self, ty: &str, item: &'a Value, outlines: &mut Vec<Outline>) {
+        let modifier = self.modifier(ty, item);
+        if outlines.is_empty() || modifier.is_noop() {
+            return;
+        }
+        self.untrim(outlines);
+        let capped = Cell::new(false);
+        // Outlines alike (a repeater's copies) are modified once.
+        let mut done: Vec<(Geometry, Animated<Path>)> = Vec::new();
+        for outline in outlines.iter_mut() {
+            let geometry = &outline.path.geometry;
+            let path = match done.iter().find(|(g, _)| g == geometry) {
+                Some((_, path)) => {
+                    let path = path.clone();
+                    self.charge(&path).then_some(path)
+                }
+                None => {
+                    let mut times = geometry_times(geometry);
+                    times.extend(modifier.times());
+                    let animated = geometry.is_animated() || modifier.is_animated();
+                    let baked = self.bake(animated, &times, |t| {
+                        modifier.apply(&geometry_path(geometry, t), t, &capped)
+                    });
+                    if let Some(path) = &baked {
+                        done.push((geometry.clone(), path.clone()));
+                    }
+                    baked
+                }
+            };
+            match path {
+                Some(path) => outline.path.geometry = Geometry::Path { path },
+                None => self.warn(OVER_LIMIT),
+            }
+        }
+        if capped.get() {
+            self.warn(format!(
+                "zig zags of more than {MAX_POINTS} points an outline have fewer ridges"
+            ));
+        }
+    }
+
+    /// A modifier item's parameters.
+    fn modifier(&mut self, ty: &str, item: &'a Value) -> Modifier {
+        for key in ["r", "a", "c", "s", "pt", "ml"] {
+            if item.get(key).is_some_and(has_expression) {
+                self.warn("expressions are left out: their properties keep their keyframes");
+            }
+        }
+        let fr = self.fr;
+        // A property, or (as some exporters write it) a plain number.
+        let value = |key: &str, default: f64| match item.get(key) {
+            Some(Value::Number(n)) => Animated::Static(n.as_f64().unwrap_or(default)),
+            p => scalar(p, 0, 1.0, default, fr),
+        };
+        match ty {
+            "rd" => Modifier::Round {
+                radius: value("r", 0.0),
+            },
+            "pb" => Modifier::Pucker {
+                amount: value("a", 0.0),
+            },
+            "tw" => Modifier::Twist {
+                angle: value("a", 0.0),
+                center: AnimatedPoint {
+                    x: scalar(item.get("c"), 0, 1.0, 0.0, fr),
+                    y: scalar(item.get("c"), 1, 1.0, 0.0, fr),
+                },
+            },
+            "zz" => Modifier::ZigZag {
+                size: value("s", 0.0),
+                ridges: value("r", 0.0),
+                points: value("pt", 1.0),
+            },
+            _ => Modifier::Offset {
+                amount: value("a", 0.0),
+                join: match item.get("lj").and_then(num).map(|j| j as i64) {
+                    Some(2) => Join::Round,
+                    Some(3) => Join::Bevel,
+                    _ => Join::Miter,
+                },
+                miter_limit: value("ml", 4.0),
+            },
+        }
+    }
+
+    /// Outlines cut by a trim, cut now in their group's space, so that a
+    /// modifier after the trim changes what the trim leaves.
+    fn untrim(&mut self, outlines: &mut Vec<Outline>) {
+        if outlines.iter().all(|o| o.trim.is_none()) {
+            return;
+        }
+        let mut out: Vec<Option<Outline>> = Vec::with_capacity(outlines.len());
+        // Outlines trimmed as one line: (trim id, place, outlines, trim).
+        let mut combined: Vec<(usize, usize, Vec<Outline>, Trim)> = Vec::new();
+        for outline in std::mem::take(outlines) {
+            match outline.trim.clone() {
+                None => out.push(Some(outline)),
+                Some((id, trim)) if trim.mode == TrimMode::Combined => {
+                    match combined.iter_mut().find(|c| c.0 == id) {
+                        Some(c) => c.2.push(outline),
+                        None => {
+                            combined.push((id, out.len(), vec![outline], trim));
+                            out.push(None);
+                        }
+                    }
+                }
+                Some((_, trim)) => {
+                    out.extend(self.cut(vec![outline], &trim).into_iter().map(Some));
+                }
+            }
+        }
+        for (_, place, list, trim) in combined {
+            let mut cut = self.cut(list, &trim).into_iter();
+            out[place] = cut.next();
+            out.extend(cut.map(Some));
+        }
+        *outlines = out.into_iter().flatten().collect();
+    }
+
+    /// `list` cut by `trim` as one outline; the outlines as they were
+    /// when that is over the limits.
+    fn cut(&mut self, list: Vec<Outline>, trim: &Trim) -> Vec<Outline> {
+        let mut times = trim_times(trim);
+        let mut animated = [&trim.start, &trim.end, &trim.offset]
+            .iter()
+            .any(|v| v.is_animated());
+        for o in &list {
+            times.extend(geometry_times(&o.path.geometry));
+            times.extend(ops_times(&o.path.transform));
+            animated |= o.path.geometry.is_animated()
+                || o.path.transform.iter().any(TransformOp::is_animated);
+        }
+        let at = |t: f64| -> Path {
+            let paths: Vec<Path> = list.iter().map(|o| shape_path_at(&o.path, t)).collect();
+            trim_paths(&paths, trim, t)
+        };
+        match self.bake(animated, &times, at) {
+            Some(path) => vec![Outline {
+                path: ShapePath::new(Geometry::Path { path }),
+                trim: None,
+                faded: list.iter().any(|o| o.faded),
+            }],
+            None => {
+                self.warn(OVER_LIMIT);
+                list
+            }
+        }
+    }
+
+    /// The path `at` gives: a constant when nothing it depends on moves;
+    /// else keyframes at each frame from the first of the `keys` to the
+    /// last (straight between frames of the same commands, held between
+    /// others), fewer when they would take more than the limits leave.
+    /// `None` when not even one path fits.
+    fn bake(
+        &mut self,
+        animated: bool,
+        keys: &[f64],
+        at: impl Fn(f64) -> Path,
+    ) -> Option<Animated<Path>> {
+        let mut keys: Vec<f64> = keys.iter().copied().filter(|t| t.is_finite()).collect();
+        keys.sort_by(f64::total_cmp);
+        keys.dedup();
+        let (first, last) = match (keys.first(), keys.last()) {
+            (Some(&first), Some(&last)) if animated && last > first => (first, last),
+            _ => {
+                let path = Animated::Static(at(keys.first().copied().unwrap_or(0.0)));
+                return self.charge(&path).then_some(path);
+            }
+        };
+        let fr = self.fr;
+        let frames = ((last - first) * fr).ceil().clamp(1.0, 1e9) as usize;
+        // What one moment takes, by a few of them.
+        let probe = [first, (first + last) / 2.0, last]
+            .iter()
+            .map(|&t| at(t).point_count())
+            .max()
+            .unwrap_or(0)
+            .max(1);
+        let fit = (self.bake_points / probe)
+            .min(self.bake_keys)
+            .min(MAX_BAKED_FRAMES);
+        if fit < 2 {
+            self.warn(FEWER_FRAMES);
+            let path = Animated::Static(at(first));
+            return self.charge(&path).then_some(path);
+        }
+        let mut times: Vec<f64> = if frames + keys.len() < fit {
+            let mut times: Vec<f64> = (0..=frames)
+                .map(|k| (first + k as f64 / fr).min(last))
+                .collect();
+            times.extend(&keys);
+            times
+        } else {
+            self.warn(FEWER_FRAMES);
+            (0..fit)
+                .map(|k| first + (last - first) * k as f64 / (fit - 1) as f64)
+                .collect()
+        };
+        times.sort_by(f64::total_cmp);
+        times.dedup_by(|a, b| (*a - *b).abs() < 1e-9);
+        let mut paths: Vec<(f64, Path)> = times.iter().map(|&t| (t, at(t))).collect();
+        // Moments that took more than the probe said: every so many.
+        let total: usize = paths.iter().map(|(_, p)| p.point_count()).sum();
+        if total > self.bake_points {
+            self.warn(FEWER_FRAMES);
+            let stride = total.div_ceil(self.bake_points.max(1)) + 1;
+            let end = paths.pop();
+            paths = paths.into_iter().step_by(stride).collect();
+            paths.extend(end);
+        }
+        let mut frames = Vec::with_capacity(paths.len());
+        for k in 0..paths.len() {
+            let easing = match paths.get(k + 1) {
+                Some((_, next)) if !paths[k].1.same_structure(next) => Easing::Hold,
+                _ => Easing::Linear,
+            };
+            frames.push(Keyframe::new(paths[k].0, paths[k].1.clone(), easing));
+        }
+        let path = Animated::from_keyframes(frames, Path::new());
+        if self.charge(&path) {
+            return Some(path);
+        }
+        // Still over: the first moment alone.
+        self.warn(FEWER_FRAMES);
+        let path = Animated::Static(at(first));
+        self.charge(&path).then_some(path)
+    }
+
+    /// Takes what a baked path holds from what is left for them; false
+    /// when it does not fit.
+    fn charge(&mut self, path: &Animated<Path>) -> bool {
+        let (points, keys) = match path {
+            Animated::Static(p) => (p.point_count(), 0),
+            Animated::Track(t) => (
+                t.keyframes.iter().map(|k| k.value.point_count()).sum(),
+                t.keyframes.len(),
+            ),
+        };
+        if points > self.bake_points || keys > self.bake_keys {
+            return false;
+        }
+        self.bake_points -= points;
+        self.bake_keys -= keys;
+        true
+    }
+
     /// The outline of a geometry item.
     fn geometry(&mut self, ty: &str, item: &'a Value) -> Option<Geometry> {
         let fr = self.fr;
@@ -1257,12 +1606,237 @@ impl<'a> Converter<'a> {
 
 /// An outline gathered for the styles of a group, with the trim that cuts
 /// it (an id telling trims apart, and the trim).
+#[derive(Clone)]
 struct Outline {
     path: ShapePath,
     trim: Option<(usize, Trim)>,
     /// Repeated by a repeater fading its copies, which a style after it
     /// does not show.
     faded: bool,
+}
+
+/// A shape modifier that changes each outline on its own, and its
+/// parameters.
+enum Modifier {
+    /// Round corners (`rd`).
+    Round { radius: Animated<f64> },
+    /// Pucker and bloat (`pb`), percent.
+    Pucker { amount: Animated<f64> },
+    /// Twist (`tw`), degrees about a point.
+    Twist {
+        angle: Animated<f64>,
+        center: AnimatedPoint,
+    },
+    /// Zig zag (`zz`): how far, how many ridges a segment, corner (1) or
+    /// smooth (2) points.
+    ZigZag {
+        size: Animated<f64>,
+        ridges: Animated<f64>,
+        points: Animated<f64>,
+    },
+    /// Offset path (`op`).
+    Offset {
+        amount: Animated<f64>,
+        join: Join,
+        miter_limit: Animated<f64>,
+    },
+}
+
+impl Modifier {
+    fn values(&self) -> Vec<&Animated<f64>> {
+        match self {
+            Modifier::Round { radius } => vec![radius],
+            Modifier::Pucker { amount } => vec![amount],
+            Modifier::Twist { angle, center } => vec![angle, &center.x, &center.y],
+            Modifier::ZigZag {
+                size,
+                ridges,
+                points,
+            } => vec![size, ridges, points],
+            Modifier::Offset {
+                amount,
+                miter_limit,
+                ..
+            } => vec![amount, miter_limit],
+        }
+    }
+
+    fn is_animated(&self) -> bool {
+        self.values().iter().any(|v| v.is_animated())
+    }
+
+    fn times(&self) -> Vec<f64> {
+        self.values()
+            .iter()
+            .flat_map(|v| v.keyframes().iter().map(|k| k.time))
+            .collect()
+    }
+
+    /// Whether it changes nothing at any time.
+    fn is_noop(&self) -> bool {
+        let zero = |v: &Animated<f64>| v.as_static() == Some(&0.0);
+        match self {
+            Modifier::Round { radius } => radius.as_static().is_some_and(|r| *r <= 0.0),
+            Modifier::Pucker { amount } | Modifier::Offset { amount, .. } => zero(amount),
+            Modifier::Twist { angle, .. } => zero(angle),
+            Modifier::ZigZag { size, .. } => zero(size),
+        }
+    }
+
+    /// `path` changed at `time`; `capped` set when a zig zag keeps fewer
+    /// ridges than it has.
+    fn apply(&self, path: &Path, time: f64, capped: &Cell<bool>) -> Path {
+        let finite = |v: f64| v.is_finite() && v != 0.0;
+        match self {
+            Modifier::Round { radius } => {
+                let r = radius.sample(time);
+                if r.is_nan() || r <= 0.0 {
+                    return path.clone();
+                }
+                let list: Vec<_> = contours(path).iter().map(|c| round_corners(c, r)).collect();
+                path_of(&list)
+            }
+            Modifier::Pucker { amount } => {
+                let a = amount.sample(time);
+                if !finite(a) {
+                    return path.clone();
+                }
+                let list: Vec<_> = contours(path).iter().map(|c| pucker_bloat(c, a)).collect();
+                path_of(&list)
+            }
+            Modifier::Twist { angle, center } => {
+                twist(path, angle.sample(time), center.sample(time))
+            }
+            Modifier::ZigZag {
+                size,
+                ridges,
+                points,
+            } => {
+                let s = size.sample(time);
+                if !finite(s) {
+                    return path.clone();
+                }
+                let list = contours(path);
+                let vertices: usize = list.iter().map(|c| c.vertices.len()).sum();
+                let most = (MAX_POINTS / vertices.max(1)).saturating_sub(1);
+                let wanted = ridges.sample(time).round().max(0.0);
+                let ridges = if wanted > most as f64 {
+                    capped.set(true);
+                    most
+                } else {
+                    wanted as usize
+                };
+                let smooth = points.sample(time).round() == 2.0;
+                let list: Vec<_> = list.iter().map(|c| zig_zag(c, s, ridges, smooth)).collect();
+                path_of(&list)
+            }
+            Modifier::Offset {
+                amount,
+                join,
+                miter_limit,
+            } => {
+                let a = amount.sample(time);
+                if !finite(a) {
+                    return path.clone();
+                }
+                let limit = miter_limit.sample(time).max(1.0);
+                let list: Vec<_> = contours(path)
+                    .iter()
+                    .map(|c| offset(c, a, *join, limit))
+                    .collect();
+                path_of(&list)
+            }
+        }
+    }
+}
+
+/// What a modifier says when its outlines would take more than the
+/// limits leave.
+const OVER_LIMIT: &str = "shape modifiers whose outlines would exceed the limit of path points or keyframes are left out";
+
+/// What a modifier says when it samples fewer frames than the file has.
+const FEWER_FRAMES: &str = "animated shape modifiers are sampled at fewer frames than the file's, within the limits of path points and keyframes";
+
+/// The most moments one modified outline is sampled at.
+const MAX_BAKED_FRAMES: usize = 20_000;
+
+/// The keyframe times of a geometry's values.
+fn geometry_times(g: &Geometry) -> Vec<f64> {
+    let mut values: Vec<&Animated<f64>> = Vec::new();
+    match g {
+        Geometry::Path { path } => return path.keyframes().iter().map(|k| k.time).collect(),
+        Geometry::Rect {
+            center,
+            size,
+            radius,
+            ..
+        } => {
+            for p in [center, size, radius] {
+                values.extend([&p.x, &p.y]);
+            }
+        }
+        Geometry::Ellipse { center, radius, .. } => {
+            for p in [center, radius] {
+                values.extend([&p.x, &p.y]);
+            }
+        }
+        Geometry::Star(s) => {
+            values.extend([
+                &s.center.x,
+                &s.center.y,
+                &s.points,
+                &s.outer_radius,
+                &s.inner_radius,
+                &s.outer_roundness,
+                &s.inner_roundness,
+                &s.rotation,
+            ]);
+        }
+    }
+    values
+        .iter()
+        .flat_map(|v| v.keyframes().iter().map(|k| k.time))
+        .collect()
+}
+
+/// The keyframe times of a transform list's values.
+fn ops_times(ops: &[TransformOp]) -> Vec<f64> {
+    let mut out = Vec::new();
+    for op in ops {
+        let times = |v: &Animated<f64>| v.keyframes().iter().map(|k| k.time).collect::<Vec<_>>();
+        match op {
+            TransformOp::Translate { x, y }
+            | TransformOp::Scale { x, y }
+            | TransformOp::Skew { x, y } => {
+                out.extend(times(x));
+                out.extend(times(y));
+            }
+            TransformOp::Rotate { degrees } => out.extend(times(degrees)),
+            TransformOp::Matrix { matrix } => {
+                out.extend(matrix.keyframes().iter().map(|k| k.time));
+            }
+            TransformOp::Motion(motion) => out.extend(times(&motion.progress)),
+        }
+    }
+    out
+}
+
+/// The keyframe times of a trim's values.
+fn trim_times(trim: &Trim) -> Vec<f64> {
+    [&trim.start, &trim.end, &trim.offset]
+        .iter()
+        .flat_map(|v| v.keyframes().iter().map(|k| k.time))
+        .collect()
+}
+
+/// An outline at `time`, its transform applied.
+fn shape_path_at(p: &ShapePath, time: f64) -> Path {
+    let path = geometry_path(&p.geometry, time);
+    if p.transform.is_empty() {
+        path
+    } else {
+        path.transformed(transform_at(&p.transform, time))
+    }
 }
 
 /// A layer's own time: `(t − st) / sr`.

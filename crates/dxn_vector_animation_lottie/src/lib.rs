@@ -20,14 +20,25 @@
 //! group of its own, constant where what selects it is and sampled at the
 //! file's frame rate where that moves, within [`Limits::max_keyframes`].
 //!
+//! Shape modifiers change the outlines listed before them in their group
+//! (nested groups' included) for the fills and strokes after them: merge
+//! paths (merge, add, subtract, intersect, exclude intersections, as
+//! skottie merges, each outline's inside by the non-zero rule; the fills
+//! and strokes before a merge draw nothing, as in After Effects), round
+//! corners, pucker and bloat, zig zag and offset path (as lottie-web
+//! changes outlines), and twist (points turned about its center, the
+//! more the nearer). What they make is outline geometry: a constant path,
+//! or, while anything it depends on moves, a path keyframe each frame,
+//! within half the limits of path points and keyframes.
+//!
 //! What a file holds beyond that (expressions, wiggly and other
-//! expression text selectors, text without glyphs, other effects, merge
-//! paths) is left out with a warning in [`Import::warnings`]. dotLottie
-//! archives (ZIP) are read too: their first animation, its images
-//! embedded.
+//! expression text selectors, text without glyphs, other effects) is left
+//! out with a warning in [`Import::warnings`]. dotLottie archives (ZIP)
+//! are read too: their first animation, its images embedded.
 
 mod convert;
 mod dotlottie;
+mod modifiers;
 mod props;
 
 use dxn_vector_animation::{Error, Import, Limits};

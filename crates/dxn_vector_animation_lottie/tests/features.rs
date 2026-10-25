@@ -144,7 +144,7 @@ fn polystars_and_inverted_masks() {
 
 #[test]
 fn unsupported_features_are_reported() {
-    let shapes = json!([{ "ty": "mm" }, { "ty": "rc", "p": { "a": 0, "k": [0, 0] }, "s": { "a": 0, "k": [10, 10] }, "r": { "a": 0, "k": 0 } },
+    let shapes = json!([{ "ty": "rc", "p": { "a": 0, "k": [0, 0] }, "s": { "a": 0, "k": [10, 10] }, "r": { "a": 0, "k": 0 } },
         { "ty": "fl", "c": { "a": 0, "k": [1, 0, 0, 1] }, "o": { "a": 0, "k": 100 } }]);
     let data = comp(
         json!([
@@ -155,7 +155,7 @@ fn unsupported_features_are_reported() {
     let import = dxn_vector_animation_lottie::read(&data).unwrap();
     let w = import.warnings.join("\n");
     assert!(
-        w.contains("merge paths") && w.contains("text layers") && w.contains("expressions"),
+        w.contains("text layers") && w.contains("expressions"),
         "{w}"
     );
 }

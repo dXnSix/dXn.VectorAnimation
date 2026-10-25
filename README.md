@@ -146,8 +146,15 @@ core and the importers build for WebAssembly; a build that plays compiled scenes
   layer mask's outline from the first margin, turned with it or upright, reversed, or spread to the last
   margin.
 - dotLottie archives (versions 1 and 2): the first animation, its images embedded, unpacked within the limits.
+- Shape modifiers, changing the outlines listed before them in their group (nested groups' included) for the
+  fills and strokes after them: merge paths (merge, add, subtract, intersect and exclude intersections, as
+  skottie merges, on outlines flattened finely; the fills and strokes before a merge draw nothing, as in After
+  Effects), round corners, pucker and bloat, zig zag and offset path (as lottie-web changes outlines; offset
+  corners mitered, rounded or beveled), and twist. What they make is outline geometry: a constant path, or,
+  while anything it depends on moves, a path keyframe each frame (within half the limits of path points and
+  keyframes).
 - Left out with a warning: expressions, wiggly and other expression text selectors (and animators with no
-  other selector), text without glyphs, other effects, merge paths and other shape modifiers.
+  other selector), text without glyphs, other effects.
 
 ## Untrusted input
 
@@ -170,9 +177,10 @@ Tests are grouped by feature, one file each in a crate's `tests/` (`cargo test -
 ## Roadmap
 
 1. **Done:** the scene model, Figma Motion's SVG subset, Lottie, the reference renderer and the CLI;
-   effects, dotLottie archives, repeaters, Lottie text with glyphs, its animators and paths, CSS selectors
-   with combinators.
-2. Merge paths, inner shadows.
+   effects, dotLottie archives, repeaters, Lottie text with glyphs, its animators and paths, Lottie shape
+   modifiers, CSS selectors with combinators and more pseudo-classes, inner shadows, color effects,
+   patterns, live text, SMIL end times, accumulation and events.
+2. Lottie expressions and other effects.
 
 ## License
 
