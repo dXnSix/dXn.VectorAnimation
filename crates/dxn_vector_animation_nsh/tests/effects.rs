@@ -279,8 +279,9 @@ fn a_shadow_of_layers_is_cast_from_their_silhouettes() {
 }
 
 /// A player of `scene` (compiled), and how many canvases it mounted after
-/// loading and 400 ms later.
-fn canvases_while_playing(scene: Scene) -> (usize, usize) {
+/// loading and later: 400 ms later for `more` 0, else once `more` more were
+/// mounted (10 s at most).
+fn canvases_while_playing(scene: Scene, more: usize) -> (usize, usize) {
     use std::sync::{Arc, Mutex};
 
     use dxn_vector_animation_nsh::{AnimationInfo, Source, vector_animation};
@@ -319,7 +320,18 @@ fn canvases_while_playing(scene: Scene) -> (usize, usize) {
     app.wait_for("Loaded 2.0s").unwrap();
     app.wait(std::time::Duration::from_millis(150)).unwrap();
     let before = *seen.lock().unwrap();
-    app.wait(std::time::Duration::from_millis(400)).unwrap();
+    if more == 0 {
+        // Still: nothing more in 400 ms.
+        app.wait(std::time::Duration::from_millis(400)).unwrap();
+    } else {
+        // Moving: `more` more, however slowly the machine draws them.
+        let counted = seen.clone();
+        let _ = app.wait_until(
+            "canvases drawn again",
+            std::time::Duration::from_secs(10),
+            move |_| *counted.lock().unwrap() > before + more,
+        );
+    }
     (before, *seen.lock().unwrap())
 }
 
@@ -331,7 +343,7 @@ fn a_still_blur_is_drawn_once_and_a_moving_one_as_it_moves() {
         })],
         1.0,
     );
-    let (before, after) = canvases_while_playing(still);
+    let (before, after) = canvases_while_playing(still, 0);
     assert_eq!(before, after, "a still blur is not drawn again");
     let moving = scene(
         vec![Effect::Blur(Blur {
@@ -339,7 +351,7 @@ fn a_still_blur_is_drawn_once_and_a_moving_one_as_it_moves() {
         })],
         1.0,
     );
-    let (before, after) = canvases_while_playing(moving);
+    let (before, after) = canvases_while_playing(moving, 3);
     assert!(after > before + 3, "{before} → {after}");
 }
 

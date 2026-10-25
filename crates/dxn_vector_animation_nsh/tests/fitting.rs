@@ -52,7 +52,12 @@ fn the_scene_fits_inside_the_border() {
         }
     });
     app.wait_for("Loaded").unwrap();
-    app.wait(std::time::Duration::from_millis(100)).unwrap();
+    let drawn = first.clone();
+    let _ = app.wait_until(
+        "a canvas drawing the scene",
+        std::time::Duration::from_secs(10),
+        move |_| drawn.lock().unwrap().is_some(),
+    );
     let fit = first.lock().unwrap().expect("a canvas drawing the scene");
     // 180 × 80 inside the border: the scene scaled by 0.8, centered.
     let values: Vec<f32> = fit

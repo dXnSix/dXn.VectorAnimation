@@ -125,7 +125,12 @@ fn draws_canvases_and_layers_the_native_graph_moves() {
         }
     });
     app.wait_for("Loaded 2.0s 200x100 warnings 0").unwrap();
-    app.wait(std::time::Duration::from_millis(100)).unwrap();
+    let drawn = seen.clone();
+    let _ = app.wait_until(
+        "canvases drawn and playback started",
+        std::time::Duration::from_secs(10),
+        move |_| matches!(*drawn.lock().unwrap(), (c, _, true) if c > 0),
+    );
     let (canvases, slots, started) = *seen.lock().unwrap();
     assert!(canvases > 0, "the scene is drawn on canvases");
     // Its groups only move and fade: layers the graph moves, their

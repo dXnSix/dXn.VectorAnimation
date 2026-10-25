@@ -403,7 +403,12 @@ fn plays_on_the_native_graph_of_the_engine() {
         }
     });
     app.wait_for("Loaded 2.0s").unwrap();
-    app.wait(std::time::Duration::from_millis(100)).unwrap();
+    let drawn = seen.clone();
+    let _ = app.wait_until(
+        "the shines drawn and playback started",
+        std::time::Duration::from_secs(10),
+        move |_| matches!(*drawn.lock().unwrap(), (c, true) if c >= 2),
+    );
     let (canvases, started) = *seen.lock().unwrap();
     assert!(
         canvases >= 2,
