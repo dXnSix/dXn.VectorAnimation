@@ -677,8 +677,8 @@ impl<'a> Converter<'a> {
             }
             if times.len() <= 2 {
                 return Err(Error::Limit {
-                    what: "keyframes",
-                    limit: self.limits.max_keyframes as f64,
+                    what: "text keyframes",
+                    limit: (self.limits.max_keyframes / 2) as f64,
                 });
             }
             cut = true;
