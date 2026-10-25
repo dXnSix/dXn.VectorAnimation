@@ -97,6 +97,9 @@ pub struct AnimationInfo {
     pub size: AnimationSize,
     /// Its markers.
     pub markers: Vec<AnimationMarker>,
+    /// The events it has something to play on (`btn.click`): what
+    /// [`VectorAnimationApi::trigger`] takes.
+    pub events: Vec<String>,
     /// What the file holds that is left out (text, filters, effects, ...).
     pub warnings: Vec<String>,
 }
@@ -115,15 +118,26 @@ pub enum VectorAnimationEvent {
 /// The methods of a [`VectorAnimation`]'s ref.
 pub struct VectorAnimationApi {
     seek_to: Signal<Option<(f64, u64)>>,
+    event: Signal<Option<(String, u64)>>,
 }
 
 #[methods]
 impl VectorAnimationApi {
     /// Moves to `seconds` on the timeline; playback goes on from there
-    /// unless paused.
+    /// unless paused (what an event played gives way to the timeline).
     pub fn seek(&self, seconds: f64) {
         let generation = self.seek_to.get_untracked().map_or(0, |(_, g)| g + 1);
+        self.event.set(None);
         self.seek_to.set(Some((seconds, generation)));
+    }
+
+    /// Plays what the animation has for `event` (an SVG's `begin="click"`
+    /// animations: `btn.click`, as the load info's `events` names them)
+    /// once from its start, and holds its end; the timeline's own
+    /// animations play from their start meanwhile.
+    pub fn trigger(&self, event: String) {
+        let generation = self.event.get_untracked().map_or(0, |(_, g)| g + 1);
+        self.event.set(Some((event, generation)));
     }
 }
 
@@ -149,7 +163,33 @@ pub fn VectorAnimation(
     let time = animated_value(0.0);
     let clock = signal(0.0f64);
     let seek_to = signal(None::<(f64, u64)>);
-    cx.methods(VectorAnimationApi { seek_to });
+    let event = signal(None::<(String, u64)>);
+    cx.methods(VectorAnimationApi { seek_to, event });
+    // The scene played: the file's, or what it plays on the event last
+    // triggered, moved to its start.
+    let played: Signal<Option<(Rc<Scene>, Option<f64>)>> = signal_with(None, SignalEquals::Never);
+    effect(move || {
+        let Some(r) = ready.get() else {
+            played.set(None);
+            return;
+        };
+        let scene = &r.loaded.scene;
+        let on = event.get().and_then(|(name, _)| {
+            let m = scene.timeline.markers.iter().find(|m| {
+                m.name
+                    .strip_prefix(dxn_vector_animation::EVENT_PREFIX)
+                    .is_some_and(|n| n == name)
+            })?;
+            Some((
+                Rc::new(scene.with_events(&[(name.as_str(), 0.0)])),
+                m.duration,
+            ))
+        });
+        played.set(Some(match on {
+            Some((scene, duration)) => (scene, Some(duration)),
+            None => (Rc::new(scene.clone()), None),
+        }));
+    });
     let loading = stored(None::<Spawned<()>>);
     let playing = stored(None::<Spawned<()>>);
     // The engine's clock beside the graph's, for parts sampled frame by
@@ -163,6 +203,7 @@ pub fn VectorAnimation(
             task.cancel();
         }
         ready.set(None);
+        event.set(None);
         let Some(src) = src else { return };
         loading.replace(Some(spawn(async move {
             match load(src).await {
@@ -200,22 +241,32 @@ pub fn VectorAnimation(
     // Playing.
     effect(move || {
         let Some(r) = ready.get() else { return };
-        let scene = &r.loaded.scene;
-        let span = segment(scene, props.segment.get());
-        let repeat = props
-            .repeat
-            .get()
-            .unwrap_or(match scene.timeline.loop_mode {
-                dxn_vector_animation::LoopMode::Once => Repeat::Once,
-                _ => Repeat::Forever,
-            });
-        let direction = match (props.direction.get(), scene.timeline.loop_mode) {
-            (Direction::Normal, dxn_vector_animation::LoopMode::PingPong)
-                if props.repeat.get().is_none() =>
-            {
-                Direction::Alternate
+        let Some((scene, on_event)) = played.get() else {
+            return;
+        };
+        let scene = scene.as_ref();
+        // An event's: once, from its start.
+        let (span, repeat, direction) = match on_event {
+            Some(duration) => ((0.0, duration.max(0.0)), Repeat::Once, Direction::Normal),
+            None => {
+                let span = segment(scene, props.segment.get());
+                let repeat = props
+                    .repeat
+                    .get()
+                    .unwrap_or(match scene.timeline.loop_mode {
+                        dxn_vector_animation::LoopMode::Once => Repeat::Once,
+                        _ => Repeat::Forever,
+                    });
+                let direction = match (props.direction.get(), scene.timeline.loop_mode) {
+                    (Direction::Normal, dxn_vector_animation::LoopMode::PingPong)
+                        if props.repeat.get().is_none() =>
+                    {
+                        Direction::Alternate
+                    }
+                    (d, _) => d,
+                };
+                (span, repeat, direction)
             }
-            (d, _) => d,
         };
         let playback = Playback {
             start: span.0,
@@ -234,6 +285,11 @@ pub fn VectorAnimation(
             }
         });
         let seek = seek_to.get();
+        // An event plays from its start, as it was triggered.
+        let seek = match on_event {
+            Some(_) => Some((0.0, 0)),
+            None => seek,
+        };
         let (native, mixed) = (r.native, r.mixed);
         untracked(move || {
             if let Some(task) = playing.replace(None) {
@@ -330,15 +386,18 @@ pub fn VectorAnimation(
         let Some(r) = ready.get() else {
             return Vec::new();
         };
+        let Some((scene, _)) = played.get() else {
+            return Vec::new();
+        };
         let size = size.get();
         let (w, h) = (f64::from(size.width.0), f64::from(size.height.0));
         if w <= 0.0 || h <= 0.0 {
             return Vec::new();
         }
-        let base = fit(&r.loaded.scene, w, h, props.resize_mode.get());
+        let base = fit(&scene, w, h, props.resize_mode.get());
         let pixels = f64::from(pixel_ratio()).max(1.0);
         if r.native
-            && let Ok(plan) = plan::compile_for(&r.loaded.scene, base, pixels)
+            && let Ok(plan) = plan::compile_for(&scene, base, pixels)
         {
             let nodes = Nodes::new(&plan.graph, time);
             let part = move |unit: &plan::Unit| match unit {
@@ -351,19 +410,11 @@ pub fn VectorAnimation(
             };
             return lower::elements(&plan.units, &nodes, &part);
         }
-        if plan::needs_raster(&dxn_vector_animation::Node::Group(
-            r.loaded.scene.root.clone(),
-        )) {
-            let scene = Arc::new(r.loaded.scene.clone());
+        if plan::needs_raster(&dxn_vector_animation::Node::Group(scene.root.clone())) {
+            let scene = Arc::new(scene.as_ref().clone());
             return vec![rastered(&scene, base, (w, h), clock, time)];
         }
-        let r = r.clone();
-        vec![sampled(
-            move |t| r.loaded.scene.frame_at(t),
-            base,
-            clock,
-            time,
-        )]
+        vec![sampled(move |t| scene.frame_at(t), base, clock, time)]
     })))
 }
 
@@ -514,6 +565,7 @@ fn info(loaded: &Loaded) -> AnimationInfo {
                 duration: m.duration,
             })
             .collect(),
+        events: s.events().into_iter().map(str::to_owned).collect(),
         warnings: loaded.warnings.clone(),
     }
 }

@@ -61,10 +61,11 @@ network capabilities. `examples/gallery` is an app using each.
 | `posterFrame` | What shows when the user reduces motion: `"first"` (default), `"last"`, seconds or a marker |
 | `ignoreReduceMotion` | Plays when motion is reduced too |
 | `accessibilityLabel` | What screen readers say |
-| `onLoad` | `{ duration, size: { width, height }, markers, warnings }` |
+| `onLoad` | `{ duration, size: { width, height }, markers, events, warnings }` |
 | `onEnd` | Playback reached its end (not while repeating forever) |
 | `onError` | The file could not be loaded or read: the message |
 | ref `seek(seconds)` | Moves to a time; playback goes on from there unless paused |
+| ref `trigger(event)` | Plays what the file has for an event (`btn.click`, from `events`: an SVG's `begin="click"`) once from its start and holds its end; the timeline's animations play from their start meanwhile |
 
 The view is the animation's own size unless the app sizes it.
 

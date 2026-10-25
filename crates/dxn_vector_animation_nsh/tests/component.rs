@@ -1,9 +1,10 @@
-//! The component on a headless engine: it reads its source, reports it,
-//! sizes itself, and reports errors.
+//! The component on a headless engine: it reads its source, reports it
+//! (its events too), sizes itself, plays what an event triggers, and
+//! reports errors.
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
-use dxn_vector_animation_nsh::{AnimationInfo, Source, vector_animation};
+use dxn_vector_animation_nsh::{AnimationInfo, Source, VectorAnimationApi, vector_animation};
 use nsh_core::{
     Size,
     ui::{Root, prelude::*},
@@ -31,6 +32,42 @@ fn Player() -> impl IntoElement {
                     ))
                 })
                 .on_error(move |e: &String| status.set(format!("Error {e}"))),
+        )
+        .child(text(move || status.get()))
+}
+
+/// An icon that moves when it is clicked, its player clicked once loaded.
+#[component]
+fn Clicked() -> impl IntoElement {
+    let status = signal(String::from("loading"));
+    let player = component_ref::<dxn_vector_animation_nsh::VectorAnimation>();
+    let triggered = signal(None::<std::time::Instant>);
+    view()
+        .child(
+            vector_animation()
+                .component_ref(&player)
+                .src(Some(Source::Text(
+                    r#"<svg width="40" height="40" xmlns="http://www.w3.org/2000/svg"><rect id="btn" width="10" height="10">
+<animate attributeName="x" from="0" to="30" dur="0.3s" fill="freeze" begin="click"/></rect></svg>"#
+                        .into(),
+                )))
+                .on_load(move |info: &AnimationInfo| {
+                    // Its timeline is empty: it ends at once, before the
+                    // event is triggered.
+                    status.set(format!("Events {}", info.events.join(",")));
+                    triggered.set(Some(std::time::Instant::now()));
+                    if let Some(api) = player.api::<VectorAnimationApi>() {
+                        api.trigger("btn.click".into());
+                    }
+                })
+                .on_end(move || {
+                    // The event's 0.3 s played since it was triggered.
+                    if let Some(at) = triggered.get_untracked()
+                        && at.elapsed().as_secs_f64() >= 0.25
+                    {
+                        status.set("Played the click".into());
+                    }
+                }),
         )
         .child(text(move || status.get()))
 }
@@ -96,6 +133,13 @@ fn draws_canvases_the_native_graph_moves() {
         started,
         "playback is a composite animation of the time value"
     );
+}
+
+#[test]
+fn plays_what_an_event_triggers() {
+    let mut app = start::<Clicked>();
+    // Triggered when loaded: it plays its segment and ends.
+    app.wait_for("Played the click").unwrap();
 }
 
 #[test]
