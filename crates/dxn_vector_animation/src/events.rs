@@ -109,7 +109,11 @@ fn color_op<V: Visit>(op: &mut ColorOp, v: &mut V) {
             v.visit(white);
             v.visit(amount);
         }
-        ColorOp::Fill { color, amount } => {
+        ColorOp::Fill {
+            color,
+            opacity: amount,
+        }
+        | ColorOp::Overlay { color, amount } => {
             v.visit(color);
             v.visit(amount);
         }

@@ -242,7 +242,11 @@ fn count_color_op(op: &crate::ColorOp, stats: &mut Stats) {
             count(white, stats);
             count(amount, stats);
         }
-        Fill { color, amount } => {
+        Fill {
+            color,
+            opacity: amount,
+        }
+        | Overlay { color, amount } => {
             count(color, stats);
             count(amount, stats);
         }

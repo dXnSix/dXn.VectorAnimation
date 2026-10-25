@@ -1,6 +1,6 @@
 //! Text layers drawn with the file's glyphs (`chars`), laid out as
-//! lottie-web lays them out; without glyphs they are left out with a
-//! warning. Their animators are in `text_animators.rs`.
+//! lottie-web lays them out; without glyphs, set in their fonts when drawn.
+//! Their animators are in `text_animators.rs`.
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
@@ -112,15 +112,39 @@ fn keyframed_documents_take_turns() {
 }
 
 #[test]
-fn text_without_glyphs_is_left_out_with_a_warning() {
-    let import = read(&doc(0.0, "ab", ""), false, "");
-    assert!(glyphs(&import.scene, 0.0).is_empty());
+fn text_without_glyphs_is_set_in_its_font_when_drawn() {
+    let import = read(&doc(0.0, "ab\\rcd", r#","j":2,"tr":100"#), false, "");
+    assert!(import.warnings.is_empty(), "{:?}", import.warnings);
+    let frame = import.scene.frame_at(0.0);
+    let spans = frame
+        .items
+        .iter()
+        .find_map(|i| match i {
+            Item::Text { spans, .. } => Some(spans.clone()),
+            _ => None,
+        })
+        .expect("live text");
+    // A line a span, centered, the second a line height down, its font
+    // the file's, tracking a tenth of the size.
+    assert_eq!(spans.len(), 2);
+    assert_eq!(spans[0].text, "ab");
+    assert_eq!(spans[1].position, Some(Point::new(0.0, 120.0)));
+    assert_eq!(spans[0].anchor, dxn_vector_animation::TextAnchor::Middle);
+    assert_eq!(spans[0].families[0], "Test");
+    assert_eq!(spans[0].letter_spacing, 10.0);
+    assert!(spans[0].fill.is_some());
+    // Animators need glyphs.
+    let import = read(
+        &doc(0.0, "ab", ""),
+        false,
+        r#"{"s":{},"a":{"o":{"a":0,"k":0}}}"#,
+    );
     assert!(
         import.warnings.iter().any(|w| w.contains("without glyphs")),
         "{:?}",
         import.warnings
     );
-    // An animator that changes nothing leaves the text as it is.
+    // An animator that changes nothing leaves glyph text as it is.
     let import = read(&doc(0.0, "ab", ""), true, r#"{"s":{},"a":{}}"#);
     assert_eq!(glyphs(&import.scene, 0.0).len(), 2);
     assert!(import.warnings.is_empty(), "{:?}", import.warnings);

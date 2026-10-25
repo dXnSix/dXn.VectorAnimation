@@ -68,8 +68,10 @@ core and the importers build for WebAssembly; a build that plays compiled scenes
 - **Geometry.** Paths morph between keyframes of the same commands; rectangles, ellipses and stars stay
   parametric; motion paths and trims measure arc length.
 - **Effects.** Groups cast drop shadows (color, offset, blur, knocked out under the drawing or not, cast by
-  its coverage or by its silhouette made all or nothing as Figma's are) and blur (Gaussian), each value
-  animated; consecutive shadows are all cast by the drawing. The reference renderer
+  its coverage or by its silhouette made all or nothing as Figma's are) and inner shadows, blur (Gaussian),
+  and change their colors (color matrices of CSS's and SVG's filters, component transfers, Lottie's tint,
+  fill, color overlay and gradient maps; in sRGB or linear light), each value animated; consecutive shadows
+  are all cast by the drawing. The reference renderer
   blurs as SVG suggests, with three box blurs along each axis, drawing past the frame's edges as far as what
   is drawn there casts or blurs into it.
 - **Two ways to play.** Sample the scene at any time, or read its tracks and drive them with a native
@@ -128,8 +130,9 @@ core and the importers build for WebAssembly; a build that plays compiled scenes
   radial gradients; trim paths), null layers as parents, nested compositions with time stretch, offset and
   remapping, solid layers, embedded images, layer masks (add, subtract, intersect, inverted), track mattes
   (alpha and luminance, inverted), blend modes, bezier easings and holds, and position keyframes with spatial
-  tangents as motion paths (auto-orient included), and the layer effects Drop Shadow and Gaussian Blur
-  (converted as lottie-web converts them).
+  tangents as motion paths (auto-orient included), the layer effects Drop Shadow, Gaussian Blur, Tint, Fill,
+  Tritone and Levels (converted as lottie-web converts them; expression controls draw nothing), and the
+  layer styles drop shadow, inner shadow and color overlay.
 - Repeaters, as lottie-web repeats: copies through the repeater's transform once more each (the offset
   moving too: in closed form where the copies only turn and scale, as each copy's matrix sampled frame by
   frame otherwise), faded from the start opacity to the end one, above or below.
@@ -153,8 +156,11 @@ core and the importers build for WebAssembly; a build that plays compiled scenes
   corners mitered, rounded or beveled), and twist. What they make is outline geometry: a constant path, or,
   while anything it depends on moves, a path keyframe each frame (within half the limits of path points and
   keyframes).
+- Text without glyphs: each line set in the file's font when drawn (family, weight and style from its
+  font list), justified on the layer's anchor or in its box (not wrapped: that needs glyphs).
 - Left out with a warning: expressions, wiggly and other expression text selectors (and animators with no
-  other selector), text without glyphs, other effects.
+  other selector), animators and paths of text without glyphs, other effects (strokes of masks, wipes,
+  distortions) and layer styles (strokes, glows, bevels, satin, gradient overlays).
 
 ## Untrusted input
 
@@ -180,7 +186,7 @@ Tests are grouped by feature, one file each in a crate's `tests/` (`cargo test -
    effects, dotLottie archives, repeaters, Lottie text with glyphs, its animators and paths, Lottie shape
    modifiers, CSS selectors with combinators and more pseudo-classes, inner shadows, color effects,
    patterns, live text, SMIL end times, accumulation and events.
-2. Lottie expressions and other effects.
+2. Lottie expressions.
 
 ## License
 

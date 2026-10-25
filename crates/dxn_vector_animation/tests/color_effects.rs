@@ -49,7 +49,7 @@ fn css_functions_change_colors_as_the_spec_says() {
 }
 
 #[test]
-fn lottie_tint_and_fill_keep_alpha() {
+fn lottie_tint_fill_and_overlay() {
     let black = Color::rgba(0.0, 0.0, 0.5, 1.0);
     let white = Color::rgba(1.0, 1.0, 0.5, 1.0);
     let tint = ColorMatrix::tint(black, white, 1.0);
@@ -61,10 +61,16 @@ fn lottie_tint_and_fill_keep_alpha() {
         tint.apply([1.0, 1.0, 1.0, 0.7]),
         [1.0, 1.0, 0.5, 0.7]
     ));
+    let overlay = ColorMatrix::overlay(Color::rgba(0.0, 1.0, 0.0, 1.0), 0.5);
+    assert!(close(
+        overlay.apply([1.0, 0.0, 0.0, 0.4]),
+        [0.5, 0.5, 0.0, 0.4]
+    ));
+    // Lottie's Fill: the color, the alpha times the opacity.
     let fill = ColorMatrix::fill(Color::rgba(0.0, 1.0, 0.0, 1.0), 0.5);
     assert!(close(
         fill.apply([1.0, 0.0, 0.0, 0.4]),
-        [0.5, 0.5, 0.0, 0.4]
+        [0.0, 1.0, 0.0, 0.2]
     ));
 }
 

@@ -14,9 +14,9 @@
 use std::f64::consts::PI;
 
 use dxn_vector_animation::{
-    Animated, Color, Easing, Error, Fill, FillRule, Group, Keyframe, LineCap, LineJoin, Node,
-    Paint, PaintOrder, Path, PathEl, Point, Shape, ShapePath, Stroke, TimeRange, Track,
-    TransformOp,
+    Animated, AnimatedPoint, Color, Easing, Error, Fill, FillRule, Font, Group, Keyframe, LineCap,
+    LineJoin, Node, Paint, PaintOrder, Path, PathEl, Point, Shape, ShapePath, Stroke, Text,
+    TextAnchor, TextSpan, TimeRange, Track, TransformOp,
 };
 use kurbo::{ParamCurve, ParamCurveArclen, ParamCurveDeriv};
 use serde_json::Value;
@@ -39,8 +39,7 @@ impl<'a> Converter<'a> {
     pub(super) fn text(&mut self, layer: &'a Value) -> Result<Vec<Node>, Error> {
         let fr = self.fr;
         if self.chars.is_empty() {
-            self.warn("text layers without glyphs are left out: export them with glyphs (chars)");
-            return Ok(Vec::new());
+            return Ok(self.live_text(layer));
         }
         let t = layer.get("t");
         let more = t.and_then(|t| t.get("m"));
@@ -85,6 +84,190 @@ impl<'a> Converter<'a> {
             }));
         }
         Ok(out)
+    }
+
+    /// A text layer without glyphs: each keyframed document as text set in
+    /// its font when drawn, a line a span; animators, paths and box
+    /// wrapping need glyphs and are left out.
+    fn live_text(&mut self, layer: &'a Value) -> Vec<Node> {
+        let t = layer.get("t");
+        if t.and_then(|t| t.get("a"))
+            .and_then(Value::as_array)
+            .is_some_and(|a| !a.is_empty())
+        {
+            self.warn(
+                "text animators of text without glyphs are left out: export it with glyphs (chars)",
+            );
+        }
+        if t.and_then(|t| t.get("p"))
+            .and_then(|p| p.get("m"))
+            .is_some()
+        {
+            self.warn("text on a path without glyphs is laid out on a line");
+        }
+        let fr = self.fr;
+        let docs: Vec<(f64, &'a Value)> = t
+            .and_then(|t| t.get("d"))
+            .and_then(|d| d.get("k"))
+            .and_then(Value::as_array)
+            .map(|k| {
+                k.iter()
+                    .filter_map(|k| {
+                        Some((k.get("t").and_then(num).unwrap_or(0.0) / fr, k.get("s")?))
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+        let mut out = Vec::new();
+        for (i, (start, doc)) in docs.iter().enumerate() {
+            let Some(text) = self.live_document(doc) else {
+                continue;
+            };
+            out.push(Node::Group(Group {
+                active: (docs.len() > 1).then_some(TimeRange {
+                    start: if i == 0 { f64::NEG_INFINITY } else { *start },
+                    end: docs.get(i + 1).map_or(f64::INFINITY, |d| d.0),
+                }),
+                children: vec![Node::Text(Box::new(text))],
+                ..Group::new()
+            }));
+        }
+        out
+    }
+
+    /// Document `doc` as text set in its font when drawn.
+    fn live_document(&mut self, doc: &'a Value) -> Option<Text> {
+        let text = doc.get("t").and_then(Value::as_str).unwrap_or("");
+        let size = doc.get("s").and_then(num).unwrap_or(10.0);
+        let font = doc.get("f").and_then(Value::as_str).unwrap_or("");
+        let justify = doc.get("j").and_then(num).unwrap_or(0.0) as i64;
+        let tracking = doc.get("tr").and_then(num).unwrap_or(0.0) / 1000.0 * size;
+        let line_height = doc.get("lh").and_then(num).unwrap_or(size * 1.2);
+        let shift = doc.get("ls").and_then(num).unwrap_or(0.0);
+        let entry = self
+            .fonts
+            .iter()
+            .find(|f| f.get("fName").and_then(Value::as_str) == Some(font))
+            .copied();
+        let field = |name: &str| entry.and_then(|f| f.get(name).and_then(Value::as_str));
+        let style = field("fStyle").unwrap_or("");
+        let mut families: Vec<String> = [field("fFamily"), Some(font)]
+            .into_iter()
+            .flatten()
+            .filter(|f| !f.is_empty())
+            .map(str::to_owned)
+            .collect();
+        families.dedup();
+        families.push("sans-serif".to_owned());
+        let lower = style.to_ascii_lowercase().replace([' ', '-'], "");
+        let weight = [
+            ("thin", 100),
+            ("hairline", 100),
+            ("extralight", 200),
+            ("ultralight", 200),
+            ("semibold", 600),
+            ("demibold", 600),
+            ("extrabold", 800),
+            ("ultrabold", 800),
+            ("light", 300),
+            ("medium", 500),
+            ("bold", 700),
+            ("heavy", 800),
+            ("black", 900),
+        ]
+        .iter()
+        .find(|(name, _)| lower.contains(name))
+        .map_or(400, |(_, w)| *w);
+        let italic = lower.contains("italic") || lower.contains("oblique");
+        let color = |key: &str| -> Option<Color> {
+            let c = doc.get(key).and_then(nums)?;
+            let s = if c.iter().take(3).any(|v| *v > 1.0) {
+                255.0
+            } else {
+                1.0
+            };
+            Some(Color::rgba(
+                *c.first()? / s,
+                *c.get(1)? / s,
+                *c.get(2)? / s,
+                1.0,
+            ))
+        };
+        let fill = color("fc").map(|c| Fill {
+            paint: Paint::solid(c),
+            opacity: Animated::Static(1.0),
+            rule: FillRule::NonZero,
+        });
+        let stroke_width = doc.get("sw").and_then(num).unwrap_or(0.0);
+        let stroke = color("sc").filter(|_| stroke_width > 0.0).map(|c| Stroke {
+            paint: Paint::solid(c),
+            opacity: Animated::Static(1.0),
+            width: Animated::Static(stroke_width),
+            cap: LineCap::Butt,
+            join: LineJoin::Miter,
+            miter_limit: 4.0,
+            dash: None,
+        });
+        if fill.is_none() && stroke.is_none() {
+            return None;
+        }
+        // `of`: the stroke over the fill.
+        let paint_order = if doc.get("of").and_then(Value::as_bool).unwrap_or(true) {
+            PaintOrder::FillFirst
+        } else {
+            PaintOrder::StrokeFirst
+        };
+        // In a box: from its top left (lines not wrapped: that needs the
+        // glyphs); else on the layer's anchor.
+        let box_at = doc.get("ps").and_then(nums).filter(|p| p.len() >= 2);
+        let box_size = doc
+            .get("sz")
+            .and_then(nums)
+            .filter(|s| s.len() >= 2 && s[0] > 0.0);
+        let (x0, y0, width) = match (&box_at, &box_size) {
+            (Some(ps), Some(sz)) => {
+                self.warn("box text without glyphs is not wrapped: export it with glyphs (chars)");
+                let ascent = entry
+                    .and_then(|f| f.get("ascent").and_then(num))
+                    .unwrap_or(75.0);
+                (ps[0], ps[1] + ascent * size / 100.0, sz[0])
+            }
+            _ => (0.0, 0.0, 0.0),
+        };
+        let (anchor, x) = match justify {
+            1 => (TextAnchor::End, x0 + width),
+            2 => (TextAnchor::Middle, x0 + width / 2.0),
+            _ => (TextAnchor::Start, x0),
+        };
+        let normalized = text.replace("\r\n", "\r").replace(['\n', '\u{3}'], "\r");
+        let spans: Vec<TextSpan> = normalized
+            .split('\r')
+            .enumerate()
+            .map(|(row, line)| TextSpan {
+                text: line.to_owned(),
+                position: Some(AnimatedPoint::fixed(
+                    x,
+                    y0 + row as f64 * line_height - shift,
+                )),
+                anchor,
+                font: Font {
+                    families: families.clone(),
+                    size: Animated::Static(size),
+                    weight,
+                    italic,
+                },
+                letter_spacing: Animated::Static(tracking),
+                fill: fill.clone(),
+                stroke: stroke.clone(),
+                paint_order,
+                ..TextSpan::default()
+            })
+            .collect();
+        Some(Text {
+            id: None,
+            name: None,
+            spans,
+        })
     }
 
     /// The animators (`t.a`) that change something, each with its

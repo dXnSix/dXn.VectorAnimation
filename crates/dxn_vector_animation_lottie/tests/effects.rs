@@ -1,5 +1,6 @@
 //! Layer effects: Drop Shadow and Gaussian Blur as the scene's effects,
-//! converted as lottie-web converts them; others left out with a warning.
+//! converted as lottie-web converts them; others left out with a warning
+//! (the color effects are in `color_effects.rs`).
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
@@ -86,11 +87,11 @@ fn a_gaussian_blur() {
 #[test]
 fn a_disabled_effect_is_skipped_and_others_warned_of() {
     let import = read(
-        r#"[{"ty":29,"en":0,"ef":[{"ty":0,"v":{"a":0,"k":20}}]},{"ty":21,"nm":"Fill","ef":[]}]"#,
+        r#"[{"ty":29,"en":0,"ef":[{"ty":0,"v":{"a":0,"k":20}}]},{"ty":26,"nm":"Radial Wipe","ef":[]}]"#,
     );
     assert!(layer(&import).effects.is_empty());
     assert!(
-        import.warnings.iter().any(|w| w.contains("`Fill`")),
+        import.warnings.iter().any(|w| w.contains("`Radial Wipe`")),
         "{:?}",
         import.warnings
     );

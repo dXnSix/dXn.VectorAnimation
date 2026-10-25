@@ -315,9 +315,18 @@ pub enum ColorOp {
         /// How far.
         amount: Animated<f64>,
     },
-    /// Lottie's Fill: one color where the drawing is.
+    /// Lottie's Fill effect: one color where the drawing is, its alpha
+    /// times `opacity`.
     Fill {
-        /// The color; its alpha multiplies the drawing's.
+        /// The color; its alpha multiplies the drawing's too.
+        color: Animated<Color>,
+        /// The drawing's alpha times it.
+        opacity: Animated<f64>,
+    },
+    /// Lottie's Color Overlay layer style: a color mixed in, the alpha
+    /// kept.
+    Overlay {
+        /// The color; its alpha times `amount` is how far.
         color: Animated<Color>,
         /// How far.
         amount: Animated<f64>,

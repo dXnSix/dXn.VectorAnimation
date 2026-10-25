@@ -213,9 +213,21 @@ impl ColorMatrix {
         ColorMatrix::colors([row(0), row(1), row(2)])
     }
 
-    /// Lottie's Fill: `color` mixed in by `amount` times its alpha, the
-    /// drawing's alpha kept.
-    pub fn fill(color: Color, amount: f64) -> ColorMatrix {
+    /// Lottie's Fill effect: `color` where the drawing is, the drawing's
+    /// alpha times `opacity` and the color's.
+    pub fn fill(color: Color, opacity: f64) -> ColorMatrix {
+        let mut m = ColorMatrix::colors([
+            [0.0, 0.0, 0.0, 0.0, color.r],
+            [0.0, 0.0, 0.0, 0.0, color.g],
+            [0.0, 0.0, 0.0, 0.0, color.b],
+        ]);
+        m.0[18] = (opacity * color.a).clamp(0.0, 1.0);
+        m
+    }
+
+    /// Lottie's Color Overlay: `color` mixed in by `amount` times its
+    /// alpha, the drawing's alpha kept.
+    pub fn overlay(color: Color, amount: f64) -> ColorMatrix {
         let k = (amount * color.a).clamp(0.0, 1.0);
         let c = [color.r, color.g, color.b];
         let row = |i: usize| -> [f64; 5] {
@@ -350,8 +362,11 @@ impl ColorOp {
                 white,
                 amount,
             } => ColorMatrix::tint(black.sample(time), white.sample(time), amount.sample(time)),
-            ColorOp::Fill { color, amount } => {
-                ColorMatrix::fill(color.sample(time), amount.sample(time))
+            ColorOp::Fill { color, opacity } => {
+                ColorMatrix::fill(color.sample(time), opacity.sample(time))
+            }
+            ColorOp::Overlay { color, amount } => {
+                ColorMatrix::overlay(color.sample(time), amount.sample(time))
             }
             ColorOp::Transfer {
                 red,

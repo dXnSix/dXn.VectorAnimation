@@ -7,8 +7,10 @@
 //! layer masks (add, subtract, intersect, inverted) and track mattes
 //! (alpha, luminance, inverted), blend modes, keyframes with their bezier
 //! easings and holds, position keyframes with spatial tangents as motion
-//! paths (auto-orient included), repeaters, and the layer effects Drop
-//! Shadow and Gaussian Blur.
+//! paths (auto-orient included), repeaters, the layer effects Drop
+//! Shadow, Gaussian Blur, Tint, Fill, Tritone and Levels, and the layer
+//! styles drop shadow, inner shadow and color overlay. Text without glyphs
+//! is set in its font when drawn.
 //!
 //! Text layers drawn with the file's glyphs (`chars`), laid out, animated
 //! and laid along paths as lottie-web does it: text animators with range
@@ -32,8 +34,9 @@
 //! within half the limits of path points and keyframes.
 //!
 //! What a file holds beyond that (expressions, wiggly and other
-//! expression text selectors, text without glyphs, other effects) is left
-//! out with a warning in [`Import::warnings`]. dotLottie archives (ZIP)
+//! expression text selectors, animators of text without glyphs, other
+//! effects and layer styles) is left out with a warning in
+//! [`Import::warnings`]. dotLottie archives (ZIP)
 //! are read too: their first animation, its images embedded.
 
 mod convert;

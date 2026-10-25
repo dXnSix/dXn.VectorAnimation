@@ -11,12 +11,12 @@ use std::{
 };
 
 use dxn_vector_animation::{
-    Animated, AnimatedPoint, BlendMode, Blur, Clip, ClipShape, Color, Dash, Direction, DropShadow,
-    Easing, Effect, EllipseStart, Error, Fill, FillRule, Geometry, Group, Image, ImageData,
-    Keyframe, Limits, LineCap, LineJoin, LinearGradient, LoopMode, Marker, Mask, MaskKind, Matrix,
-    MotionPath, MotionRotate, Node, Paint, Path, Point, RadialGradient, Rect, RectStart, Scene,
-    Shape, ShapePath, Star, StarKind, Stroke, TimeMap, TimeRange, Timeline, Track, TransformOp,
-    Trim, TrimMode,
+    Animated, AnimatedPoint, BlendMode, Blur, Clip, ClipShape, Color, ColorEffect, ColorOp, Dash,
+    Direction, DropShadow, Easing, Effect, EllipseStart, Error, Fill, FillRule, Geometry,
+    GradientStop, Group, Image, ImageData, InnerShadow, Keyframe, Limits, LineCap, LineJoin,
+    LinearGradient, LoopMode, Marker, Mask, MaskKind, Matrix, MotionPath, MotionRotate, Node,
+    Paint, Path, Point, RadialGradient, Rect, RectStart, Scene, Shape, ShapePath, Star, StarKind,
+    Stroke, TimeMap, TimeRange, Timeline, Track, Transfer, TransformOp, Trim, TrimMode,
     outline::{geometry_path, path_length, trim_paths},
     transform::transform_at,
 };
@@ -299,7 +299,8 @@ impl<'a> Converter<'a> {
         if content.is_empty() {
             return Ok(None);
         }
-        let effects = self.effects(layer);
+        let mut effects = self.effects(layer);
+        effects.extend(self.layer_styles(layer));
         if layer.get("ddd").and_then(num).is_some_and(|d| d != 0.0) {
             self.warn("3D layers are drawn flat");
         }
@@ -507,7 +508,220 @@ impl<'a> Converter<'a> {
                         radius: scalar(param(0), 0, 0.3, 0.0, fr),
                     }));
                 }
+                // Tint: the luminance mapped from black to white.
+                Some(20) => push_color(
+                    &mut out,
+                    ColorOp::Tint {
+                        black: color(param(0), fr),
+                        white: color(param(1), fr),
+                        amount: scalar(param(2), 0, 0.01, 1.0, fr),
+                    },
+                ),
+                // Fill: one color, the alpha times the opacity.
+                Some(21) => push_color(
+                    &mut out,
+                    ColorOp::Fill {
+                        color: color(param(2), fr),
+                        opacity: scalar(param(6), 0, 1.0, 1.0, fr),
+                    },
+                ),
+                // Tritone: shadows, midtones and highlights by luminance,
+                // blended with the original.
+                Some(23) => {
+                    let (highlights, midtones, shadows) = (
+                        color(param(0), fr),
+                        color(param(1), fr),
+                        color(param(2), fr),
+                    );
+                    let mut times = Vec::new();
+                    for i in 0..3 {
+                        times.extend(key_times(param(i), fr));
+                    }
+                    let stops = |t: f64| {
+                        vec![
+                            GradientStop {
+                                offset: 0.0,
+                                color: shadows.sample(t),
+                            },
+                            GradientStop {
+                                offset: 0.5,
+                                color: midtones.sample(t),
+                            },
+                            GradientStop {
+                                offset: 1.0,
+                                color: highlights.sample(t),
+                            },
+                        ]
+                    };
+                    times.sort_by(f64::total_cmp);
+                    times.dedup();
+                    let stops = if times.is_empty() {
+                        Animated::Static(stops(0.0))
+                    } else {
+                        Animated::from_keyframes(
+                            times
+                                .iter()
+                                .map(|&t| Keyframe::new(t, stops(t), Easing::Linear))
+                                .collect(),
+                            stops(0.0),
+                        )
+                    };
+                    let blend = scalar(param(3), 0, 0.01, 0.0, fr);
+                    push_color(
+                        &mut out,
+                        ColorOp::GradientMap {
+                            stops,
+                            amount: map(&blend, |b| 1.0 - b),
+                        },
+                    );
+                }
+                // Levels: each channel through its curve (the composite one
+                // first for the colors), as tables.
+                Some(24) => {
+                    let value = |i: usize, default: f64| -> f64 {
+                        match param(i).and_then(prop) {
+                            Some(Prop::Static(v)) => num(v).unwrap_or(default),
+                            Some(Prop::Keys(keys)) => {
+                                keys.first().and_then(|k| num(k.value)).unwrap_or(default)
+                            }
+                            None => default,
+                        }
+                    };
+                    if (3..36).any(|i| {
+                        param(i)
+                            .and_then(prop)
+                            .is_some_and(|p| matches!(p, Prop::Keys(_)))
+                    }) {
+                        self.warn("animated levels keep their first values");
+                    }
+                    let curve = |at: usize| {
+                        let (in_black, in_white, gamma, out_black, out_white) = (
+                            value(at, 0.0),
+                            value(at + 1, 1.0),
+                            value(at + 2, 1.0),
+                            value(at + 3, 0.0),
+                            value(at + 4, 1.0),
+                        );
+                        move |c: f64| {
+                            if c <= in_black {
+                                out_black
+                            } else if c >= in_white {
+                                out_white
+                            } else {
+                                let x = (c - in_black) / (in_white - in_black);
+                                out_black + (out_white - out_black) * x.powf(1.0 / gamma.max(1e-3))
+                            }
+                        }
+                    };
+                    let composite = curve(3);
+                    let table = |f: &dyn Fn(f64) -> f64| Transfer::Table {
+                        values: (0..=255).map(|i| f(f64::from(i) / 255.0)).collect(),
+                    };
+                    let (r, g, b, a) = (curve(10), curve(17), curve(24), curve(31));
+                    push_color(
+                        &mut out,
+                        ColorOp::Transfer {
+                            red: table(&|c| r(composite(c))),
+                            green: table(&|c| g(composite(c))),
+                            blue: table(&|c| b(composite(c))),
+                            alpha: table(&a),
+                        },
+                    );
+                }
+                // Expression controls (sliders, angles, colors): nothing to
+                // draw.
+                Some(5) => {}
                 _ => self.warn(format!("the layer effect `{name}` is left out")),
+            }
+        }
+        out
+    }
+
+    /// The layer's styles (`sy`): drop and inner shadows and color
+    /// overlays; others are left out with a warning.
+    fn layer_styles(&mut self, layer: &Value) -> Vec<Effect> {
+        let Some(list) = layer.get("sy").and_then(Value::as_array) else {
+            return Vec::new();
+        };
+        let fr = self.fr;
+        let mut out = Vec::new();
+        for style in list {
+            let get = |key: &str| style.get(key);
+            let ty = style.get("ty").and_then(num).map(|t| t as i64);
+            match ty {
+                Some(1 | 2) => {
+                    let base = color(get("c"), fr);
+                    let opacity = scalar(get("o"), 0, 0.01, 1.0, fr);
+                    let angle = scalar(get("a"), 0, 1.0, 120.0, fr);
+                    let distance = scalar(get("d"), 0, 1.0, 5.0, fr);
+                    let mut times = key_times(get("c"), fr);
+                    times.extend(key_times(get("o"), fr));
+                    let shade = if times.is_empty() {
+                        Animated::Static(
+                            base.sample(0.0)
+                                .with_opacity(opacity.sample(0.0).clamp(0.0, 1.0)),
+                        )
+                    } else {
+                        sampled_color(&times, |t| {
+                            base.sample(t)
+                                .with_opacity(opacity.sample(t).clamp(0.0, 1.0))
+                        })
+                    };
+                    let mut times = key_times(get("a"), fr);
+                    times.extend(key_times(get("d"), fr));
+                    // The light comes from the angle (counterclockwise
+                    // from the right): the shadow falls away from it.
+                    let offset = AnimatedPoint {
+                        x: sampled(&times, |t| {
+                            -distance.sample(t) * angle.sample(t).to_radians().cos()
+                        }),
+                        y: sampled(&times, |t| {
+                            distance.sample(t) * angle.sample(t).to_radians().sin()
+                        }),
+                    };
+                    let blur = scalar(get("s"), 0, 0.5, 0.0, fr);
+                    if get("ch").and_then(prop).is_some_and(|p| match p {
+                        Prop::Static(v) => num(v).is_some_and(|v| v != 0.0),
+                        Prop::Keys(_) => true,
+                    }) {
+                        self.warn("the spread (choke) of layer style shadows is left out");
+                    }
+                    out.push(if ty == Some(1) {
+                        Effect::DropShadow(DropShadow {
+                            color: shade,
+                            offset,
+                            blur,
+                            knockout: false,
+                            hard: false,
+                        })
+                    } else {
+                        Effect::InnerShadow(InnerShadow {
+                            color: shade,
+                            offset,
+                            blur,
+                            hard: false,
+                        })
+                    });
+                }
+                Some(7) => push_color(
+                    &mut out,
+                    ColorOp::Overlay {
+                        color: color(get("c"), fr),
+                        amount: scalar(get("so").or(get("o")), 0, 0.01, 1.0, fr),
+                    },
+                ),
+                _ => {
+                    let name = match ty {
+                        Some(0) => "stroke",
+                        Some(3) => "outer glow",
+                        Some(4) => "inner glow",
+                        Some(5) => "bevel and emboss",
+                        Some(6) => "satin",
+                        Some(8) => "gradient overlay",
+                        _ => "an unknown",
+                    };
+                    self.warn(format!("the {name} layer style is left out"));
+                }
             }
         }
         out
@@ -1959,6 +2173,18 @@ fn simplify(ops: Vec<TransformOp>) -> Vec<TransformOp> {
             _ => true,
         })
         .collect()
+}
+
+/// Appends a color `op` (in sRGB) to `effects`, to the color effect they
+/// end with if any.
+fn push_color(effects: &mut Vec<Effect>, op: ColorOp) {
+    match effects.last_mut() {
+        Some(Effect::Color(last)) if !last.linear => last.ops.push(op),
+        _ => effects.push(Effect::Color(ColorEffect {
+            ops: vec![op],
+            linear: false,
+        })),
+    }
 }
 
 fn blend_mode(bm: i64, converter: &mut Converter<'_>) -> BlendMode {
