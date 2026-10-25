@@ -10,8 +10,8 @@ JavaScript and no engine work per frame.
 
 > **Status: phase 1.** The component, playback, the TSX and Rust APIs and an example app, checked headless
 > (`nsh test`), against 53 real animation files, and frame by frame in the iOS simulator, Chrome, the
-> Android emulator, GTK and GPUI on Linux, and AppKit and GPUI on macOS. Windows is compiled for, not yet run;
-> no real phone has run it yet.
+> Android emulator, GTK and GPUI on Linux, AppKit and GPUI on macOS, and Windows (on CI); no real phone has run
+> it yet.
 
 ## Usage
 
@@ -261,6 +261,9 @@ sRGB first.
 
 - The web at two pixels a point: `nsh test --target web --browser <script>` with a script that starts Chrome
   with `--force-device-scale-factor=2` (the runner's own Chrome draws at one).
+- Windows: `.github/workflows/windows-check.yml` runs the check app's own scenes (no corpus) on GitHub's
+  `windows-latest`, with the fork's NSH built there, on every push to `main`: it fails when a tile is missing or
+  one but live text is more than 5% off, and keeps the photographs and the comparison as an artifact.
 
 Last run (45 scenes, the check app's 29 and 16 corpus files, each at 25, 50 and 75%; NSH from the fork's
 `main` at 4faf2cfd, upstream merged, with dXnSix/nsh#52 merged in for macOS, 2026-10-25):
@@ -275,6 +278,7 @@ Last run (45 scenes, the check app's 29 and 16 corpus files, each at 25, 50 and 
 | GPUI on Linux | 1 | 3.6% (the moving layer of small checks) | 3.6% | 9.2% |
 | macOS (AppKit) | 2 | 1.42% | 0.35% | 4.2% |
 | GPUI on macOS | 2 | 1.21% | 0.87% | 4.4% |
+| Windows (GitHub runner, the 29 own scenes) | 1 | 0.42% | 0.42% | 4.9% |
 
 At one pixel a point a pixel of anti-aliasing is a larger share: the corpus files of fine detail are the ones
 over 0.5% there. Live text is set in the platform's fonts (Roboto, DejaVu Sans, the system's), the reference in
@@ -315,7 +319,8 @@ graph's evaluation on the platforms' UI threads, and frame times on real phones,
 2. **Done:** live text; inner shadows; color effects; pattern fills; shadows cast by images of still
    content (shadows of shadows, of content clipped, masked or on several canvases); events and the ref's
    `trigger`; layers the platform moves and fades for groups that only move or fade; clear gradient stops.
-3. Windows run (it compiles; running it needs a Windows machine or CI), real phones and their frame times.
+3. **Done:** device checks on macOS (AppKit) and on Windows (CI).
+4. Real phones and their frame times; why GTK in the VM takes the test's steps late now and then.
 
 ## License
 
