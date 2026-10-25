@@ -273,17 +273,17 @@ Last run (45 scenes, the check app's 29 and 16 corpus files, each at 25, 50 and 
 | Chrome | 2 | 1.25% | 0.22% | 4.2% |
 | GTK on Linux | 1 | 2.75% | 0.31% | 8.8% |
 | GPUI on Linux | 1 | 3.6% (the moving layer of small checks) | 3.6% | 9.2% |
-| GPUI on macOS | 2 | 1.21% (the run before, 38 scenes) | not run yet | not run yet |
+| GPUI on macOS | 2 | 1.21% | 0.87% | 4.4% |
 
 At one pixel a point a pixel of anti-aliasing is a larger share: the corpus files of fine detail are the ones
-over 0.5% there. Live text is set in the platform's fonts (Roboto, DejaVu Sans, the system's), the reference
-in the Mac's: the glyphs and their widths differ, not where the lines are anchored or how they move. The pattern disc moves as a layer
-the platform moves: GPUI on Linux resamples it at a fraction of a pixel, which shifts every edge of its
-six-point checks; the platforms at two or three pixels a point keep it within 1%. GPUI on macOS photographs
-nothing while the screen is locked, as it was for this run. GPUI showed some tiles held at a moment at
-another moment of their animation, on a busy display (two pixels a point): each canvas whose values move its
-whole drawing queued a worker rasterization every frame, and the workers fell behind. The fork's NSH keeps
-one in flight per canvas (dXnSix/nsh#38, to go upstream as `pr/gpui/01-canvas-one-job`).
+over 0.5% there. Live text is set in the platform's fonts (Roboto, DejaVu Sans, the system's), the reference in
+the Mac's: the glyphs and their widths differ, not where the lines are anchored or how they move. The pattern
+disc moves as a layer the platform moves: GPUI on Linux resamples it at a fraction of a pixel, which shifts every
+edge of its six-point checks; the platforms at two or three pixels a point keep it within 1%. GPUI on macOS
+photographs nothing while the screen is locked. GPUI showed some tiles held at a moment at another moment of
+their animation, on a busy display (two pixels a point): each canvas whose values move its whole drawing queued a
+worker rasterization every frame, and the workers fell behind. The fork's NSH keeps one in flight per canvas
+(dXnSix/nsh#38, to go upstream as `pr/gpui/01-canvas-one-job`); with it, no tile shows another moment.
 
 ## What playing costs
 
