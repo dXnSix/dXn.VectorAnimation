@@ -208,3 +208,59 @@ fn stops_moving_far_many_times_are_still_sampled() {
         vec!["gradient stops that move far as they change".to_owned()]
     );
 }
+
+#[test]
+fn stops_fading_from_and_to_clear() {
+    // Clear blue at first (its color shows nowhere), then gold as it moves.
+    let paint = linear(stop_track(vec![
+        (
+            0.0,
+            stops(&[(0.0, RED), (0.4, CLEAR), (1.0, RED)]),
+            Easing::Linear,
+        ),
+        (
+            2.0,
+            stops(&[(0.0, RED), (0.7, GOLD), (1.0, RED)]),
+            Easing::Linear,
+        ),
+    ]));
+    assert_native(&filled(paint));
+    // Changing color only, eased.
+    let paint = linear(stop_track(vec![
+        (
+            0.0,
+            stops(&[(0.0, RED), (0.5, CLEAR), (1.0, RED)]),
+            Easing::EASE_IN_OUT,
+        ),
+        (
+            1.0,
+            stops(&[(0.0, RED), (0.5, GOLD), (1.0, RED)]),
+            Easing::EASE_IN_OUT,
+        ),
+        (
+            2.0,
+            stops(&[(0.0, RED), (0.5, CLEAR), (1.0, RED)]),
+            Easing::Linear,
+        ),
+    ]));
+    assert_native(&filled(paint));
+    // And out again to clear, then back.
+    let paint = linear(stop_track(vec![
+        (
+            0.0,
+            stops(&[(0.0, RED), (0.7, GOLD), (1.0, RED)]),
+            Easing::Linear,
+        ),
+        (
+            1.0,
+            stops(&[(0.0, RED), (0.4, CLEAR), (1.0, RED)]),
+            Easing::Linear,
+        ),
+        (
+            2.0,
+            stops(&[(0.0, RED), (0.6, BLUE), (1.0, RED)]),
+            Easing::Linear,
+        ),
+    ]));
+    assert_native(&filled(paint));
+}

@@ -161,28 +161,90 @@ fn sampled_stops(
     if samples.len() > SAMPLED_STOPS {
         return unsupported("gradient stops that move far as they change");
     }
-    let weight = |q: usize| {
-        let key = |i: usize, v: f64| {
-            let easing = if samples[i].1 {
-                Easing::Hold
-            } else {
-                Easing::Linear
-            };
-            Keyframe::new(samples[i].0, v, easing)
+    let lists: Vec<Vec<GradientStop>> = samples.iter().map(|s| track.sample(s.0)).collect();
+    let samples: Vec<(f64, Easing)> = samples
+        .iter()
+        .map(|&(t, hold)| (t, if hold { Easing::Hold } else { Easing::Linear }))
+        .collect();
+    Ok(faded(&samples, &lists))
+}
+
+/// Gradients of `lists` (at `samples`: each one's time, and how it eases
+/// to the next) faded into one another: each weighs 1 at its time and 0
+/// at its neighbours'. A list with a wholly clear stop is colored as
+/// the stop is around it (the colors of stops mix with their alphas, so a
+/// clear stop has the color it comes from just before and the one it goes
+/// to just after, which a gradient draws into the stops around it): where
+/// those differ, it is two gradients, one up to its time and one from it.
+fn faded(samples: &[(f64, Easing)], lists: &[Vec<GradientStop>]) -> Vec<(StopList, Animated<f64>)> {
+    let key = |i: usize, v: f64| Keyframe::new(samples[i].0, v, samples[i].1.clone());
+    let held = |i: usize, v: f64| Keyframe::new(samples[i].0, v, Easing::Hold);
+    let last = lists.len().saturating_sub(1);
+    let mut out = Vec::new();
+    for q in 0..lists.len() {
+        let before = (q > 0).then(|| key(q - 1, 0.0));
+        let after = (q < last).then(|| key(q + 1, 0.0));
+        // Held as it is before the first and after the last.
+        let from = if q == 0 {
+            lists[q].clone()
+        } else {
+            clear_colored(lists, q, false)
         };
-        let mut list = Vec::new();
-        if q > 0 {
-            list.push(key(q - 1, 0.0));
+        let to = if q == last {
+            lists[q].clone()
+        } else {
+            clear_colored(lists, q, true)
+        };
+        if from == to {
+            let list: Vec<_> = before
+                .into_iter()
+                .chain([key(q, 1.0)])
+                .chain(after)
+                .collect();
+            out.push((stops_of(&to), Animated::Track(Track::new(list))));
+            continue;
         }
-        list.push(key(q, 1.0));
-        if q + 1 < samples.len() {
-            list.push(key(q + 1, 0.0));
+        // Up to its time, colored as before; from it, as after.
+        let mut up: Vec<_> = before.into_iter().collect();
+        up.extend([held(q, 1.0), key(q, 0.0)]);
+        let mut down = vec![match q {
+            0 => Keyframe::new(samples[q].0 - 1.0, 0.0, Easing::Hold),
+            _ => held(q - 1, 0.0),
+        }];
+        down.push(key(q, 1.0));
+        down.extend(after);
+        out.push((stops_of(&from), Animated::Track(Track::new(up))));
+        out.push((stops_of(&to), Animated::Track(Track::new(down))));
+    }
+    out
+}
+
+/// `lists[q]` with each stop that is wholly clear colored as it is in the
+/// nearest list where it shows: a later one (`later`, else an earlier one)
+/// first.
+fn clear_colored(lists: &[Vec<GradientStop>], q: usize, later: bool) -> Vec<GradientStop> {
+    let mut out = lists[q].clone();
+    for (n, stop) in out.iter_mut().enumerate() {
+        if stop.color.a > 0.0 {
+            continue;
         }
-        Animated::Track(Track::new(list))
-    };
-    Ok((0..samples.len())
-        .map(|q| (stops_of(&track.sample(samples[q].0)), weight(q)))
-        .collect())
+        let shown = |list: &Vec<GradientStop>| {
+            list.get(n)
+                .filter(|s| s.color.a > 0.0 && list.len() == lists[q].len())
+                .map(|s| s.color)
+        };
+        let next = || lists[q + 1..].iter().find_map(shown);
+        let previous = || lists[..q].iter().rev().find_map(shown);
+        let near = if later {
+            next().or_else(previous)
+        } else {
+            previous().or_else(next)
+        };
+        if let Some(c) = near {
+            stop.color = dxn_vector_animation::Color { a: 0.0, ..c };
+        }
+    }
+    out
 }
 
 fn stop_motion(stops: &Animated<Vec<GradientStop>>, bands: bool) -> Result<Stops, Unsupported> {
@@ -215,14 +277,14 @@ fn stop_motion(stops: &Animated<Vec<GradientStop>>, bands: bool) -> Result<Stops
     };
     match (moving, fading) {
         (false, false) => Ok(Stops::Still(stops_of(&first.value))),
-        (false, true) => Ok(Stops::Fading(
-            (0..keys.len())
-                .map(|j| {
-                    let weight = track(&|i, _| if i == j { 1.0 } else { 0.0 });
-                    (stops_of(&keys[j].value), weight)
-                })
-                .collect(),
-        )),
+        (false, true) => {
+            // Faded as their keyframes ease.
+            let lists: Vec<Vec<GradientStop>> = keys.iter().map(|k| k.value.clone()).collect();
+
+            let samples: Vec<(f64, Easing)> =
+                keys.iter().map(|k| (k.time, k.easing.clone())).collect();
+            Ok(Stops::Fading(faded(&samples, &lists)))
+        }
         (true, false) if bands => Ok(Stops::Moving(
             first.value.iter().map(|s| pack(s.color)).collect(),
             (0..first.value.len())

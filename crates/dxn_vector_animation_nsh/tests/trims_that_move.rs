@@ -1,7 +1,8 @@
 //! Trims that move, of fills, and of outlines that move, play on the
 //! graph: the trimmed part as the graph moves it (along still outlines),
 //! filled; along outlines that move, sampled over time with every segment
-//! kept (those outside the part a point where it ends). They draw what
+//! kept (those outside the part a point where it ends); along outlines
+//! whose commands change, in each run of the same commands. They draw what
 //! the reference draws.
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
@@ -168,4 +169,69 @@ fn a_trim_of_an_outline_that_moves_plays_on_the_graph() {
         ..Default::default()
     })]);
     assert_native(&s);
+}
+
+#[test]
+fn a_trim_of_an_outline_whose_commands_change_plays_on_the_graph() {
+    // A line morphing into a curve and back (different commands), drawn
+    // on as it does.
+    let mut line = Path::new();
+    line.move_to(p(10.0, 50.0));
+    line.line_to(p(90.0, 50.0));
+    let mut curve = Path::new();
+    curve.move_to(p(10.0, 50.0));
+    curve.cubic_to(p(30.0, 10.0), p(70.0, 90.0), p(90.0, 50.0));
+    let morph = ShapePath::new(Geometry::Path {
+        path: Animated::Track(Track::new(vec![
+            Keyframe::new(0.0, line.clone(), Easing::EASE_IN_OUT),
+            Keyframe::new(1.0, curve, Easing::EASE_IN_OUT),
+            Keyframe::new(2.0, line, Easing::EASE_IN_OUT),
+        ])),
+    });
+    let s = scene(vec![Node::shape(Shape {
+        paths: vec![morph],
+        stroke: stroke(BLUE),
+        trim: Some(Trim {
+            start: Animated::Static(0.0),
+            end: track(&[(0.0, 0.2), (2.0, 1.0)]),
+            offset: Animated::Static(0.0),
+            mode: TrimMode::Combined,
+        }),
+        ..Default::default()
+    })]);
+    assert_native(&s);
+    // Both ends moving, carried round by the offset; a fill, and each of
+    // two outlines alike.
+    let shape = |trim: Trim, filled: bool, paths: Vec<ShapePath>| {
+        scene(vec![Node::shape(Shape {
+            paths,
+            fill: if filled { fill(RED) } else { None },
+            stroke: stroke(BLUE),
+            trim: Some(trim),
+            ..Default::default()
+        })])
+    };
+    let moving = |mode| Trim {
+        start: track(&[(0.0, 0.0), (2.0, 0.4)]),
+        end: track(&[(0.0, 0.3), (2.0, 0.9)]),
+        offset: track(&[(0.0, 0.0), (2.0, 0.7)]),
+        mode,
+    };
+    let morphing = || {
+        let Node::Shape(sh) = &s.root.children[0] else {
+            unreachable!()
+        };
+        sh.paths[0].clone()
+    };
+    assert_native(&shape(moving(TrimMode::Combined), false, vec![morphing()]));
+    assert_native(&shape(
+        moving(TrimMode::Combined),
+        true,
+        vec![morphing(), disc()],
+    ));
+    assert_native(&shape(
+        moving(TrimMode::EachPath),
+        false,
+        vec![morphing(), wave()],
+    ));
 }
