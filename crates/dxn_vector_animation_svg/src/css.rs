@@ -66,12 +66,31 @@ struct Attribute {
 #[derive(Debug, Clone)]
 enum Pseudo {
     /// `:nth-child(an+b)` (`:first-child` is `0n+1`), from the end for
-    /// `:nth-last-child` and `:last-child`.
-    Nth { a: i64, b: i64, from_end: bool },
-    /// `:only-child`.
-    Only,
-    /// `:not(compound)`.
-    Not(Box<Compound>),
+    /// `:nth-last-child` and `:last-child`; among the elements of its own
+    /// tag for the `-of-type` ones.
+    Nth {
+        a: i64,
+        b: i64,
+        from_end: bool,
+        of_type: bool,
+    },
+    /// `:only-child`, `:only-of-type`.
+    Only { of_type: bool },
+    /// `:empty`: no element children and no text.
+    Empty,
+    /// `:root`.
+    Root,
+    /// `:any-link`, `:link`: a link with an address.
+    Link,
+    /// `:is()` (and `:where()`, which weighs nothing): any of the
+    /// compounds.
+    Is { any: Vec<Compound>, weighs: bool },
+    /// `:not()`: none of the compounds.
+    Not(Vec<Compound>),
+    /// What never matches here: the states of interaction (`:hover`, named
+    /// so it can be reported) and pseudo-elements, which draw nothing in
+    /// SVG.
+    Never(Option<String>),
 }
 
 impl Selector {
@@ -111,7 +130,17 @@ impl Compound {
             .pseudo
             .iter()
             .map(|p| match p {
-                Pseudo::Not(inner) => inner.specificity(),
+                Pseudo::Not(list)
+                | Pseudo::Is {
+                    any: list,
+                    weighs: true,
+                } => list
+                    .iter()
+                    .map(Compound::specificity)
+                    .max()
+                    .unwrap_or((0, 0, 0)),
+                Pseudo::Is { weighs: false, .. } => (0, 0, 0),
+                Pseudo::Never(None) => (0, 0, 1),
                 _ => (0, 1, 0),
             })
             .fold((0, 0, 0), |a, b| (a.0 + b.0, a.1 + b.1, a.2 + b.2));
@@ -181,30 +210,61 @@ impl Attribute {
 
 impl Pseudo {
     fn matches(&self, node: roxmltree::Node<'_, '_>) -> bool {
+        // The siblings before (or after) `node` and itself, of its tag
+        // only when `of_type`.
+        let count = |next: bool, of_type: bool| {
+            std::iter::successors(Some(node), move |n| {
+                if next {
+                    n.next_sibling_element()
+                } else {
+                    n.prev_sibling_element()
+                }
+            })
+            .filter(|n| !of_type || n.tag_name() == node.tag_name())
+            .count() as i64
+        };
         match self {
-            Pseudo::Nth { a, b, from_end } => {
-                let siblings = |next: bool| {
-                    std::iter::successors(Some(node), move |n| {
-                        if next {
-                            n.next_sibling_element()
-                        } else {
-                            n.prev_sibling_element()
-                        }
-                    })
-                    .count() as i64
-                };
-                let index = siblings(*from_end);
+            Pseudo::Nth {
+                a,
+                b,
+                from_end,
+                of_type,
+            } => {
+                let index = count(*from_end, *of_type);
                 // index = a·n + b for some n ≥ 0.
                 match a {
                     0 => index == *b,
                     a => (index - b) % a == 0 && (index - b) / a >= 0,
                 }
             }
-            Pseudo::Only => {
-                node.prev_sibling_element().is_none() && node.next_sibling_element().is_none()
+            Pseudo::Only { of_type } => count(true, *of_type) == 1 && count(false, *of_type) == 1,
+            Pseudo::Empty => !node
+                .children()
+                .any(|c| c.is_element() || c.text().is_some_and(|t| !t.is_empty())),
+            Pseudo::Root => node.parent_element().is_none(),
+            Pseudo::Link => {
+                matches!(node.tag_name().name(), "a" | "area")
+                    && node
+                        .attributes()
+                        .any(|a| a.name() == "href" && !a.value().is_empty())
             }
-            Pseudo::Not(inner) => !inner.matches(node),
+            Pseudo::Is { any, .. } => any.iter().any(|c| c.matches(node)),
+            Pseudo::Not(list) => !list.iter().any(|c| c.matches(node)),
+            Pseudo::Never(_) => false,
         }
+    }
+}
+
+impl Selector {
+    /// The state of interaction it needs to match (`hover`), if any.
+    pub(crate) fn interaction(&self) -> Option<&str> {
+        std::iter::once(&self.subject)
+            .chain(self.context.iter().map(|(_, c)| c))
+            .flat_map(|c| &c.pseudo)
+            .find_map(|p| match p {
+                Pseudo::Never(Some(name)) => Some(name.as_str()),
+                _ => None,
+            })
     }
 }
 
@@ -352,11 +412,18 @@ impl Stylesheet {
                 continue;
             }
             let mut selectors = Vec::new();
-            for sel in prelude.split(',') {
+            for sel in split_top(prelude, ',') {
                 match parse_selector(sel.trim()) {
-                    Some(s) => selectors.push(s),
+                    Some(s) => {
+                        if let Some(state) = s.interaction() {
+                            warn(format!(
+                                "CSS `:{state}` rules apply on interaction, which the scene does not have: it is drawn at rest"
+                            ));
+                        }
+                        selectors.push(s)
+                    }
                     None => warn(format!(
-                        "CSS selector `{}` is not supported (pseudo-elements and other pseudo-classes are not): its rule is left out",
+                        "CSS selector `{}` is not supported: its rule is left out",
                         sel.trim()
                     )),
                 }
@@ -502,8 +569,16 @@ fn parse_compound(text: &str) -> Option<(Compound, &str)> {
                 rest = &rest[close + 1..];
             }
             Some(':') => {
-                if rest.starts_with("::") {
-                    return None;
+                if let Some(after) = rest.strip_prefix("::") {
+                    // A pseudo-element: SVG's elements have none to draw.
+                    let n = ident_len(after);
+                    rest = &after[n..];
+                    if rest.starts_with('(') {
+                        rest = &rest[matching_paren(rest)? + 1..];
+                    }
+                    c.pseudo.push(Pseudo::Never(None));
+                    any = true;
+                    continue;
                 }
                 let n = ident_len(&rest[1..]);
                 let name = rest[1..1 + n].to_ascii_lowercase();
@@ -514,41 +589,59 @@ fn parse_compound(text: &str) -> Option<(Compound, &str)> {
                     args = Some(rest[1..close].trim());
                     rest = &rest[close + 1..];
                 }
+                let nth = |a: i64, b: i64, from_end: bool, of_type: bool| Pseudo::Nth {
+                    a,
+                    b,
+                    from_end,
+                    of_type,
+                };
                 c.pseudo.push(match (name.as_str(), args) {
-                    ("first-child", None) => Pseudo::Nth {
-                        a: 0,
-                        b: 1,
-                        from_end: false,
-                    },
-                    ("last-child", None) => Pseudo::Nth {
-                        a: 0,
-                        b: 1,
-                        from_end: true,
-                    },
-                    ("only-child", None) => Pseudo::Only,
+                    ("first-child", None) => nth(0, 1, false, false),
+                    ("last-child", None) => nth(0, 1, true, false),
+                    ("first-of-type", None) => nth(0, 1, false, true),
+                    ("last-of-type", None) => nth(0, 1, true, true),
+                    ("only-child", None) => Pseudo::Only { of_type: false },
+                    ("only-of-type", None) => Pseudo::Only { of_type: true },
                     ("nth-child", Some(a)) => {
                         let (a, b) = parse_nth(a)?;
-                        Pseudo::Nth {
-                            a,
-                            b,
-                            from_end: false,
-                        }
+                        nth(a, b, false, false)
                     }
                     ("nth-last-child", Some(a)) => {
                         let (a, b) = parse_nth(a)?;
-                        Pseudo::Nth {
-                            a,
-                            b,
-                            from_end: true,
-                        }
+                        nth(a, b, true, false)
                     }
-                    ("not", Some(inner)) => {
-                        let (compound, after) = parse_compound(inner)?;
-                        if !after.trim().is_empty() {
-                            return None;
-                        }
-                        Pseudo::Not(Box::new(compound))
+                    ("nth-of-type", Some(a)) => {
+                        let (a, b) = parse_nth(a)?;
+                        nth(a, b, false, true)
                     }
+                    ("nth-last-of-type", Some(a)) => {
+                        let (a, b) = parse_nth(a)?;
+                        nth(a, b, true, true)
+                    }
+                    ("empty", None) => Pseudo::Empty,
+                    ("root", None) => Pseudo::Root,
+                    ("any-link" | "link", None) => Pseudo::Link,
+                    ("not", Some(inner)) => Pseudo::Not(compound_list(inner)?),
+                    ("is" | "matches" | "-webkit-any", Some(inner)) => Pseudo::Is {
+                        any: compound_list(inner)?,
+                        weighs: true,
+                    },
+                    ("where", Some(inner)) => Pseudo::Is {
+                        any: compound_list(inner)?,
+                        weighs: false,
+                    },
+                    // Pseudo-elements written with one colon.
+                    ("before" | "after" | "first-line" | "first-letter", None) => {
+                        Pseudo::Never(None)
+                    }
+                    // States of interaction, and of what SVG does not have.
+                    (
+                        "hover" | "active" | "focus" | "focus-visible" | "focus-within" | "visited"
+                        | "target" | "checked" | "indeterminate" | "disabled" | "enabled"
+                        | "placeholder-shown" | "default" | "valid" | "invalid" | "required"
+                        | "optional" | "read-only" | "read-write",
+                        None,
+                    ) => Pseudo::Never(Some(name.clone())),
                     _ => return None,
                 });
             }
@@ -557,6 +650,18 @@ fn parse_compound(text: &str) -> Option<(Compound, &str)> {
         any = true;
     }
     any.then_some((c, rest))
+}
+
+/// A comma-separated list of compound selectors (as `:is()` and `:not()`
+/// take them).
+fn compound_list(text: &str) -> Option<Vec<Compound>> {
+    split_top(text, ',')
+        .into_iter()
+        .map(|part| {
+            let (compound, after) = parse_compound(part.trim())?;
+            after.trim().is_empty().then_some(compound)
+        })
+        .collect()
 }
 
 /// The index of the parenthesis closing the one `text` starts with.

@@ -1,7 +1,9 @@
 //! CSS selectors beyond simple ones: combinators (descendant, child,
-//! adjacent, sibling), attribute selectors, structural pseudo-classes and
-//! `:not()`, with CSS specificity; pseudo-elements are left out with a
-//! warning.
+//! adjacent, sibling), attribute selectors, structural pseudo-classes
+//! (`-child`, `-of-type`, `:empty`, `:root`), `:not()`, `:is()` and
+//! `:where()` of compound lists, with CSS specificity; pseudo-elements
+//! draw nothing, and rules for states of interaction (`:hover`) never
+//! match, with a warning.
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
@@ -83,12 +85,53 @@ fn structural_pseudo_classes_and_not() {
 }
 
 #[test]
-fn pseudo_elements_are_left_out_with_a_warning() {
-    let import = read("rect::before { fill: red } rect { fill: blue }", RECTS);
+fn pseudo_elements_draw_nothing() {
+    // SVG's elements have no pseudo-elements: such rules match nothing,
+    // as browsers draw them.
+    let import = read(
+        "rect::before { fill: red } rect:after { fill: red } rect { fill: blue }",
+        RECTS,
+    );
+    assert!(import.warnings.is_empty(), "{:?}", import.warnings);
+    assert_eq!(fills(&import), vec![BLUE, BLUE, BLUE]);
+}
+
+#[test]
+fn rules_for_interaction_are_drawn_at_rest_with_a_warning() {
+    let import = read("rect:hover { fill: red } rect { fill: blue }", RECTS);
     assert_eq!(fills(&import), vec![BLUE, BLUE, BLUE]);
     assert!(
-        import.warnings.iter().any(|w| w.contains("::before")),
+        import.warnings.iter().any(|w| w.contains(":hover")),
         "{:?}",
         import.warnings
     );
+}
+
+#[test]
+fn of_type_empty_and_root() {
+    let body = r#"<circle r="1"/><rect width="1" height="1"/><circle r="1"/><rect width="1" height="1"/><g><rect width="1" height="1"/></g>"#;
+    let import = read(
+        "rect:first-of-type { fill: red } circle:nth-last-of-type(1) { fill: blue } g rect:only-of-type { fill: red }",
+        body,
+    );
+    assert!(import.warnings.is_empty(), "{:?}", import.warnings);
+    assert_eq!(fills(&import), vec![BLACK, RED, BLUE, BLACK, RED]);
+    let import = read(
+        ":root > rect:empty { fill: blue }",
+        r#"<rect width="1" height="1"/><g><rect width="1" height="1"/></g>"#,
+    );
+    assert_eq!(fills(&import), vec![BLUE, BLACK]);
+}
+
+#[test]
+fn is_where_and_not_of_lists() {
+    // `:is()` weighs as its heaviest compound, `:where()` as nothing.
+    let import = read(
+        ":is(#a, .z) rect { fill: red } .c { fill: blue } :where(#a) .c { fill: black }",
+        RECTS,
+    );
+    assert!(import.warnings.is_empty(), "{:?}", import.warnings);
+    assert_eq!(fills(&import), vec![RED, RED, BLUE]);
+    let import = read("rect:not(.c, #q) { fill: red }", RECTS);
+    assert_eq!(fills(&import), vec![RED, BLACK, BLACK]);
 }

@@ -1022,6 +1022,10 @@ impl<'a, 'input> Converter<'a, 'input> {
                 "opacity" | "fill-opacity" | "stroke-opacity" => "1".into(),
                 "transform" | "translate" | "rotate" | "scale" => "none".into(),
                 "offset-distance" | "stroke-dashoffset" => "0".into(),
+                // Geometry left out is at 0.
+                "x" | "y" | "cx" | "cy" | "r" | "x1" | "y1" | "x2" | "y2" | "width" | "height" => {
+                    "0".into()
+                }
                 "fill" => paint_css(&style.fill),
                 "stroke" => paint_css(&style.stroke),
                 "stroke-width" => style.stroke_width.to_string(),
@@ -1055,9 +1059,15 @@ impl<'a, 'input> Converter<'a, 'input> {
                 smil::Kind::Transform(_) | smil::Kind::Motion { .. } => first.identity(),
                 _ => base(&first.attribute),
             };
-            let anims: Vec<(&Smil, &[f64])> = members
+            let anims: Vec<(&Smil, &[f64], &[f64])> = members
                 .iter()
-                .map(|&i| (&self.smil[i], self.smil_timing.instances[i].as_slice()))
+                .map(|&i| {
+                    (
+                        &self.smil[i],
+                        self.smil_timing.instances[i].as_slice(),
+                        self.smil_timing.lengths[i].as_slice(),
+                    )
+                })
                 .collect();
             let keys = smil::keyframes(&anims, self.span.duration, self.smil_timing.cyclic, &start);
             tracks.insert(key, keys);
@@ -2376,14 +2386,35 @@ fn combine<T: Interpolate + PartialEq>(
                 .all(|(a, b)| a.time == b.time && a.easing == b.easing)
     });
     if same {
+        // Keyframe by keyframe: two at one time (a jump) keep both values.
         return Animated::from_keyframes(
             first
                 .iter()
-                .map(|k| Keyframe::new(k.time, at(k.time), k.easing.clone()))
+                .enumerate()
+                .map(|(i, k)| {
+                    let values: Vec<f64> = tracks
+                        .iter()
+                        .map(|a| match a.keyframes() {
+                            [] => a.sample(0.0),
+                            keys => keys[i].value,
+                        })
+                        .collect();
+                    Keyframe::new(k.time, f(&values), k.easing.clone())
+                })
                 .collect(),
             at(0.0),
         );
     }
+    // Where a track jumps (two keyframes at one time), what shows just
+    // before.
+    let jumps: Vec<f64> = moving
+        .iter()
+        .flat_map(|k| {
+            k.windows(2)
+                .filter(|w| w[0].time == w[1].time)
+                .map(|w| w[0].time)
+        })
+        .collect();
     let mut times: Vec<f64> = moving
         .iter()
         .flat_map(|k| k.iter().map(|f| f.time))
@@ -2392,6 +2423,13 @@ fn combine<T: Interpolate + PartialEq>(
     times.dedup();
     let mut frames = Vec::new();
     for w in times.windows(2) {
+        if jumps.contains(&w[0]) {
+            frames.push(Keyframe::new(
+                w[0],
+                at(w[0] - 1e-9),
+                dxn_vector_animation::Easing::Hold,
+            ));
+        }
         for i in 0..SAMPLES {
             let t = w[0] + (w[1] - w[0]) * i as f64 / SAMPLES as f64;
             frames.push(Keyframe::new(
@@ -2402,6 +2440,13 @@ fn combine<T: Interpolate + PartialEq>(
         }
     }
     if let Some(&last) = times.last() {
+        if jumps.contains(&last) {
+            frames.push(Keyframe::new(
+                last,
+                at(last - 1e-9),
+                dxn_vector_animation::Easing::Hold,
+            ));
+        }
         frames.push(Keyframe::new(
             last,
             at(last),

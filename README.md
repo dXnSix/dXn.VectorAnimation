@@ -85,9 +85,11 @@ core and the importers build for WebAssembly; a build that plays compiled scenes
   `pathLength` included), linear and radial gradients, clip paths, alpha and luminance masks, opacity, blend
   modes, `use` and `symbol`, nested `svg`, embedded PNG and JPEG images, and `<style>` sheets with the
   cascade: selectors of types, ids, classes, attributes (`[a]`, `=`, `~=`, `|=`, `^=`, `$=`, `*=`) and
-  structural pseudo-classes (`:first-child`, `:last-child`, `:only-child`, `:nth-child()`,
-  `:nth-last-child()`, `:not()`), joined by descendant, child, adjacent and sibling combinators, with CSS
-  specificity.
+  pseudo-classes (`:first-child`, `:last-child`, `:only-child`, `:nth-child()`, `:nth-last-child()`, their
+  `-of-type` forms, `:empty`, `:root`, `:any-link`, `:not()`, `:is()` and `:where()` of compound lists),
+  joined by descendant, child, adjacent and sibling combinators, with CSS specificity. Pseudo-elements draw
+  nothing in SVG; rules for states of interaction (`:hover`, `:focus`, ...) are drawn at rest, with a
+  warning.
 - CSS animations, as Figma Motion writes them: `@keyframes` with a timing function per stop, the `animation`
   shorthand and longhands (delay, iterations, direction, fill mode), `transform`, `transform-origin`,
   `transform-box`, `translate`, `rotate`, `scale`, `opacity`, motion along a path (`offset-path`,
@@ -96,10 +98,11 @@ core and the importers build for WebAssembly; a build that plays compiled scenes
 - SMIL, which Figma Motion writes for what CSS cannot animate (`width`, `height`, path `d`): `<animate>`,
   `<set>`, `<animateColor>`, `<animateTransform>` (additive or replacing the attribute) and `<animateMotion>`
   (a `path`, an `<mpath>`, points; `rotate`, `keyPoints`), with `values`, `from` / `to` / `by`, `keyTimes`,
-  `keySplines`, every `calcMode`, `dur`, `repeatCount`, `repeatDur` and `fill`. Begins are offsets (negative
-  ones too) or other animations' begins and ends; animations that start one another in a cycle become the
-  timeline's loop, and several animations of one attribute apply in the order they began. Shapes' geometry
-  animates (`x`, `y`, `width`, `height`, `rx`, `ry`, `cx`, `cy`, `r`, line ends, `points`).
+  `keySplines`, every `calcMode`, `dur`, `repeatCount`, `repeatDur`, `fill` and `accumulate`. Begins are
+  offsets (negative ones too) or other animations' begins, ends and repeats; `end` lists of offsets and
+  other animations' begins and ends cut instances short. Animations that start one another in a cycle become
+  the timeline's loop, and several animations of one attribute apply in the order they began. Shapes'
+  geometry animates (`x`, `y`, `width`, `height`, `rx`, `ry`, `cx`, `cy`, `r`, line ends, `points`).
 - Filters: `<filter>` chains as Figma exports drop shadows (several of them), inner shadows and layer blurs
   (the source's alpha hardened, moved, blurred, colored, cut out and blended under the source, or taken from
   it and blended over it), `feDropShadow`, `feGaussianBlur`, color changes of the source (`feColorMatrix` of
@@ -114,8 +117,8 @@ core and the importers build for WebAssembly; a build that plays compiled scenes
   `font-weight`, `font-style`, `letter-spacing`, fills and strokes; whitespace collapsed unless
   `xml:space="preserve"`.
 - Left out with a warning: positions for each character, text on a path (laid on a line), other filters
-  (floods, morphology, lighting, displacement, shadows of a recolored drawing), pseudo-elements and other
-  pseudo-classes, SMIL begins on events, `end` times and `accumulate`.
+  (floods, morphology, lighting, displacement, shadows of a recolored drawing), SMIL begins and ends on
+  events.
 
 **Lottie** (`dxn_vector_animation_lottie`)
 
