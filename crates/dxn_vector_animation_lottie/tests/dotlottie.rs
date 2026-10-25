@@ -92,7 +92,7 @@ fn images(scene: &dxn_vector_animation::Scene) -> usize {
             .map(|n| match n {
                 Node::Image(_) => 1,
                 Node::Group(g) => walk(g),
-                Node::Shape(_) => 0,
+                Node::Shape(_) | Node::Text(_) => 0,
             })
             .sum()
     }

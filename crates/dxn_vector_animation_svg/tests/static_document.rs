@@ -105,11 +105,16 @@ fn use_and_clip_paths() {
 }
 
 #[test]
-fn text_is_reported() {
+fn foreign_objects_are_reported() {
     let svg =
-        r#"<svg width="10" height="10" xmlns="http://www.w3.org/2000/svg"><text>Hi</text></svg>"#;
+        r#"<svg width="10" height="10" xmlns="http://www.w3.org/2000/svg"><foreignObject/></svg>"#;
     let import = dxn_vector_animation_svg::read(svg.as_bytes()).unwrap();
-    assert!(import.warnings.iter().any(|w| w.contains("<text>")));
+    assert!(
+        import
+            .warnings
+            .iter()
+            .any(|w| w.contains("<foreignObject>"))
+    );
 }
 
 #[test]

@@ -52,10 +52,10 @@ fn inspect_describes_both_formats() {
 #[test]
 fn validate_fails_strictly_on_warnings() {
     let dir = temp_dir("validate");
-    let file = dir.join("text.svg");
+    let file = dir.join("foreign.svg");
     std::fs::write(
         &file,
-        r#"<svg width="10" height="10" xmlns="http://www.w3.org/2000/svg"><text>Hi</text></svg>"#,
+        r#"<svg width="10" height="10" xmlns="http://www.w3.org/2000/svg"><foreignObject/></svg>"#,
     )
     .unwrap();
     assert!(bin().arg("validate").arg(&file).status().unwrap().success());

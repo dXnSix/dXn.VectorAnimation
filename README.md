@@ -109,9 +109,13 @@ core and the importers build for WebAssembly; a build that plays compiled scenes
 - Pattern fills: `<pattern>` tiles in user space or the shape's box, content in user space, the box's
   fractions or a view box, `patternTransform`, attributes and content inherited through `href` (Figma's
   image fills are such patterns).
-- Left out with a warning: text (export it as outlines), other filters (floods, morphology, lighting,
-  displacement, shadows of a recolored drawing), pseudo-elements and other pseudo-classes, SMIL begins on
-  events, `end` times and `accumulate`.
+- Live text: `<text>`, `<tspan>` and `<a>` as spans set in a font when drawn (the reference renderer uses the
+  system's fonts), placed by `x`, `y`, `dx`, `dy` and `text-anchor`, with `font-family`, `font-size`,
+  `font-weight`, `font-style`, `letter-spacing`, fills and strokes; whitespace collapsed unless
+  `xml:space="preserve"`.
+- Left out with a warning: positions for each character, text on a path (laid on a line), other filters
+  (floods, morphology, lighting, displacement, shadows of a recolored drawing), pseudo-elements and other
+  pseudo-classes, SMIL begins on events, `end` times and `accumulate`.
 
 **Lottie** (`dxn_vector_animation_lottie`)
 

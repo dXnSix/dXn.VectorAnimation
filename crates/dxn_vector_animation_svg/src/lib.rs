@@ -2,7 +2,8 @@
 //!
 //! The static document: shapes, paths, groups and their transforms, fills
 //! and strokes, linear and radial gradients, clip paths, masks, opacity,
-//! blend modes, `use`, pattern fills, embedded PNG and JPEG images, and the `<style>`
+//! blend modes, `use`, pattern fills, embedded PNG and JPEG images, live
+//! text (`<text>`, `<tspan>`), and the `<style>`
 //! sheets that style them (simple selectors). Its CSS animations, as Figma
 //! Motion writes them: `@keyframes` with a timing function per stop, the
 //! `animation` shorthand and longhands (delay, iterations, direction, fill
@@ -15,8 +16,8 @@
 //! (`feColorMatrix`, `feComponentTransfer`), and CSS `blur()`,
 //! `drop-shadow()` and the color functions.
 //!
-//! What a file holds beyond that (text, other filters) is left out with a
-//! warning in [`Import::warnings`].
+//! What a file holds beyond that (other filters, text on a path) is left
+//! out with a warning in [`Import::warnings`].
 
 mod animate;
 mod convert;

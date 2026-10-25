@@ -5,6 +5,7 @@ use std::sync::Arc;
 use crate::{
     BlendMode, Color, Effect, FillRule, GradientStop, GradientUnits, Group, ImageData, LineCap,
     LineJoin, MaskKind, Matrix, Node, Paint, PaintOrder, Path, Point, Rect, Scene, Shape, Spread,
+    Text, TextAnchor,
     filter::{ColorStep, steps_at},
     outline::{geometry_path, trim_paths},
     transform::transform_at,
@@ -59,11 +60,85 @@ pub enum Item {
         /// From the image's coordinates to the scene's.
         transform: Matrix,
     },
+    /// Draws text, transformed by `transform`, set in fonts the renderer
+    /// has.
+    Text {
+        /// The spans, in order.
+        spans: Vec<FrameTextSpan>,
+        /// From the text's coordinates to the scene's.
+        transform: Matrix,
+    },
     /// Starts drawing into a layer, composed when its [`Item::PopLayer`]
     /// comes.
     PushLayer(Layer),
     /// Composes the last layer pushed onto what is under it.
     PopLayer,
+}
+
+/// A span of text at one moment (see [`crate::TextSpan`]).
+#[derive(Debug, Clone, PartialEq)]
+pub struct FrameTextSpan {
+    /// The characters.
+    pub text: String,
+    /// Where it starts a new line; `None` goes on after the span before.
+    pub position: Option<Point>,
+    /// Moved by, from where it would start.
+    pub shift: Point,
+    /// Which point of its line the position is.
+    pub anchor: TextAnchor,
+    /// Font families, the preferred first.
+    pub families: Vec<String>,
+    /// The font size.
+    pub size: f64,
+    /// The weight, 100 to 900.
+    pub weight: u16,
+    /// Italic or oblique.
+    pub italic: bool,
+    /// Added after each character.
+    pub letter_spacing: f64,
+    /// The fill, opacity included.
+    pub fill: Option<FramePaint>,
+    /// The stroke, opacity included, and its geometry.
+    pub stroke: Option<(FramePaint, StrokeStyle)>,
+    /// Which of fill and stroke is drawn first.
+    pub paint_order: PaintOrder,
+}
+
+/// About where `spans` draw (in their coordinates), without a font: each
+/// character a size of 0.6 em wide, from the ascent of 0.9 em to the
+/// descent of 0.3 em.
+pub fn text_bounds(spans: &[FrameTextSpan]) -> Option<Rect> {
+    let mut out: Option<Rect> = None;
+    let mut pen = Point::new(0.0, 0.0);
+    let mut line: Option<(Rect, TextAnchor, f64)> = None;
+    let close = |line: Option<(Rect, TextAnchor, f64)>, out: &mut Option<Rect>| {
+        if let Some((r, anchor, start)) = line {
+            let w = r.x + r.width - start;
+            let dx = match anchor {
+                TextAnchor::Start => 0.0,
+                TextAnchor::Middle => -w / 2.0,
+                TextAnchor::End => -w,
+            };
+            *out = union(*out, Some(Rect::new(r.x + dx, r.y, r.width, r.height)));
+        }
+    };
+    for span in spans {
+        if let Some(p) = span.position {
+            close(line.take(), &mut out);
+            pen = p;
+        }
+        pen = Point::new(pen.x + span.shift.x, pen.y + span.shift.y);
+        let chars = span.text.chars().count() as f64;
+        let w = chars * (0.6 * span.size + span.letter_spacing).max(0.0);
+        let r = Rect::new(pen.x, pen.y - 0.9 * span.size, w, 1.2 * span.size);
+        line = Some(match line {
+            Some((l, anchor, start)) => (l.union(r), anchor, start),
+            None => (r, span.anchor, pen.x),
+        });
+        pen.x += w;
+    }
+    close(line, &mut out);
+    out
 }
 
 /// How a layer composes onto what is under it.
@@ -265,6 +340,24 @@ fn items_bounds(items: &[Item]) -> Option<Rect> {
                 p.close();
                 p.transformed(*transform).bounds()
             }
+            Item::Text { spans, transform } => text_bounds(spans).and_then(|r| {
+                let mut p = Path::new();
+                p.move_to(Point::new(r.x, r.y));
+                p.line_to(Point::new(r.x + r.width, r.y));
+                p.line_to(Point::new(r.x + r.width, r.y + r.height));
+                p.line_to(Point::new(r.x, r.y + r.height));
+                p.close();
+                let scale = (transform.a * transform.d - transform.b * transform.c)
+                    .abs()
+                    .sqrt();
+                let widest = spans
+                    .iter()
+                    .filter_map(|s| s.stroke.as_ref().map(|(_, st)| st.width))
+                    .fold(0.0f64, f64::max);
+                p.transformed(*transform)
+                    .bounds()
+                    .map(|b| b.grown(widest * scale))
+            }),
             Item::PushLayer(layer) => {
                 stack.push((Some(layer), None));
                 continue;
@@ -441,6 +534,7 @@ fn sample_group(group: &Group, time: f64, parent: Matrix, out: &mut Vec<Item>, d
                 rect: image.rect,
                 transform: m,
             }),
+            Node::Text(text) => sample_text(text, time, m, out, depth),
         }
     }
     if layer {
@@ -523,6 +617,70 @@ fn sample_shape(shape: &Shape, time: f64, m: Matrix, out: &mut Vec<Item>, depth:
     };
     out.extend(first);
     out.extend(second);
+}
+
+fn sample_text(text: &Text, time: f64, m: Matrix, out: &mut Vec<Item>, depth: usize) {
+    let mut spans: Vec<FrameTextSpan> = text
+        .spans
+        .iter()
+        .map(|span| FrameTextSpan {
+            text: span.text.clone(),
+            position: span.position.as_ref().map(|p| p.sample(time)),
+            shift: span.shift,
+            anchor: span.anchor,
+            families: span.font.families.clone(),
+            size: span.font.size.sample(time).max(0.0),
+            weight: span.font.weight,
+            italic: span.font.italic,
+            letter_spacing: span.letter_spacing.sample(time),
+            fill: None,
+            stroke: None,
+            paint_order: span.paint_order,
+        })
+        .collect();
+    // Box-relative paints map onto the text's box, as near as it is known.
+    let Some(b) = text_bounds(&spans) else {
+        return;
+    };
+    let mut area = Path::new();
+    area.move_to(Point::new(b.x, b.y));
+    area.line_to(Point::new(b.x + b.width, b.y + b.height));
+    for (frame, span) in spans.iter_mut().zip(&text.spans) {
+        frame.fill = span
+            .fill
+            .as_ref()
+            .and_then(|fill| paint_at(&fill.paint, time, fill.opacity.sample(time), &area, depth));
+        frame.stroke = span.stroke.as_ref().and_then(|stroke| {
+            let width = stroke.width.sample(time);
+            if width <= 0.0 || !width.is_finite() {
+                return None;
+            }
+            let paint = paint_at(
+                &stroke.paint,
+                time,
+                stroke.opacity.sample(time),
+                &area,
+                depth,
+            )?;
+            Some((
+                paint,
+                StrokeStyle {
+                    width,
+                    cap: stroke.cap,
+                    join: stroke.join,
+                    miter_limit: stroke.miter_limit,
+                    dash: None,
+                },
+            ))
+        });
+    }
+    if spans.iter().all(|s| s.fill.is_none() && s.stroke.is_none()) {
+        return;
+    }
+    out.push(Item::Text {
+        spans,
+        transform: m,
+    });
 }
 
 /// `paint` at `time` with `opacity` folded in, or `None` when nothing would

@@ -296,6 +296,26 @@ fn count_group(group: &Group, depth: usize, stats: &mut Stats) {
         match child {
             Node::Group(g) => count_group(g, depth + 1, stats),
             Node::Image(_) => stats.images += 1,
+            Node::Text(text) => {
+                stats.shapes += 1;
+                for span in &text.spans {
+                    if let Some(p) = &span.position {
+                        count(&p.x, stats);
+                        count(&p.y, stats);
+                    }
+                    count(&span.font.size, stats);
+                    count(&span.letter_spacing, stats);
+                    if let Some(fill) = &span.fill {
+                        count(&fill.opacity, stats);
+                        count_paint(&fill.paint, depth, stats);
+                    }
+                    if let Some(stroke) = &span.stroke {
+                        count(&stroke.opacity, stats);
+                        count(&stroke.width, stats);
+                        count_paint(&stroke.paint, depth, stats);
+                    }
+                }
+            }
             Node::Shape(shape) => {
                 stats.shapes += 1;
                 for p in &shape.paths {

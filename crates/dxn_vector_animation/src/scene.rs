@@ -3,7 +3,7 @@
 
 use std::sync::Arc;
 
-use crate::{Animated, AnimatedPoint, Color, Matrix, Path, Rect};
+use crate::{Animated, AnimatedPoint, Color, Matrix, Path, Point, Rect};
 
 /// An animated vector scene.
 #[derive(Debug, Clone, PartialEq)]
@@ -83,6 +83,8 @@ pub enum Node {
     Shape(Box<Shape>),
     /// A raster image.
     Image(Image),
+    /// Text set in a font when it is drawn.
+    Text(Box<Text>),
 }
 
 impl Node {
@@ -1248,6 +1250,119 @@ pub enum Spread {
     Repeat,
     /// The gradient again, mirrored.
     Reflect,
+}
+
+/// Text set in a font by whatever draws it (SVG's `<text>`): spans placed
+/// on baselines, one after another unless placed anew.
+#[derive(Debug, Clone, PartialEq, Default)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "serde", serde(rename_all = "camelCase"))]
+pub struct Text {
+    /// The source file's id.
+    #[cfg_attr(
+        feature = "serde",
+        serde(default, skip_serializing_if = "Option::is_none")
+    )]
+    pub id: Option<String>,
+    /// The name its author gave it.
+    #[cfg_attr(
+        feature = "serde",
+        serde(default, skip_serializing_if = "Option::is_none")
+    )]
+    pub name: Option<String>,
+    /// The spans, in order.
+    pub spans: Vec<TextSpan>,
+}
+
+/// A run of text in one style.
+#[derive(Debug, Clone, PartialEq, Default)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "serde", serde(rename_all = "camelCase"))]
+pub struct TextSpan {
+    /// The characters.
+    pub text: String,
+    /// Where it starts a new line of text (a point of the baseline, placed
+    /// by `anchor`); `None` goes on after the span before it.
+    #[cfg_attr(
+        feature = "serde",
+        serde(default, skip_serializing_if = "Option::is_none")
+    )]
+    pub position: Option<AnimatedPoint>,
+    /// Moved by, from where it would start.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub shift: Point,
+    /// Which point of the line (the spans from one placed anew to the
+    /// next) its position is.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub anchor: TextAnchor,
+    /// The font.
+    pub font: Font,
+    /// Added after each character.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub letter_spacing: Animated<f64>,
+    /// The fill.
+    #[cfg_attr(
+        feature = "serde",
+        serde(default, skip_serializing_if = "Option::is_none")
+    )]
+    pub fill: Option<Fill>,
+    /// The stroke.
+    #[cfg_attr(
+        feature = "serde",
+        serde(default, skip_serializing_if = "Option::is_none")
+    )]
+    pub stroke: Option<Stroke>,
+    /// Which of fill and stroke is drawn first.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub paint_order: PaintOrder,
+}
+
+/// Which point of a line of text its position is.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "serde", serde(rename_all = "camelCase"))]
+pub enum TextAnchor {
+    /// Its start.
+    #[default]
+    Start,
+    /// Its middle.
+    Middle,
+    /// Its end.
+    End,
+}
+
+/// A font: the first of `families` the renderer has, else its default.
+#[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "serde", serde(rename_all = "camelCase"))]
+pub struct Font {
+    /// Family names, the preferred first; CSS's generic names
+    /// (`sans-serif`, `serif`, `monospace`, ...) stand for the renderer's.
+    pub families: Vec<String>,
+    /// The size (the em), in user units.
+    pub size: Animated<f64>,
+    /// The weight, 100 to 900 (400 regular, 700 bold).
+    #[cfg_attr(feature = "serde", serde(default = "regular"))]
+    pub weight: u16,
+    /// Italic or oblique.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub italic: bool,
+}
+
+#[cfg(feature = "serde")]
+fn regular() -> u16 {
+    400
+}
+
+impl Default for Font {
+    fn default() -> Self {
+        Font {
+            families: vec!["sans-serif".to_owned()],
+            size: Animated::Static(16.0),
+            weight: 400,
+            italic: false,
+        }
+    }
 }
 
 /// A raster image, drawn into `rect`.

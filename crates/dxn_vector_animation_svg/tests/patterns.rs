@@ -16,7 +16,7 @@ fn fill(import: &Import) -> Option<Paint> {
         g.children.iter().find_map(|n| match n {
             Node::Shape(s) => s.fill.as_ref().map(|f| f.paint.clone()),
             Node::Group(g) => find(g),
-            Node::Image(_) => None,
+            Node::Image(_) | Node::Text(_) => None,
         })
     }
     find(&import.scene.root)

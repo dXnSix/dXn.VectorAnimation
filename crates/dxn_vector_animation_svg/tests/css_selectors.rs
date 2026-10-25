@@ -24,7 +24,7 @@ fn fills(import: &Import) -> Vec<Option<Color>> {
                     Paint::Solid { color } => color.as_static().copied(),
                     _ => None,
                 })),
-                Node::Image(_) => {}
+                Node::Image(_) | Node::Text(_) => {}
             }
         }
     }

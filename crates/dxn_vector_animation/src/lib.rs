@@ -27,16 +27,19 @@ pub mod transform;
 pub use animated::{Animated, AnimatedPoint, Interpolate, Keyframe, Track};
 pub use color::Color;
 pub use easing::{Easing, StepPosition};
-pub use frame::{ClipPath, Frame, FrameEffect, FrameMask, FramePaint, Item, Layer, StrokeStyle};
+pub use frame::{
+    ClipPath, Frame, FrameEffect, FrameMask, FramePaint, FrameTextSpan, Item, Layer, StrokeStyle,
+    text_bounds,
+};
 pub use geom::{Matrix, Path, PathEl, Point, Rect};
 pub use limits::{Error, Import, Limits, Stats};
 pub use scene::{
     BlendMode, Blur, Clip, ClipShape, ColorEffect, ColorMatrix, ColorOp, Dash, Direction,
-    DropShadow, Effect, EllipseStart, Fill, FillRule, Geometry, GradientStop, GradientUnits, Group,
-    Image, ImageData, InnerShadow, LineCap, LineJoin, LinearGradient, LoopMode, Marker, Mask,
-    MaskKind, MotionPath, MotionRotate, Node, Paint, PaintOrder, Pattern, RadialGradient,
-    RectStart, Scene, Shape, ShapePath, Spread, Star, StarKind, Stroke, TimeMap, TimeRange,
-    Timeline, Transfer, TransformOp, Trim, TrimMode, ViewBox,
+    DropShadow, Effect, EllipseStart, Fill, FillRule, Font, Geometry, GradientStop, GradientUnits,
+    Group, Image, ImageData, InnerShadow, LineCap, LineJoin, LinearGradient, LoopMode, Marker,
+    Mask, MaskKind, MotionPath, MotionRotate, Node, Paint, PaintOrder, Pattern, RadialGradient,
+    RectStart, Scene, Shape, ShapePath, Spread, Star, StarKind, Stroke, Text, TextAnchor, TextSpan,
+    TimeMap, TimeRange, Timeline, Transfer, TransformOp, Trim, TrimMode, ViewBox,
 };
 
 /// The name and version of the compiled scene format

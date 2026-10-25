@@ -8,11 +8,11 @@ use std::{
 
 use dxn_vector_animation::{
     Animated, AnimatedPoint, BlendMode, Blur, Clip, ClipShape, Color, Dash, Direction, DropShadow,
-    Effect, EllipseStart, Error, Fill, FillRule, Geometry, GradientStop, GradientUnits, Group,
-    Image, ImageData, Interpolate, Item, Keyframe, Limits, LineCap, LineJoin, LinearGradient, Mask,
-    MaskKind, Matrix, MotionPath, MotionRotate, Node, Paint, PaintOrder, Path, Pattern, Point,
-    RadialGradient, Rect, RectStart, Scene, Shape, ShapePath, Spread, Stroke, Timeline, Track,
-    TransformOp, ViewBox, outline::path_length,
+    Effect, EllipseStart, Error, Fill, FillRule, Font, Geometry, GradientStop, GradientUnits,
+    Group, Image, ImageData, Interpolate, Item, Keyframe, Limits, LineCap, LineJoin,
+    LinearGradient, Mask, MaskKind, Matrix, MotionPath, MotionRotate, Node, Paint, PaintOrder,
+    Path, Pattern, Point, RadialGradient, Rect, RectStart, Scene, Shape, ShapePath, Spread, Stroke,
+    Text, TextAnchor, TextSpan, Timeline, Track, TransformOp, ViewBox, outline::path_length,
 };
 use roxmltree::Node as XmlNode;
 
@@ -57,6 +57,12 @@ const PRESENTATION: &[&str] = &[
     "paint-order",
     "mask-type",
     "mix-blend-mode",
+    "font-family",
+    "font-size",
+    "font-weight",
+    "font-style",
+    "text-anchor",
+    "letter-spacing",
 ];
 
 /// Properties whose animation the scene plays.
@@ -123,6 +129,12 @@ struct Style {
     visible: bool,
     color: Color,
     paint_order: PaintOrder,
+    font_families: Vec<String>,
+    font_size: f64,
+    font_weight: u16,
+    italic: bool,
+    anchor: TextAnchor,
+    letter_spacing: f64,
 }
 
 impl Default for Style {
@@ -143,6 +155,12 @@ impl Default for Style {
             visible: true,
             color: Color::BLACK,
             paint_order: PaintOrder::FillFirst,
+            font_families: vec!["sans-serif".to_owned()],
+            font_size: 16.0,
+            font_weight: 400,
+            italic: false,
+            anchor: TextAnchor::Start,
+            letter_spacing: 0.0,
         }
     }
 }
@@ -161,6 +179,8 @@ pub(crate) struct Converter<'a, 'input> {
     /// The patterns being read (one filling with itself is left out), and
     /// those read, by their element.
     pattern_stack: Vec<roxmltree::NodeId>,
+    /// The baseline of the text being read.
+    y: f64,
     patterns: HashMap<roxmltree::NodeId, Option<Paint>>,
     depth: usize,
     nodes: usize,
@@ -227,6 +247,7 @@ impl<'a, 'input> Converter<'a, 'input> {
             limits,
             use_stack: Vec::new(),
             pattern_stack: Vec::new(),
+            y: 0.0,
             patterns: HashMap::new(),
             depth: 0,
             nodes: 0,
@@ -477,6 +498,66 @@ impl<'a, 'input> Converter<'a, 'input> {
         if let Some(v) = get("visibility") {
             s.visible = v == "visible";
         }
+        if let Some(v) = get("font-family") {
+            let families: Vec<String> = v
+                .split(',')
+                .map(|f| f.trim().trim_matches(|c| c == '"' || c == '\'').to_owned())
+                .filter(|f| !f.is_empty())
+                .collect();
+            if !families.is_empty() {
+                s.font_families = families;
+            }
+        }
+        if let Some(v) = get("font-size") {
+            let parent = parent.font_size;
+            let size = match v.to_ascii_lowercase().as_str() {
+                "xx-small" => Some(9.0),
+                "x-small" => Some(10.0),
+                "small" => Some(13.0),
+                "medium" => Some(16.0),
+                "large" => Some(18.0),
+                "x-large" => Some(24.0),
+                "xx-large" => Some(32.0),
+                "larger" => Some(parent * 1.2),
+                "smaller" => Some(parent / 1.2),
+                v => match v.strip_suffix("em").and_then(number) {
+                    Some(em) if !v.ends_with("rem") => Some(em * parent),
+                    _ => length(v, parent),
+                },
+            };
+            if let Some(size) = size.filter(|v| v.is_finite()) {
+                s.font_size = size.max(0.0);
+            }
+        }
+        if let Some(v) = get("font-weight") {
+            s.font_weight = match v {
+                "normal" => 400,
+                "bold" => 700,
+                "bolder" => (parent.font_weight + 300).min(900),
+                "lighter" => parent.font_weight.saturating_sub(300).max(100),
+                n => number(n).map_or(s.font_weight, |w| w.clamp(1.0, 1000.0) as u16),
+            };
+        }
+        if let Some(v) = get("font-style") {
+            s.italic = matches!(v, "italic" | "oblique") || v.starts_with("oblique");
+        }
+        if let Some(v) = get("text-anchor") {
+            s.anchor = match v {
+                "middle" => TextAnchor::Middle,
+                "end" => TextAnchor::End,
+                _ => TextAnchor::Start,
+            };
+        }
+        if let Some(v) = get("letter-spacing") {
+            s.letter_spacing = if v == "normal" {
+                0.0
+            } else {
+                match v.strip_suffix("em").and_then(number) {
+                    Some(em) => em * s.font_size,
+                    None => length(v, s.font_size).unwrap_or(0.0),
+                }
+            };
+        }
         if let Some(v) = get("paint-order") {
             s.paint_order = match v.split_whitespace().next() {
                 Some("stroke") => PaintOrder::StrokeFirst,
@@ -532,10 +613,7 @@ impl<'a, 'input> Converter<'a, 'input> {
             }
             "use" => self.use_element(node, &style)?,
             "image" => self.image(node),
-            "text" => {
-                self.warn("<text> is left out: export text as outlines");
-                None
-            }
+            "text" => self.text(node, &style),
             "foreignObject" => {
                 self.warn("<foreignObject> is left out");
                 None
@@ -611,6 +689,173 @@ impl<'a, 'input> Converter<'a, 'input> {
             return Ok(None);
         }
         Ok(Some(Node::Group(group)))
+    }
+
+    /// A `<text>`: its spans (its own text and its `<tspan>`s'), placed
+    /// where they say, whitespace collapsed as SVG does unless
+    /// `xml:space="preserve"`.
+    fn text(&mut self, node: XmlNode<'a, 'input>, style: &Style) -> Option<Node> {
+        if !style.visible {
+            return None;
+        }
+        let preserve = node.attribute((roxmltree::NS_XML_URI, "space")) == Some("preserve");
+        let mut spans: Vec<TextSpan> = Vec::new();
+        self.y = 0.0;
+        self.text_spans(node, style, true, preserve, &mut spans);
+        if !preserve {
+            // Spaces where one span ends and the next begins collapse too;
+            // none before the text or after it.
+            let mut space = true;
+            for span in &mut spans {
+                if space && span.text.starts_with(' ') {
+                    span.text.remove(0);
+                }
+                if !span.text.is_empty() {
+                    space = span.text.ends_with(' ');
+                }
+            }
+            if let Some(last) = spans.iter_mut().rev().find(|s| !s.text.is_empty()) {
+                last.text.truncate(last.text.trim_end().len());
+            }
+        }
+        // Empty spans that place nothing go.
+        spans.retain(|s| !s.text.is_empty() || s.position.is_some());
+        if spans.iter().all(|s| s.text.trim().is_empty())
+            || spans.iter().all(|s| s.fill.is_none() && s.stroke.is_none())
+        {
+            return None;
+        }
+        Some(Node::Text(Box::new(Text {
+            id: node.attribute("id").map(str::to_owned),
+            name: None,
+            spans,
+        })))
+    }
+
+    /// The spans of the text content element `node` (its style `style`),
+    /// in order, into `out`.
+    fn text_spans(
+        &mut self,
+        node: XmlNode<'a, 'input>,
+        style: &Style,
+        first: bool,
+        preserve: bool,
+        out: &mut Vec<TextSpan>,
+    ) {
+        // The first of a list of lengths; ems are the element's font size.
+        let coord = |name: &str, reference: f64| {
+            node.attribute(name).and_then(|v| {
+                let first = v
+                    .split(|c: char| c == ',' || c.is_whitespace())
+                    .find(|p| !p.is_empty())?;
+                match first.strip_suffix("em").and_then(number) {
+                    Some(em) if !first.ends_with("rem") => Some(em * style.font_size),
+                    _ => length(first, reference),
+                }
+            })
+        };
+        if node
+            .attribute("x")
+            .or(node.attribute("y"))
+            .is_some_and(|v| {
+                v.split(|c: char| c == ',' || c.is_whitespace())
+                    .filter(|p| !p.is_empty())
+                    .count()
+                    > 1
+            })
+        {
+            self.warn("a position for each character of text is left out: the first places it");
+        }
+        let (x, y) = (coord("x", self.view.width), coord("y", self.view.height));
+        if let Some(y) = y {
+            self.y = y;
+        }
+        let mut position = (first || x.is_some() || y.is_some())
+            .then(|| AnimatedPoint::fixed(x.unwrap_or(0.0), self.y));
+        let mut shift = Point::new(
+            coord("dx", self.view.width).unwrap_or(0.0),
+            coord("dy", self.view.height).unwrap_or(0.0),
+        );
+        let fill = self
+            .paint(&style.fill, style, None, "fill")
+            .map(|paint| Fill {
+                paint,
+                opacity: Animated::Static(style.fill_opacity),
+                rule: FillRule::NonZero,
+            });
+        let stroke = self
+            .paint(&style.stroke, style, None, "stroke")
+            .filter(|_| style.stroke_width > 0.0)
+            .map(|paint| Stroke {
+                paint,
+                opacity: Animated::Static(style.stroke_opacity),
+                width: Animated::Static(style.stroke_width),
+                cap: style.cap,
+                join: style.join,
+                miter_limit: style.miter_limit,
+                dash: None,
+            });
+        for child in node.children() {
+            if let Some(text) = child.text().filter(|_| child.is_text()) {
+                let text = if preserve {
+                    text.replace(['\n', '\r', '\t'], " ")
+                } else {
+                    let mut collapsed = String::with_capacity(text.len());
+                    for c in text.chars().filter(|c| *c != '\n' && *c != '\r') {
+                        let c = if c == '\t' { ' ' } else { c };
+                        if !(c == ' ' && collapsed.ends_with(' ')) {
+                            collapsed.push(c);
+                        }
+                    }
+                    collapsed
+                };
+                out.push(TextSpan {
+                    text,
+                    position: position.take(),
+                    shift: std::mem::take(&mut shift),
+                    anchor: style.anchor,
+                    font: Font {
+                        families: style.font_families.clone(),
+                        size: Animated::Static(style.font_size),
+                        weight: style.font_weight,
+                        italic: style.italic,
+                    },
+                    letter_spacing: Animated::Static(style.letter_spacing),
+                    fill: fill.clone(),
+                    stroke: stroke.clone(),
+                    paint_order: style.paint_order,
+                });
+                continue;
+            }
+            if !child.is_element() {
+                continue;
+            }
+            let declared = self.cascade(child);
+            if declared.get("display").is_some_and(|d| d.trim() == "none") {
+                continue;
+            }
+            let inner = self.inherit(style, &declared);
+            match child.tag_name().name() {
+                "tspan" | "a" => {}
+                "textPath" => {
+                    self.warn("text on a path is laid out on a line");
+                }
+                _ => continue,
+            }
+            // A placed span with nothing before it still places what
+            // follows.
+            if position.is_some() || shift != Point::new(0.0, 0.0) {
+                out.push(TextSpan {
+                    text: String::new(),
+                    position: position.take(),
+                    shift: std::mem::take(&mut shift),
+                    anchor: style.anchor,
+                    font: Font::default(),
+                    ..TextSpan::default()
+                });
+            }
+            self.text_spans(child, &inner, false, preserve, out);
+        }
     }
 
     /// A `use`: the referenced element moved by `x` and `y`, inheriting the

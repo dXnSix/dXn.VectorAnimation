@@ -7,12 +7,18 @@
 //! let png = dxn_vector_animation_render::render_png(&frame, &Default::default()).unwrap();
 //! ```
 
+mod text;
+
+pub use text::{fonts_available, layout as text_layout};
+
 use std::{collections::HashMap, sync::Arc};
 
 use dxn_vector_animation::{
     BlendMode, Color, FillRule, Frame, FrameEffect, FrameMask, FramePaint, GradientStop, ImageData,
-    Item, Layer, LineCap, LineJoin, MaskKind, Matrix, Path, PathEl, Rect, Spread, StrokeStyle,
+    Item, Layer, LineCap, LineJoin, MaskKind, Matrix, PaintOrder, Path, PathEl, Rect, Spread,
+    StrokeStyle,
     filter::{ColorStep, apply_steps},
+    text_bounds,
 };
 use tiny_skia as sk;
 
@@ -229,6 +235,15 @@ fn drawn_bounds(items: &[Item], base: Matrix) -> Option<Rect> {
                 p.close();
                 p.transformed(base * *transform).bounds()
             }
+            Item::Text { spans, transform } => text_bounds(spans).and_then(|r| {
+                let mut p = Path::new();
+                p.move_to(dxn_vector_animation::Point::new(r.x, r.y));
+                p.line_to(dxn_vector_animation::Point::new(
+                    r.x + r.width,
+                    r.y + r.height,
+                ));
+                p.transformed(base * *transform).bounds()
+            }),
             _ => None,
         };
         if let Some(r) = r {
@@ -349,6 +364,36 @@ impl Renderer {
                         sk_transform(m),
                         None,
                     );
+                }
+                Item::Text { spans, transform } => {
+                    let paths = text::layout(spans);
+                    let m = sk_transform(self.base * *transform);
+                    for (span, path) in spans.iter().zip(&paths) {
+                        let Some(path) = sk_path(path) else {
+                            continue;
+                        };
+                        let fill = span.fill.as_ref().map(|p| (p, None));
+                        let stroke = span.stroke.as_ref().map(|(p, s)| (p, Some(s)));
+                        let order = match span.paint_order {
+                            PaintOrder::FillFirst => [fill, stroke],
+                            PaintOrder::StrokeFirst => [stroke, fill],
+                        };
+                        for (paint, style) in order.into_iter().flatten() {
+                            let tile = self.tile(paint, *transform);
+                            let Some(paint) = self.paint(paint, &tile) else {
+                                continue;
+                            };
+                            let target = &mut stack.last_mut()?.0;
+                            match style {
+                                None => {
+                                    target.fill_path(&path, &paint, sk::FillRule::Winding, m, None)
+                                }
+                                Some(style) => {
+                                    target.stroke_path(&path, &paint, &sk_stroke(style), m, None)
+                                }
+                            }
+                        }
+                    }
                 }
                 Item::PushLayer(layer) => {
                     stack.push((sk::Pixmap::new(self.width, self.height)?, Some(layer)))
