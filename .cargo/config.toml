@@ -1,4 +1,0 @@
-# dXn.VectorAnimation is a private repository: fetch it with git, which has
-# the credentials.
-[net]
-git-fetch-with-cli = true

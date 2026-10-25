@@ -27,7 +27,7 @@ env:
   CARGO_INCREMENTAL: "0"
   CARGO_PROFILE_DEV_DEBUG: "0"
   # NSH's toolchain file asks for stable with the release's iOS and Android
-  # targets: its CLI is built with the player's toolchain instead.
+  # targets: its CLI is built with this repository's toolchain instead.
   RUSTUP_TOOLCHAIN: "1.99.0"
   # QuickJS is C: bindgen needs libclang, which the image's LLVM has.
   LIBCLANG_PATH: C:\Program Files\LLVM\bin
@@ -44,17 +44,17 @@ jobs:
   check:
     runs-on: windows-latest
     timeout-minutes: 90
-    # The player and NSH side by side: NSH inside the player's folder would
-    # take the player's workspace as its own (Cargo finds the workspace of a
-    # patched crate among the roots it has loaded, the player's first).
+    # This repository and NSH side by side: NSH inside this one's folder
+    # would take this workspace as its own (Cargo finds the workspace of a
+    # patched crate among the roots it has loaded, this one's first).
     defaults:
       run:
         shell: bash
-        working-directory: player
+        working-directory: vector-animation
     steps:
       - uses: actions/checkout@v7
         with:
-          path: player
+          path: vector-animation
       - uses: actions/checkout@v7
         with:
           repository: dXnSix/nsh
@@ -65,7 +65,7 @@ jobs:
         uses: Swatinem/rust-cache@v2
         with:
           workspaces: |
-            player -> target
+            vector-animation -> target
             nsh -> target
           save-if: ${{ github.ref == 'refs/heads/main' }}
       - name: Build NSH's CLI
@@ -92,7 +92,7 @@ jobs:
           } > examples/check/.cargo/config.toml
           cat examples/check/.cargo/config.toml
       - name: Hold and photograph the check app in a Win32 window
-        working-directory: player/examples/check
+        working-directory: vector-animation/examples/check
         run: |
           rm -rf shots && mkdir shots
           ../../../nsh/target/debug/nsh test check.test.tsx --target windows
@@ -124,7 +124,7 @@ jobs:
         with:
           name: windows-check
           path: |
-            player/examples/check/shots
-            player/compared
-            player/compared.txt
+            vector-animation/examples/check/shots
+            vector-animation/compared
+            vector-animation/compared.txt
           if-no-files-found: ignore
