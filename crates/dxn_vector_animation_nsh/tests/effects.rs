@@ -289,7 +289,7 @@ fn canvases_while_playing(scene: Scene, more: usize) -> (usize, usize) {
 
     // The player reads it on the engine's thread.
     static JSON: Mutex<String> = Mutex::new(String::new());
-    *JSON.lock().unwrap() = dxn_vector_animation::compiled::to_json(&scene, false);
+    *JSON.lock().unwrap() = dxn_vector_animation::compiled::to_json(&scene, false).unwrap();
 
     #[component]
     fn Player() -> impl IntoElement {

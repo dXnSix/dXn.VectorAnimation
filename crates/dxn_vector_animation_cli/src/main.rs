@@ -171,9 +171,10 @@ fn run(command: Command) -> Result<ExitCode, String> {
             for w in &import.warnings {
                 eprintln!("warning: {w}");
             }
+            let json = compiled::to_json(&import.scene, pretty)
+                .map_err(|e| format!("{}: {e}", file.display()))?;
             let output = output.unwrap_or_else(|| file.with_extension("vector-animation.json"));
-            std::fs::write(&output, compiled::to_json(&import.scene, pretty))
-                .map_err(|e| format!("{}: {e}", output.display()))?;
+            std::fs::write(&output, json).map_err(|e| format!("{}: {e}", output.display()))?;
             println!("{}", output.display());
             Ok(ExitCode::SUCCESS)
         }

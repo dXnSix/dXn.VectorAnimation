@@ -114,7 +114,7 @@ fn effects_follow_the_groups_transform() {
 #[test]
 fn effects_survive_the_compiled_format() {
     let scene = shadowed(Vec::new());
-    let json = compiled::to_json(&scene, false);
+    let json = compiled::to_json(&scene, false).unwrap();
     let back = compiled::from_json(json.as_bytes(), &Default::default()).unwrap();
     assert_eq!(back.root, scene.root);
 }

@@ -136,7 +136,8 @@ fn write_scenes(args: &[String]) -> Result<(), String> {
     let mut imports = String::from("// Written by `vector-animation-check scenes`.\n");
     let mut entries = String::new();
     for (i, (name, scene)) in list.iter().enumerate() {
-        let json = dxn_vector_animation::compiled::to_json(scene, false);
+        let json = dxn_vector_animation::compiled::to_json(scene, false)
+            .map_err(|e| format!("{name}: {e}"))?;
         std::fs::write(dir.join(format!("{name}.json")), json).map_err(|e| e.to_string())?;
         index.push(serde_json::json!({
             "name": name,

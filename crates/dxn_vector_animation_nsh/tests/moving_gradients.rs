@@ -365,7 +365,7 @@ fn transformed_gradient_on_a_stroke() {
 fn Coin() -> impl nsh_core::ui::prelude::IntoElement {
     use dxn_vector_animation_nsh::{AnimationInfo, Source, vector_animation};
     use nsh_core::ui::prelude::*;
-    let json = dxn_vector_animation::compiled::to_json(&coin_scene(), false);
+    let json = dxn_vector_animation::compiled::to_json(&coin_scene(), false).unwrap();
     let status = signal(String::from("loading"));
     view()
         .child(

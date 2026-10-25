@@ -311,7 +311,7 @@ fn Mixed() -> impl nsh_core::ui::prelude::IntoElement {
     use dxn_vector_animation_nsh::{AnimationInfo, Source, vector_animation};
     use nsh_core::ui::prelude::*;
     let status = signal(String::from("loading"));
-    let json = dxn_vector_animation::compiled::to_json(&mixed_scene(), false);
+    let json = dxn_vector_animation::compiled::to_json(&mixed_scene(), false).unwrap();
     view()
         .child(
             vector_animation()
