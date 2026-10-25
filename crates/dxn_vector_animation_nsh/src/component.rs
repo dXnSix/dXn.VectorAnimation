@@ -192,9 +192,25 @@ pub fn VectorAnimation(
     });
     let loading = stored(None::<Spawned<()>>);
     let playing = stored(None::<Spawned<()>>);
+    // The run playing, stopped as a whole: a stop of the time value ends
+    // only the leg moving it now, and a run that loops goes on to its next.
+    let run = stored(None::<Animation>);
     // The engine's clock beside the graph's, for parts sampled frame by
     // frame.
     let ticking = stored(None::<Spawned<()>>);
+    // Stops what plays: its tasks, its run, the time value.
+    let halt = move || {
+        if let Some(task) = playing.replace(None) {
+            task.cancel();
+        }
+        if let Some(task) = ticking.replace(None) {
+            task.cancel();
+        }
+        if let Some(run) = run.replace(None) {
+            run.stop();
+        }
+        time.stop();
+    };
 
     // Reading the source.
     effect(move || {
@@ -240,8 +256,9 @@ pub fn VectorAnimation(
 
     // Playing.
     effect(move || {
-        let Some(r) = ready.get() else { return };
-        let Some((scene, on_event)) = played.get() else {
+        let (Some(r), Some((scene, on_event))) = (ready.get(), played.get()) else {
+            // Nothing to play (a source loading, or none): what played stops.
+            untracked(halt);
             return;
         };
         let scene = scene.as_ref();
@@ -292,13 +309,7 @@ pub fn VectorAnimation(
         };
         let (native, mixed) = (r.native, r.mixed);
         untracked(move || {
-            if let Some(task) = playing.replace(None) {
-                task.cancel();
-            }
-            if let Some(task) = ticking.replace(None) {
-                task.cancel();
-            }
-            time.stop();
+            halt();
             let show = |t: f64| {
                 time.set(t as f32);
                 clock.set(t);
@@ -352,8 +363,10 @@ pub fn VectorAnimation(
                         ticking.replace(Some(spawn(tick())));
                     }
                     time.set(from as f32);
-                    let run = playback.animation(&time, from);
-                    if run.start().await {
+                    let animation = playback.animation(&time, from);
+                    let end = animation.start();
+                    run.replace(Some(animation));
+                    if end.await {
                         cx.emit(VectorAnimationEvent::End);
                     }
                 } else {
