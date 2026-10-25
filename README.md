@@ -7,8 +7,9 @@ reads animated SVG and Lottie into one scene model: groups, shapes, paints and m
 constants or keyframe tracks on a timeline. A renderer either samples the scene at a moment
 (`Scene::frame_at(t)` gives a flat display list) or maps the tracks onto an animation system of its own.
 
-> **Status: phase 1.** The scene model, Figma Motion's animated SVG (CSS and SMIL), Lottie, the reference
-> renderer and the CLI. dotLottie archives and repeaters come next ([Roadmap](#roadmap)).
+> **Status: phase 1.** The scene model, Figma Motion's animated SVG (CSS and SMIL), Lottie and dotLottie
+> (expressions, text animators and shape modifiers included), the reference renderer and the CLI. What is
+> left is in the [Roadmap](#roadmap).
 
 ## Why
 
