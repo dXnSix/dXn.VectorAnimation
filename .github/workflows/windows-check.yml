@@ -6,9 +6,6 @@ name: Windows check
 # compare`), as the README's device checks are on the other platforms. NSH
 # is the dXnSix fork's, built from its `main` (or the ref given), its crates
 # patched into the check app as on a desk.
-#
-# Needs the `DXN_REPOS_TOKEN` secret: Cargo fetches the private
-# dXn.VectorAnimation with it.
 
 on:
   push:
@@ -29,7 +26,6 @@ concurrency:
 env:
   CARGO_INCREMENTAL: "0"
   CARGO_PROFILE_DEV_DEBUG: "0"
-  CARGO_NET_GIT_FETCH_WITH_CLI: "true"
   # NSH's toolchain file asks for stable with the release's iOS and Android
   # targets: its CLI is built with the player's toolchain instead.
   RUSTUP_TOOLCHAIN: "1.99.0"
@@ -59,15 +55,6 @@ jobs:
           ref: ${{ inputs.nsh_ref || 'main' }}
           path: nsh
       - uses: dtolnay/rust-toolchain@1.99.0
-      - name: Fetch the private repositories with the token
-        env:
-          TOKEN: ${{ secrets.DXN_REPOS_TOKEN }}
-        run: |
-          if [[ -z "$TOKEN" ]]; then
-            echo "::error::The DXN_REPOS_TOKEN secret is not set: Cargo cannot fetch dXn.VectorAnimation."
-            exit 1
-          fi
-          git config --global url."https://x-access-token:${TOKEN}@github.com/".insteadOf "https://github.com/"
       - name: Cache Cargo
         uses: Swatinem/rust-cache@v2
         with:
