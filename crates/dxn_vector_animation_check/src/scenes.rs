@@ -513,8 +513,169 @@ pub fn built_in(fixtures: &std::path::Path) -> Result<Vec<(String, Scene)>, Stri
         ("stop-counts".into(), stop_counts()),
         ("dash-slots".into(), dash_slots()),
         ("switching-star".into(), switching_star()),
+        ("live-text".into(), svg(LIVE_TEXT.as_bytes())?),
+        ("inner-shadows".into(), svg(INNER_SHADOWS.as_bytes())?),
+        ("color-effects".into(), svg(COLOR_EFFECTS.as_bytes())?),
+        ("patterns".into(), svg(PATTERNS.as_bytes())?),
+        ("shadow-images".into(), svg(SHADOW_IMAGES.as_bytes())?),
+        ("moving-layers".into(), svg(MOVING_LAYERS.as_bytes())?),
+        ("clear-stops".into(), clear_stops()),
     ])
 }
+
+/// A gradient whose middle stop fades in from clear as it moves, then out
+/// again.
+fn clear_stops() -> Scene {
+    let red = Color::rgba(0.95, 0.28, 0.13, 1.0);
+    let gold = Color::rgba(0.96, 0.72, 0.0, 1.0);
+    let clear = Color::rgba(0.12, 0.35, 0.9, 0.0);
+    let track = Animated::Track(Track::new(vec![
+        Keyframe::new(
+            0.0,
+            stops(&[(0.0, red), (0.3, clear), (1.0, red)]),
+            Easing::EASE_IN_OUT,
+        ),
+        Keyframe::new(
+            1.0,
+            stops(&[(0.0, red), (0.7, gold), (1.0, red)]),
+            Easing::EASE_IN_OUT,
+        ),
+        Keyframe::new(
+            2.0,
+            stops(&[(0.0, red), (0.3, clear), (1.0, red)]),
+            Easing::Linear,
+        ),
+    ]));
+    scene(vec![filled(
+        square(10.0, 10.0, 80.0),
+        linear(
+            point(&[(0.0, 10.0, 0.0)]),
+            point(&[(0.0, 90.0, 0.0)]),
+            track,
+        ),
+        1.0,
+    )])
+}
+
+/// Live text: a centered title growing and changing color, a line sliding
+/// in, a stroked word.
+pub const LIVE_TEXT: &str = r##"<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100" viewBox="0 0 100 100">
+  <style>
+    @keyframes hue { 0% { fill: #1E5AE6; } 100% { fill: #F24822; } }
+    @keyframes slide { 0% { transform: translateX(-30px); opacity: 0; } 100% { transform: translateX(0px); opacity: 1; } }
+    #title { animation: hue 2s ease-in-out infinite alternate; }
+    #line { animation: slide 2s ease-out infinite alternate; }
+  </style>
+  <rect width="100" height="100" fill="#F4F1EA"/>
+  <text id="title" x="50" y="34" font-family="sans-serif" font-size="18" font-weight="bold" text-anchor="middle">Motion<animate attributeName="font-size" values="14;20;14" dur="2s" repeatCount="indefinite"/></text>
+  <text id="line" x="10" y="60" font-family="sans-serif" font-size="11" fill="#333">sliding in</text>
+  <text x="90" y="88" font-family="sans-serif" font-size="16" font-weight="bold" fill="#F5B800" stroke="#222" stroke-width="1" text-anchor="end" paint-order="stroke">Bold</text>
+</svg>"##;
+
+/// Inner shadows as Figma exports them: a card's, under a drop shadow, and
+/// a moving disc's.
+pub const INNER_SHADOWS: &str = r##"<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100" viewBox="0 0 100 100">
+  <style>
+    @keyframes bob { 0% { transform: translateY(-8px); } 100% { transform: translateY(8px); } }
+    #disc { animation: bob 2s ease-in-out infinite alternate; }
+  </style>
+  <rect width="100" height="100" fill="#F4F1EA"/>
+  <g filter="url(#card)"><rect x="10" y="12" width="54" height="40" rx="8" fill="#5B8DEF"/></g>
+  <g id="disc"><g filter="url(#well)"><circle cx="66" cy="66" r="22" fill="#F5B800"/></g></g>
+  <defs>
+    <filter id="card" x="0" y="0" width="100" height="100" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+      <feFlood flood-opacity="0" result="BackgroundImageFix"/>
+      <feColorMatrix in="SourceAlpha" type="matrix" values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 127 0" result="hardAlpha"/>
+      <feOffset dy="4"/><feGaussianBlur stdDeviation="3"/><feComposite in2="hardAlpha" operator="out"/>
+      <feColorMatrix type="matrix" values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0.3 0"/>
+      <feBlend mode="normal" in2="BackgroundImageFix" result="effect1_dropShadow"/>
+      <feBlend mode="normal" in="SourceGraphic" in2="effect1_dropShadow" result="shape"/>
+      <feColorMatrix in="SourceAlpha" type="matrix" values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 127 0" result="hardAlpha"/>
+      <feOffset dx="3" dy="3"/><feGaussianBlur stdDeviation="2"/>
+      <feComposite in2="hardAlpha" operator="arithmetic" k2="-1" k3="1"/>
+      <feColorMatrix type="matrix" values="0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 0.6 0"/>
+      <feBlend mode="normal" in2="shape" result="effect2_innerShadow"/>
+    </filter>
+    <filter id="well" x="0" y="0" width="100" height="100" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+      <feFlood flood-opacity="0" result="BackgroundImageFix"/>
+      <feBlend mode="normal" in="SourceGraphic" in2="BackgroundImageFix" result="shape"/>
+      <feColorMatrix in="SourceAlpha" type="matrix" values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 127 0" result="hardAlpha"/>
+      <feOffset dx="-2" dy="5"/><feGaussianBlur stdDeviation="3"/>
+      <feComposite in2="hardAlpha" operator="arithmetic" k2="-1" k3="1"/>
+      <feColorMatrix type="matrix" values="0 0 0 0 0.4 0 0 0 0 0.2 0 0 0 0 0 0 0 0 0.5 0"/>
+      <feBlend mode="normal" in2="shape" result="effect1_innerShadow"/>
+    </filter>
+  </defs>
+</svg>"##;
+
+/// Color effects: shapes turning gray and back, a hue going round.
+pub const COLOR_EFFECTS: &str = r##"<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100" viewBox="0 0 100 100">
+  <style>
+    @keyframes gray { 0% { filter: grayscale(0) brightness(1); } 100% { filter: grayscale(1) brightness(1.2); } }
+    @keyframes hue { 0% { filter: hue-rotate(0deg); } 100% { filter: hue-rotate(300deg); } }
+    #a { animation: gray 2s ease-in-out infinite alternate; }
+    #b { animation: hue 2s linear infinite; }
+  </style>
+  <rect width="100" height="100" fill="#F4F1EA"/>
+  <g id="a"><rect x="8" y="8" width="44" height="44" rx="6" fill="#F24822"/><circle cx="40" cy="40" r="16" fill="#1E5AE6" fill-opacity="0.8"/></g>
+  <g id="b"><rect x="50" y="52" width="42" height="40" rx="20" fill="url(#g)"/></g>
+  <defs><linearGradient id="g"><stop offset="0" stop-color="#F5B800"/><stop offset="1" stop-color="#E5007A"/></linearGradient></defs>
+</svg>"##;
+
+/// Pattern fills: a tiling turned in a moving circle, and Figma's image
+/// fill (one tile the size of the box).
+pub const PATTERNS: &str = r##"<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="100" height="100" viewBox="0 0 100 100">
+  <style>
+    @keyframes drift { 0% { transform: translateX(-10px); } 100% { transform: translateX(10px); } }
+    #disc { animation: drift 2s ease-in-out infinite alternate; }
+  </style>
+  <rect width="100" height="100" fill="#F4F1EA"/>
+  <g id="disc"><circle cx="40" cy="40" r="30" fill="url(#checks)"/></g>
+  <rect x="55" y="62" width="40" height="30" rx="4" fill="url(#pattern0)"/>
+  <defs>
+    <pattern id="checks" x="2" y="2" width="12" height="12" patternUnits="userSpaceOnUse" patternTransform="rotate(20)">
+      <rect width="6" height="6" fill="#1E5AE6"/><circle cx="9" cy="9" r="3" fill="#F24822"/>
+    </pattern>
+    <pattern id="pattern0" patternContentUnits="objectBoundingBox" width="1" height="1">
+      <use xlink:href="#image0" transform="scale(0.25 0.333)"/>
+    </pattern>
+    <g id="image0"><rect width="4" height="3" fill="#F5B800"/><rect width="2" height="1.5" fill="#2EAD5A"/><rect x="2" y="1.5" width="2" height="1.5" fill="#2EAD5A"/></g>
+  </defs>
+</svg>"##;
+
+/// Shadows of what the canvas cannot cast as shapes: a card whose content
+/// is clipped by a circle, and a group whose disc casts a shadow itself,
+/// both turning.
+pub const SHADOW_IMAGES: &str = r##"<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100" viewBox="0 0 100 100">
+  <style>
+    @keyframes turn { 0% { transform: rotate(-12deg); } 100% { transform: rotate(12deg); } }
+    #a, #b { animation: turn 2s ease-in-out infinite alternate; transform-box: fill-box; transform-origin: center; }
+  </style>
+  <rect width="100" height="100" fill="#F4F1EA"/>
+  <g id="a" filter="url(#s)"><g clip-path="url(#c)"><rect x="8" y="8" width="44" height="44" fill="#5B8DEF"/><rect x="8" y="8" width="22" height="22" fill="#F24822"/></g></g>
+  <g id="b" filter="url(#s)"><rect x="52" y="50" width="36" height="36" rx="5" fill="#2EAD5A"/><g filter="url(#i)"><circle cx="70" cy="68" r="10" fill="#F5B800"/></g></g>
+  <defs>
+    <clipPath id="c"><circle cx="30" cy="30" r="20"/></clipPath>
+    <filter id="s" x="-50" y="-50" width="200" height="200" filterUnits="userSpaceOnUse"><feDropShadow dx="3" dy="5" stdDeviation="3" flood-color="#000" flood-opacity="0.4"/></filter>
+    <filter id="i" x="-50" y="-50" width="200" height="200" filterUnits="userSpaceOnUse"><feDropShadow dx="-2" dy="2" stdDeviation="1.5" flood-color="#A00" flood-opacity="0.6"/></filter>
+  </defs>
+</svg>"##;
+
+/// Groups that only move or fade (layers the platform moves): a badge
+/// turning and growing along a path, a card fading.
+pub const MOVING_LAYERS: &str = r##"<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100" viewBox="0 0 100 100">
+  <rect width="100" height="100" fill="#F4F1EA"/>
+  <g><animateTransform attributeName="transform" type="translate" values="25 30; 70 45; 40 70" dur="2s" repeatCount="indefinite"/>
+    <g><animateTransform attributeName="transform" type="rotate" from="0" to="360" dur="2s" repeatCount="indefinite"/>
+      <g><animateTransform attributeName="transform" type="scale" values="0.6; 1.2; 0.6" dur="2s" repeatCount="indefinite"/>
+        <rect x="-14" y="-10" width="28" height="20" rx="5" fill="#1E5AE6"/><path d="M-8 0 L-2 6 L9 -6" fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round"/>
+      </g>
+    </g>
+  </g>
+  <g><animate attributeName="opacity" values="1; 0.15; 1" dur="2s" repeatCount="indefinite"/>
+    <rect x="58" y="8" width="34" height="24" rx="4" fill="#F24822"/><rect x="62" y="14" width="20" height="3" fill="#fff"/>
+  </g>
+</svg>"##;
 
 /// A star turning and deepening, drawn on and off, filled and stroked
 /// through a trim; a disc's fill trimmed as it runs round.
