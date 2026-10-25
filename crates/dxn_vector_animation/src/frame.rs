@@ -5,6 +5,7 @@ use std::sync::Arc;
 use crate::{
     BlendMode, Color, Effect, FillRule, GradientStop, GradientUnits, Group, ImageData, LineCap,
     LineJoin, MaskKind, Matrix, Node, Paint, PaintOrder, Path, Point, Rect, Scene, Shape, Spread,
+    filter::{ColorStep, steps_at},
     outline::{geometry_path, trim_paths},
     transform::transform_at,
 };
@@ -76,9 +77,10 @@ pub struct Layer {
     pub clip: Option<Vec<ClipPath>>,
     /// How much of the layer shows, pixel by pixel.
     pub mask: Option<FrameMask>,
-    /// Shadows and blurs of what the layer draws, before its clip and
-    /// mask: blurs in turn, consecutive shadows all cast by the drawing as
-    /// it is before them (the first lowest), under it.
+    /// Shadows, blurs and color changes of what the layer draws, before its
+    /// clip and mask, in turn: consecutive shadows all cast by the drawing
+    /// as it is before them, drop shadows under it and inner shadows over
+    /// it (the first lowest).
     pub effects: Vec<FrameEffect>,
 }
 
@@ -102,6 +104,25 @@ pub enum FrameEffect {
     Blur {
         /// The standard deviation.
         sigma: f64,
+    },
+    /// A shadow inside the layer's drawing, over it.
+    InnerShadow {
+        /// Its color; its alpha is the shadow's opacity.
+        color: Color,
+        /// How far it falls.
+        offset: Point,
+        /// The standard deviation of its blur.
+        sigma: f64,
+        /// Cast by the layer's coverage made all or nothing.
+        hard: bool,
+    },
+    /// The layer's colors changed pixel by pixel (transparent pixels stay
+    /// so).
+    Color {
+        /// The changes, first to last.
+        steps: Vec<ColorStep>,
+        /// Done in linear light.
+        linear: bool,
     },
 }
 
@@ -281,6 +302,8 @@ fn layer_bounds(layer: Option<&Layer>, inner: Option<Rect>) -> Option<Rect> {
                     Rect::new(b.x + offset.x, b.y + offset.y, b.width, b.height).grown(3.0 * sigma);
                 shadows = union(shadows, Some(s));
             }
+            // Within the drawing.
+            FrameEffect::InnerShadow { .. } | FrameEffect::Color { .. } => {}
         }
     }
     b = union(Some(b), shadows)?;
@@ -369,7 +392,21 @@ fn sample_group(group: &Group, time: f64, parent: Matrix, out: &mut Vec<Item>, d
             Effect::Blur(blur) => FrameEffect::Blur {
                 sigma: sigma(blur.radius.sample(time)),
             },
+            Effect::InnerShadow(shadow) => {
+                let (dx, dy) = (shadow.offset.x.sample(time), shadow.offset.y.sample(time));
+                FrameEffect::InnerShadow {
+                    color: shadow.color.sample(time),
+                    offset: Point::new(m.a * dx + m.c * dy, m.b * dx + m.d * dy),
+                    sigma: sigma(shadow.blur.sample(time)),
+                    hard: shadow.hard,
+                }
+            }
+            Effect::Color(effect) => FrameEffect::Color {
+                steps: steps_at(&effect.ops, time),
+                linear: effect.linear,
+            },
         })
+        .filter(|e| !matches!(e, FrameEffect::Color { steps, .. } if steps.is_empty()))
         .collect();
     let layer = opacity < 1.0
         || !group.blend.is_normal()

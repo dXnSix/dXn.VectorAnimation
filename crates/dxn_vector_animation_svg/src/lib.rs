@@ -10,9 +10,10 @@
 //! `rotate`, `scale`, `opacity`, motion along a path (`offset-path`,
 //! `offset-distance`, `offset-rotate`, `offset-anchor`), fill and stroke
 //! colors and opacities, stroke width and dashes, `d`, and `filter`.
-//! Filters of shadows and blurs: `<filter>` chains as Figma writes them
-//! (drop shadows, layer blurs), `feDropShadow`, `feGaussianBlur`, and CSS
-//! `blur()` and `drop-shadow()`.
+//! Filters: `<filter>` chains as Figma writes them (drop and inner shadows,
+//! layer blurs), `feDropShadow`, `feGaussianBlur`, color changes
+//! (`feColorMatrix`, `feComponentTransfer`), and CSS `blur()`,
+//! `drop-shadow()` and the color functions.
 //!
 //! What a file holds beyond that (text, other filters, patterns) is left
 //! out with a warning in [`Import::warnings`].

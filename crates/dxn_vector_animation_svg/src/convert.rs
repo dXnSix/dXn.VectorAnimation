@@ -974,6 +974,9 @@ impl<'a, 'input> Converter<'a, 'input> {
                     knockout: false,
                     hard: false,
                 })),
+                filter::Function::Color(f, amount) => {
+                    filter::push_color(&mut effects, f.op(Animated::Static(amount)))
+                }
                 filter::Function::Url(id) => {
                     let node = self
                         .ids

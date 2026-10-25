@@ -219,6 +219,39 @@ fn count_paint(paint: &Paint, stats: &mut Stats) {
     }
 }
 
+fn count_color_op(op: &crate::ColorOp, stats: &mut Stats) {
+    use crate::ColorOp::*;
+    match op {
+        Matrix { matrix } => count(matrix, stats),
+        Saturate { amount }
+        | Grayscale { amount }
+        | Sepia { amount }
+        | Invert { amount }
+        | Opacity { amount }
+        | Brightness { amount }
+        | Contrast { amount } => count(amount, stats),
+        HueRotate { degrees } => count(degrees, stats),
+        LuminanceToAlpha | Transfer { .. } => {}
+        Tint {
+            black,
+            white,
+            amount,
+        } => {
+            count(black, stats);
+            count(white, stats);
+            count(amount, stats);
+        }
+        Fill { color, amount } => {
+            count(color, stats);
+            count(amount, stats);
+        }
+        GradientMap { stops, amount } => {
+            count(stops, stats);
+            count(amount, stats);
+        }
+    }
+}
+
 fn count_group(group: &Group, depth: usize, stats: &mut Stats) {
     stats.groups += 1;
     stats.depth = stats.depth.max(depth);
@@ -245,6 +278,17 @@ fn count_group(group: &Group, depth: usize, stats: &mut Stats) {
                 count(&shadow.blur, stats);
             }
             crate::Effect::Blur(blur) => count(&blur.radius, stats),
+            crate::Effect::InnerShadow(shadow) => {
+                count(&shadow.color, stats);
+                count(&shadow.offset.x, stats);
+                count(&shadow.offset.y, stats);
+                count(&shadow.blur, stats);
+            }
+            crate::Effect::Color(effect) => {
+                for op in &effect.ops {
+                    count_color_op(op, stats);
+                }
+            }
         }
     }
     for child in &group.children {

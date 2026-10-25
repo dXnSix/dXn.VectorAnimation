@@ -1,11 +1,14 @@
-//! Filters of shadows and blurs as effects: Figma's `<filter>` chains,
-//! `feDropShadow`, `feGaussianBlur`, CSS `blur()` and `drop-shadow()`,
-//! still and animated; other filters are left out with a warning.
+//! Filters as effects: Figma's `<filter>` chains of drop and inner shadows
+//! and blurs, `feDropShadow`, `feGaussianBlur`, color changes
+//! (`feColorMatrix`, `feComponentTransfer`), CSS `blur()`, `drop-shadow()`
+//! and the color functions, still and animated; other filters are left
+//! out with a warning.
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use dxn_vector_animation::{
-    Animated, AnimatedPoint, Blur, Color, DropShadow, Effect, Group, Import, Node,
+    Animated, AnimatedPoint, Blur, Color, ColorEffect, ColorMatrix, ColorOp, DropShadow, Effect,
+    Group, Import, InnerShadow, Node, Transfer,
 };
 
 fn read(svg: &str) -> Import {
@@ -126,20 +129,169 @@ fn fe_drop_shadow() {
     );
 }
 
-#[test]
-fn an_inner_shadow_is_left_out_with_a_warning() {
-    let filter = r#"<feFlood flood-opacity="0" result="BackgroundImageFix"/>
-<feBlend mode="normal" in="SourceGraphic" in2="BackgroundImageFix" result="shape"/>
-<feColorMatrix in="SourceAlpha" type="matrix" values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 127 0" result="hardAlpha"/>
+/// An inner shadow as Figma exports one.
+const FIGMA_INNER_SHADOW: &str = r#"<feColorMatrix in="SourceAlpha" type="matrix" values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 127 0" result="hardAlpha"/>
 <feOffset dy="4"/>
 <feGaussianBlur stdDeviation="2"/>
 <feComposite in2="hardAlpha" operator="arithmetic" k2="-1" k3="1"/>
-<feColorMatrix type="matrix" values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0.25 0"/>
-<feBlend mode="normal" in2="shape" result="effect1_innerShadow_1_2"/>"#;
-    let import = read(&with_filter(filter));
+<feColorMatrix type="matrix" values="0 0 0 0 0.1 0 0 0 0 0.2 0 0 0 0 0.3 0 0 0 0.25 0"/>"#;
+
+fn inner(rgba: (f64, f64, f64, f64), dx: f64, dy: f64, blur: f64) -> Effect {
+    Effect::InnerShadow(InnerShadow {
+        color: Animated::Static(Color::rgba(rgba.0, rgba.1, rgba.2, rgba.3)),
+        offset: AnimatedPoint::fixed(dx, dy),
+        blur: Animated::Static(blur),
+        hard: true,
+    })
+}
+
+#[test]
+fn figmas_inner_shadow() {
+    let filter = format!(
+        r#"<feFlood flood-opacity="0" result="BackgroundImageFix"/>
+<feBlend mode="normal" in="SourceGraphic" in2="BackgroundImageFix" result="shape"/>
+{FIGMA_INNER_SHADOW}
+<feBlend mode="normal" in2="shape" result="effect1_innerShadow_1_2"/>"#
+    );
+    let import = read(&with_filter(&filter));
+    assert!(import.warnings.is_empty(), "{:?}", import.warnings);
+    assert_eq!(
+        effects(&import),
+        vec![inner((0.1, 0.2, 0.3, 0.25), 0.0, 4.0, 2.0)]
+    );
+}
+
+#[test]
+fn figmas_drop_and_inner_shadows_and_blur() {
+    // A drop shadow under, two inner shadows over, all blurred after.
+    let filter = format!(
+        r#"<feFlood flood-opacity="0" result="BackgroundImageFix"/>
+<feColorMatrix in="SourceAlpha" type="matrix" values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 127 0" result="hardAlpha"/>
+<feOffset dy="2"/>
+<feGaussianBlur stdDeviation="3"/>
+<feComposite in2="hardAlpha" operator="out"/>
+<feColorMatrix type="matrix" values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0.5 0"/>
+<feBlend mode="normal" in2="BackgroundImageFix" result="effect1_dropShadow"/>
+<feBlend mode="normal" in="SourceGraphic" in2="effect1_dropShadow" result="shape"/>
+{FIGMA_INNER_SHADOW}
+<feBlend mode="normal" in2="shape" result="effect2_innerShadow"/>
+<feColorMatrix in="SourceAlpha" type="matrix" values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 127 0" result="hardAlpha"/>
+<feOffset dx="-3"/>
+<feGaussianBlur stdDeviation="1"/>
+<feComposite in2="hardAlpha" operator="arithmetic" k2="-1" k3="1"/>
+<feColorMatrix type="matrix" values="0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 0.5 0"/>
+<feBlend mode="normal" in2="effect2_innerShadow" result="effect3_innerShadow"/>
+<feGaussianBlur stdDeviation="1.5" result="effect4_foregroundBlur"/>"#
+    );
+    let import = read(&with_filter(&filter));
+    assert!(import.warnings.is_empty(), "{:?}", import.warnings);
+    let list = effects(&import);
+    assert_eq!(list.len(), 4, "{list:?}");
+    let Effect::DropShadow(drop) = &list[0] else {
+        panic!("{list:?}");
+    };
+    // Blurred again by the blur after, as all of it is.
+    assert!((drop.blur.sample(0.0) - 3.0).abs() < 1e-9);
+    assert!(drop.knockout && drop.hard);
+    assert_eq!(list[1], inner((0.1, 0.2, 0.3, 0.25), 0.0, 4.0, 2.0));
+    assert_eq!(list[2], inner((1.0, 1.0, 1.0, 0.5), -3.0, 0.0, 1.0));
+    assert_eq!(
+        list[3],
+        Effect::Blur(Blur {
+            radius: Animated::Static(1.5)
+        })
+    );
+}
+
+#[test]
+fn an_inner_shadow_blurred_apart_from_the_drawing_is_left_out() {
+    // The inner shadow blurred again on its own after it was cast.
+    let filter = format!(
+        r#"<feFlood flood-opacity="0" result="BackgroundImageFix"/>
+<feBlend mode="normal" in="SourceGraphic" in2="BackgroundImageFix" result="shape"/>
+{FIGMA_INNER_SHADOW}
+<feGaussianBlur stdDeviation="3"/>
+<feBlend mode="normal" in2="shape"/>"#
+    );
+    let import = read(&with_filter(&filter));
     assert!(effects(&import).is_empty());
     assert!(
         import.warnings.iter().any(|w| w.contains("inner shadow")),
+        "{:?}",
+        import.warnings
+    );
+}
+
+#[test]
+fn color_matrices_and_transfers_of_the_drawing() {
+    let filter = r#"<feColorMatrix type="saturate" values="0.3"/>
+<feColorMatrix type="hueRotate" values="90"/>
+<feComponentTransfer><feFuncR type="linear" slope="0.5" intercept="0.25"/><feFuncG type="table" tableValues="0 0.5 1"/><feFuncA type="gamma" amplitude="1" exponent="2" offset="0"/></feComponentTransfer>
+<feColorMatrix type="matrix" values="1 0 0 0 0 0 1 0 0 0 0 0 1 0 0 0 0 0 0.5 0" color-interpolation-filters="linearRGB"/>"#;
+    let import = read(&with_filter(filter));
+    assert!(import.warnings.is_empty(), "{:?}", import.warnings);
+    let mut half = ColorMatrix::IDENTITY;
+    half.0[18] = 0.5;
+    assert_eq!(
+        effects(&import),
+        vec![
+            Effect::Color(ColorEffect {
+                ops: vec![
+                    ColorOp::Saturate {
+                        amount: Animated::Static(0.3)
+                    },
+                    ColorOp::HueRotate {
+                        degrees: Animated::Static(90.0)
+                    },
+                    ColorOp::Transfer {
+                        red: Transfer::Linear {
+                            slope: 0.5,
+                            intercept: 0.25
+                        },
+                        green: Transfer::Table {
+                            values: vec![0.0, 0.5, 1.0]
+                        },
+                        blue: Transfer::Identity,
+                        alpha: Transfer::Gamma {
+                            amplitude: 1.0,
+                            exponent: 2.0,
+                            offset: 0.0
+                        },
+                    },
+                ],
+                linear: false,
+            }),
+            Effect::Color(ColorEffect {
+                ops: vec![ColorOp::Matrix {
+                    matrix: Animated::Static(half)
+                }],
+                linear: true,
+            }),
+        ]
+    );
+}
+
+#[test]
+fn a_color_matrix_of_a_filter_without_its_light_works_in_linear_light() {
+    let svg = r##"<svg width="100" height="100" xmlns="http://www.w3.org/2000/svg">
+<g id="a" filter="url(#f)"><rect x="20" y="20" width="40" height="40" fill="#F24822"/></g>
+<filter id="f"><feColorMatrix type="saturate" values="0"/></filter></svg>"##;
+    let import = read(svg);
+    let list = effects(&import);
+    assert!(
+        matches!(&list[..], [Effect::Color(c)] if c.linear),
+        "{list:?}"
+    );
+}
+
+#[test]
+fn shadows_of_a_recolored_drawing_are_left_out_with_a_warning() {
+    let filter = r#"<feColorMatrix in="SourceGraphic" type="saturate" values="0" result="gray"/>
+<feDropShadow in="gray" dx="2" dy="2" stdDeviation="1"/>"#;
+    let import = read(&with_filter(filter));
+    assert!(effects(&import).is_empty());
+    assert!(
+        import.warnings.iter().any(|w| w.contains("colors changed")),
         "{:?}",
         import.warnings
     );
@@ -186,11 +338,64 @@ fn css_blur_animated() {
 }
 
 #[test]
+fn css_color_functions() {
+    let import = read(&styled(
+        "#a { filter: grayscale(50%) hue-rotate(0.25turn) blur(2px) invert() opacity(1.5) brightness(1.2) contrast(80%) sepia(1) saturate(2); }",
+    ));
+    assert!(import.warnings.is_empty(), "{:?}", import.warnings);
+    let s = |v: f64| Animated::Static(v);
+    assert_eq!(
+        effects(&import),
+        vec![
+            Effect::Color(ColorEffect {
+                ops: vec![
+                    ColorOp::Grayscale { amount: s(0.5) },
+                    ColorOp::HueRotate { degrees: s(90.0) },
+                ],
+                linear: false,
+            }),
+            Effect::Blur(Blur { radius: s(2.0) }),
+            Effect::Color(ColorEffect {
+                ops: vec![
+                    ColorOp::Invert { amount: s(1.0) },
+                    // Past the full change is the full change.
+                    ColorOp::Opacity { amount: s(1.0) },
+                    ColorOp::Brightness { amount: s(1.2) },
+                    ColorOp::Contrast { amount: s(0.8) },
+                    ColorOp::Sepia { amount: s(1.0) },
+                    ColorOp::Saturate { amount: s(2.0) },
+                ],
+                linear: false,
+            }),
+        ]
+    );
+}
+
+#[test]
+fn css_hue_rotation_animated() {
+    let import = read(&styled(
+        "#a { animation: k 2s linear both; } @keyframes k { from { filter: hue-rotate(0deg) saturate(1); } to { filter: hue-rotate(360deg) saturate(0); } }",
+    ));
+    assert!(import.warnings.is_empty(), "{:?}", import.warnings);
+    let effects = effects(&import);
+    let [Effect::Color(color)] = effects.as_slice() else {
+        panic!("{effects:?}");
+    };
+    let [ColorOp::HueRotate { degrees }, ColorOp::Saturate { amount }] = color.ops.as_slice()
+    else {
+        panic!("{color:?}");
+    };
+    // Angles move, not matrices: halfway is a half turn.
+    assert_eq!(degrees.sample(1.0), 180.0);
+    assert_eq!(amount.sample(1.0), 0.5);
+}
+
+#[test]
 fn other_css_filters_are_left_out_with_a_warning() {
-    let import = read(&styled("#a { filter: grayscale(1); }"));
+    let import = read(&styled("#a { filter: shimmer(1); }"));
     assert!(effects(&import).is_empty());
     assert!(
-        import.warnings.iter().any(|w| w.contains("grayscale")),
+        import.warnings.iter().any(|w| w.contains("shimmer")),
         "{:?}",
         import.warnings
     );

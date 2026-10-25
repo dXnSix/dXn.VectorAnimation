@@ -151,10 +151,10 @@ pub struct Group {
         serde(default, skip_serializing_if = "Option::is_none")
     )]
     pub mask: Option<Box<Mask>>,
-    /// Drop shadows and blurs of what the group draws (before its clip and
-    /// mask), in the group's space: blurs in turn, and consecutive drop
-    /// shadows all cast by the drawing as it is before them, the first
-    /// lowest, under it.
+    /// Shadows, blurs and color changes of what the group draws (before its
+    /// clip and mask), in the group's space, in turn: consecutive shadows
+    /// are all cast by the drawing as it is before them, drop shadows under
+    /// it (the first lowest) and inner shadows over it (the first lowest).
     #[cfg_attr(
         feature = "serde",
         serde(default, skip_serializing_if = "Vec::is_empty")
@@ -210,6 +210,175 @@ pub enum Effect {
     DropShadow(DropShadow),
     /// The drawing blurred.
     Blur(Blur),
+    /// A shadow inside the drawing, cast on it by what is around it.
+    InnerShadow(InnerShadow),
+    /// The drawing's colors changed pixel by pixel.
+    Color(ColorEffect),
+}
+
+/// A shadow cast inside a group's drawing by what is around it: where the
+/// drawing is, less the drawing moved and blurred, colored and laid over
+/// it.
+#[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "serde", serde(rename_all = "camelCase"))]
+pub struct InnerShadow {
+    /// Its color; its alpha is the shadow's opacity.
+    pub color: Animated<Color>,
+    /// How far it falls, in the group's lengths.
+    pub offset: AnimatedPoint,
+    /// The standard deviation of its blur, in the group's lengths.
+    pub blur: Animated<f64>,
+    /// Cast by the drawing's silhouette made all or nothing (Figma's
+    /// `hardAlpha`).
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub hard: bool,
+}
+
+/// A group's drawing with its colors changed by `ops` in turn. Where the
+/// drawing is transparent it stays so.
+#[derive(Debug, Clone, PartialEq, Default)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "serde", serde(rename_all = "camelCase"))]
+pub struct ColorEffect {
+    /// The changes, first to last.
+    pub ops: Vec<ColorOp>,
+    /// Done in linear light (SVG filters' default `linearRGB`), not on the
+    /// sRGB values.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub linear: bool,
+}
+
+/// One change of a [`ColorEffect`], on straight (not premultiplied)
+/// colors. Amounts of 1 are the full change and 0 none, unless said.
+#[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "serde", serde(rename_all = "camelCase", tag = "type"))]
+pub enum ColorOp {
+    /// A 4×5 matrix (SVG `feColorMatrix`'s `values`).
+    Matrix {
+        /// The matrix.
+        matrix: Animated<ColorMatrix>,
+    },
+    /// CSS `saturate()`: 0 gray, 1 unchanged, more oversaturated.
+    Saturate {
+        /// The saturation.
+        amount: Animated<f64>,
+    },
+    /// CSS `hue-rotate()`.
+    HueRotate {
+        /// Degrees.
+        degrees: Animated<f64>,
+    },
+    /// CSS `grayscale()`.
+    Grayscale {
+        /// How far.
+        amount: Animated<f64>,
+    },
+    /// CSS `sepia()`.
+    Sepia {
+        /// How far.
+        amount: Animated<f64>,
+    },
+    /// CSS `invert()`.
+    Invert {
+        /// How far.
+        amount: Animated<f64>,
+    },
+    /// CSS `opacity()`: the alpha times it.
+    Opacity {
+        /// The factor.
+        amount: Animated<f64>,
+    },
+    /// CSS `brightness()`: the colors times it.
+    Brightness {
+        /// The factor.
+        amount: Animated<f64>,
+    },
+    /// CSS `contrast()`: the colors spread from the middle gray by it.
+    Contrast {
+        /// The factor.
+        amount: Animated<f64>,
+    },
+    /// SVG `luminanceToAlpha`: black whose alpha is the luminance.
+    LuminanceToAlpha,
+    /// Lottie's Tint: the luminance mapped from `black` to `white`.
+    Tint {
+        /// What black becomes.
+        black: Animated<Color>,
+        /// What white becomes.
+        white: Animated<Color>,
+        /// How far.
+        amount: Animated<f64>,
+    },
+    /// Lottie's Fill: one color where the drawing is.
+    Fill {
+        /// The color; its alpha multiplies the drawing's.
+        color: Animated<Color>,
+        /// How far.
+        amount: Animated<f64>,
+    },
+    /// Each channel through its function (SVG `feComponentTransfer`).
+    Transfer {
+        /// Red.
+        red: Transfer,
+        /// Green.
+        green: Transfer,
+        /// Blue.
+        blue: Transfer,
+        /// Alpha.
+        alpha: Transfer,
+    },
+    /// The luminance mapped to the colors of a gradient (Lottie's Tritone).
+    GradientMap {
+        /// The colors from black (0) to white (1).
+        stops: Animated<Vec<GradientStop>>,
+        /// How far.
+        amount: Animated<f64>,
+    },
+}
+
+/// A 4×5 color matrix on straight RGBA: rows red, green, blue and alpha,
+/// each the input's channels times its first four values plus its fifth
+/// (channels 0 to 1), as SVG's `feColorMatrix` `values`.
+#[derive(Debug, Clone, Copy, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub struct ColorMatrix(pub [f64; 20]);
+
+/// A channel's function in a [`ColorOp::Transfer`] (SVG's `feFuncX`).
+#[derive(Debug, Clone, PartialEq, Default)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "serde", serde(rename_all = "camelCase", tag = "type"))]
+pub enum Transfer {
+    /// Unchanged.
+    #[default]
+    Identity,
+    /// Straight lines through the values, evenly spread over 0..1.
+    Table {
+        /// The values.
+        values: Vec<f64>,
+    },
+    /// Steps of the values, evenly spread over 0..1.
+    Discrete {
+        /// The values.
+        values: Vec<f64>,
+    },
+    /// `slope × c + intercept`.
+    Linear {
+        /// The slope.
+        slope: f64,
+        /// The intercept.
+        intercept: f64,
+    },
+    /// `amplitude × c ^ exponent + offset`.
+    Gamma {
+        /// The amplitude.
+        amplitude: f64,
+        /// The exponent.
+        exponent: f64,
+        /// The offset.
+        offset: f64,
+    },
 }
 
 /// A shadow a group's drawing casts.

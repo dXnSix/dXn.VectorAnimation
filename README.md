@@ -100,12 +100,15 @@ core and the importers build for WebAssembly; a build that plays compiled scenes
   ones too) or other animations' begins and ends; animations that start one another in a cycle become the
   timeline's loop, and several animations of one attribute apply in the order they began. Shapes' geometry
   animates (`x`, `y`, `width`, `height`, `rx`, `ry`, `cx`, `cy`, `r`, line ends, `points`).
-- Filters of shadows and blurs: `<filter>` chains as Figma exports drop shadows (several of them) and layer
-  blurs (the source's alpha hardened, moved, blurred, colored, cut out, blended under the source),
-  `feDropShadow`, `feGaussianBlur`, and CSS `filter` of `blur()`, `drop-shadow()` and `url()`, still or
-  animated by `@keyframes`.
-- Left out with a warning: text (export it as outlines), other filters (inner shadows, color filters),
-  patterns, pseudo-elements and other pseudo-classes, SMIL begins on events, `end` times and `accumulate`.
+- Filters: `<filter>` chains as Figma exports drop shadows (several of them), inner shadows and layer blurs
+  (the source's alpha hardened, moved, blurred, colored, cut out and blended under the source, or taken from
+  it and blended over it), `feDropShadow`, `feGaussianBlur`, color changes of the source (`feColorMatrix` of
+  every type, `feComponentTransfer`; in linear light unless `color-interpolation-filters` says sRGB), and
+  CSS `filter` of `blur()`, `drop-shadow()`, `grayscale()`, `sepia()`, `saturate()`, `hue-rotate()`,
+  `invert()`, `opacity()`, `brightness()`, `contrast()` and `url()`, still or animated by `@keyframes`.
+- Left out with a warning: text (export it as outlines), other filters (floods, morphology, lighting,
+  displacement, shadows of a recolored drawing), patterns, pseudo-elements and other pseudo-classes, SMIL
+  begins on events, `end` times and `accumulate`.
 
 **Lottie** (`dxn_vector_animation_lottie`)
 

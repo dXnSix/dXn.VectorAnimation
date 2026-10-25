@@ -12,6 +12,7 @@ use std::{collections::HashMap, sync::Arc};
 use dxn_vector_animation::{
     BlendMode, Color, FillRule, Frame, FrameEffect, FrameMask, FramePaint, GradientStop, ImageData,
     Item, Layer, LineCap, LineJoin, MaskKind, Matrix, Path, PathEl, Rect, Spread, StrokeStyle,
+    filter::{ColorStep, apply_steps},
 };
 use tiny_skia as sk;
 
@@ -156,7 +157,11 @@ fn overscan(frame: &Frame, base: Matrix, w: u32, h: u32) -> [u32; 4] {
             FrameEffect::DropShadow { offset, sigma, .. } => {
                 (offset.x.abs() + offset.y.abs(), sigma)
             }
+            FrameEffect::InnerShadow { offset, sigma, .. } => {
+                (offset.x.abs() + offset.y.abs(), sigma)
+            }
             FrameEffect::Blur { sigma } => (0.0, sigma),
+            FrameEffect::Color { .. } => (0.0, 0.0),
         };
         reach = reach.max((offset + 3.0 * sigma) * scale);
         spread = spread.max(3.0 * sigma * scale);
@@ -365,16 +370,14 @@ impl Renderer {
 
     /// Clips and masks `pixmap` as `layer` says and draws it onto `target`.
     fn compose(&mut self, pixmap: &mut sk::Pixmap, layer: &Layer, target: &mut sk::Pixmap) {
-        // Blurs in turn; consecutive shadows cast together, under it.
-        for run in layer.effects.chunk_by(|a, b| {
+        // In turn; consecutive shadows cast together.
+        let shadow = |e: &FrameEffect| {
             matches!(
-                (a, b),
-                (
-                    FrameEffect::DropShadow { .. },
-                    FrameEffect::DropShadow { .. }
-                )
+                e,
+                FrameEffect::DropShadow { .. } | FrameEffect::InnerShadow { .. }
             )
-        }) {
+        };
+        for run in layer.effects.chunk_by(|a, b| shadow(a) && shadow(b)) {
             self.effects(pixmap, run);
         }
         if let Some(clip) = &layer.clip
@@ -411,19 +414,38 @@ impl Renderer {
         );
     }
 
-    /// `run` applied to `pixmap`: a blur, or shadows all cast by `pixmap`
-    /// and drawn under it, the first lowest.
+    /// `run` applied to `pixmap`: a blur, a color change, or shadows all
+    /// cast by `pixmap`, drop shadows drawn under it and inner shadows over
+    /// it, the first lowest.
     fn effects(&self, pixmap: &mut sk::Pixmap, run: &[FrameEffect]) {
         // The frame's lengths in pixels, along each axis.
         let (sx, sy) = (self.base.a.abs(), self.base.d.abs());
         let Some(mut out) = sk::Pixmap::new(pixmap.width(), pixmap.height()) else {
             return;
         };
+        let mut over = Vec::new();
         for effect in run {
             match *effect {
                 FrameEffect::Blur { sigma } => {
                     blur(pixmap, sigma * sx, sigma * sy);
                     return;
+                }
+                FrameEffect::Color { ref steps, linear } => {
+                    recolor(pixmap, steps, linear);
+                    return;
+                }
+                FrameEffect::InnerShadow {
+                    color,
+                    offset,
+                    sigma,
+                    hard,
+                } => {
+                    let shift = (offset.x * self.base.a, offset.y * self.base.d);
+                    if let Some(inner) =
+                        inner_shadow(pixmap, color, shift, (sigma * sx, sigma * sy), hard)
+                    {
+                        over.push(inner);
+                    }
                 }
                 FrameEffect::DropShadow {
                     color,
@@ -471,14 +493,16 @@ impl Renderer {
                 }
             }
         }
-        out.draw_pixmap(
-            0,
-            0,
-            pixmap.as_ref(),
-            &sk::PixmapPaint::default(),
-            sk::Transform::identity(),
-            None,
-        );
+        for p in std::iter::once(&*pixmap).chain(&over) {
+            out.draw_pixmap(
+                0,
+                0,
+                p.as_ref(),
+                &sk::PixmapPaint::default(),
+                sk::Transform::identity(),
+                None,
+            );
+        }
         *pixmap = out;
     }
 
@@ -679,6 +703,80 @@ fn silhouette(pixmap: &sk::Pixmap, color: Color, hard: bool) -> Option<sk::Pixma
         }
     }
     Some(out)
+}
+
+/// The shadow `pixmap`'s surroundings cast inside it: its silhouette
+/// (`hard`: made all or nothing), less the silhouette moved by `shift` and
+/// blurred by `sigma` (pixels), in `color`.
+fn inner_shadow(
+    pixmap: &sk::Pixmap,
+    color: Color,
+    shift: (f64, f64),
+    sigma: (f64, f64),
+    hard: bool,
+) -> Option<sk::Pixmap> {
+    let inside = silhouette(pixmap, Color::BLACK, hard)?;
+    let mut cast = sk::Pixmap::new(pixmap.width(), pixmap.height())?;
+    cast.draw_pixmap(
+        0,
+        0,
+        inside.as_ref(),
+        &sk::PixmapPaint {
+            quality: sk::FilterQuality::Bilinear,
+            ..Default::default()
+        },
+        sk::Transform::from_translate(shift.0 as f32, shift.1 as f32),
+        None,
+    );
+    blur(&mut cast, sigma.0, sigma.1);
+    let c = color.clamped();
+    let mut out = sk::Pixmap::new(pixmap.width(), pixmap.height())?;
+    for ((o, i), s) in out
+        .pixels_mut()
+        .iter_mut()
+        .zip(inside.pixels())
+        .zip(cast.pixels())
+    {
+        let a = (f64::from(i.alpha()) - f64::from(s.alpha())).max(0.0) / 255.0 * c.a;
+        if a <= 0.0 {
+            continue;
+        }
+        let alpha = (a * 255.0).round().clamp(0.0, 255.0) as u8;
+        let channel = |v: f64| ((v * a * 255.0).round().clamp(0.0, 255.0) as u8).min(alpha);
+        if let Some(px) =
+            sk::PremultipliedColorU8::from_rgba(channel(c.r), channel(c.g), channel(c.b), alpha)
+        {
+            *o = px;
+        }
+    }
+    Some(out)
+}
+
+/// `pixmap`'s colors through `steps` (in linear light when `linear`);
+/// transparent pixels stay so.
+fn recolor(pixmap: &mut sk::Pixmap, steps: &[ColorStep], linear: bool) {
+    for px in pixmap.pixels_mut() {
+        let a = px.alpha();
+        if a == 0 {
+            continue;
+        }
+        let k = f64::from(a) / 255.0;
+        let straight = |v: u8| (f64::from(v) / 255.0 / k).min(1.0);
+        let [r, g, b, a] = apply_steps(
+            steps,
+            linear,
+            [
+                straight(px.red()),
+                straight(px.green()),
+                straight(px.blue()),
+                k,
+            ],
+        );
+        let alpha = (a * 255.0).round().clamp(0.0, 255.0) as u8;
+        let channel = |v: f64| ((v * a * 255.0).round().clamp(0.0, 255.0) as u8).min(alpha);
+        *px = sk::PremultipliedColorU8::from_rgba(channel(r), channel(g), channel(b), alpha)
+            .unwrap_or(sk::PremultipliedColorU8::TRANSPARENT);
+    }
 }
 
 /// A Gaussian blur of `pixmap`, of standard deviations `sx` and `sy` in

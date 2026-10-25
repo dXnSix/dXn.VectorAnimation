@@ -1,13 +1,18 @@
 //! Filters as the scene's effects: `<filter>` chains of shadows and blurs
 //! (as Figma writes them: the source's alpha hardened, moved, blurred,
-//! colored, cut out and blended under the source; `feDropShadow`;
-//! `feGaussianBlur` of the source) and CSS `filter` functions (`blur()`,
-//! `drop-shadow()`, `url()`), still or animated.
+//! colored, cut out and blended under the source, or taken from it and
+//! blended over it for inner shadows; `feDropShadow`; `feGaussianBlur` of
+//! the source), color changes of the source (`feColorMatrix`,
+//! `feComponentTransfer`), and CSS `filter` functions (`blur()`,
+//! `drop-shadow()`, the color functions, `url()`), still or animated.
 
-use dxn_vector_animation::{Animated, AnimatedPoint, Blur, Color, DropShadow, Effect, Keyframe};
+use dxn_vector_animation::{
+    Animated, AnimatedPoint, Blur, Color, ColorEffect, ColorMatrix, ColorOp, DropShadow, Effect,
+    InnerShadow, Keyframe, Transfer,
+};
 use roxmltree::Node as XmlNode;
 
-use crate::values::{color, length, number};
+use crate::values::{angle, color, fraction, length, number};
 
 /// What a filter primitive's input or result holds, as far as shadows and
 /// blurs go.
@@ -19,6 +24,15 @@ enum Image {
     Source { sigma: f64 },
     /// Its silhouette, moved, blurred and colored.
     Shade(Shade),
+    /// The shadow its surroundings cast inside it (`shade`'s offset, blur
+    /// and color), blurred by `after` since.
+    Inner { shade: Shade, after: f64 },
+    /// The element's drawing, its colors changed by `ops` (each in linear
+    /// light or not), then blurred by `sigma`.
+    Recolored {
+        ops: Vec<(ColorOp, bool)>,
+        sigma: f64,
+    },
     /// Images over one another, the lowest first.
     Stack(Vec<Image>),
 }
@@ -64,6 +78,14 @@ fn blurred(image: Image, sigma: f64) -> Image {
             shade.sigma = combined(shade.sigma, sigma);
             Image::Shade(shade)
         }
+        Image::Inner { shade, after } => Image::Inner {
+            shade,
+            after: combined(after, sigma),
+        },
+        Image::Recolored { ops, sigma: s } => Image::Recolored {
+            ops,
+            sigma: combined(s, sigma),
+        },
         Image::Stack(list) => Image::Stack(list.into_iter().map(|i| blurred(i, sigma)).collect()),
     }
 }
@@ -84,11 +106,31 @@ fn num(node: XmlNode, name: &str, default: f64) -> f64 {
     attr(node, name).and_then(number).unwrap_or(default)
 }
 
+/// Whether `node` works in linear light (`color-interpolation-filters`,
+/// as an attribute or in its style; `inherited` when it says neither).
+fn linear_light(node: XmlNode, inherited: bool) -> bool {
+    let style = attr(node, "style").and_then(|s| {
+        s.split(';').find_map(|d| {
+            let (k, v) = d.split_once(':')?;
+            (k.trim() == "color-interpolation-filters").then(|| v.trim())
+        })
+    });
+    match style
+        .or(attr(node, "color-interpolation-filters"))
+        .map(str::trim)
+    {
+        Some("sRGB") => false,
+        Some("linearRGB") => true,
+        _ => inherited,
+    }
+}
+
 /// The effects of the `<filter>` `node`, or why it is left out.
 pub(crate) fn element(node: XmlNode) -> Result<Vec<Effect>, String> {
     if attr(node, "primitiveUnits") == Some("objectBoundingBox") {
         return Err("primitives in the box's units".into());
     }
+    let linear = linear_light(node, true);
     let mut results: Vec<(String, Image)> = Vec::new();
     let mut last = Image::Source { sigma: 0.0 };
     let input =
@@ -115,7 +157,11 @@ pub(crate) fn element(node: XmlNode) -> Result<Vec<Effect>, String> {
                     return Err("a flood of color".into());
                 }
             }
-            "feColorMatrix" => color_matrix(primitive, a()?)?,
+            "feColorMatrix" => color_matrix(primitive, a()?, linear_light(primitive, linear))?,
+            "feComponentTransfer" => {
+                let op = transfer(primitive)?;
+                recolor(a()?, op, linear_light(primitive, linear))?
+            }
             "feOffset" => match a()? {
                 Image::Shade(mut s) => {
                     s.dx += num(primitive, "dx", 0.0);
@@ -152,7 +198,29 @@ pub(crate) fn element(node: XmlNode) -> Result<Vec<Effect>, String> {
                         }
                         _ => return Err("a composite cut by another".into()),
                     },
-                    "arithmetic" => return Err("an inner shadow".into()),
+                    "arithmetic" => {
+                        let k = |n: &str| num(primitive, n, 0.0);
+                        let less = (k("k1"), k("k2"), k("k3"), k("k4")) == (0.0, -1.0, 1.0, 0.0);
+                        match (top, under) {
+                            // The silhouette less itself moved and blurred.
+                            (Image::Shade(s), Image::Shade(cut))
+                                if less
+                                    && s.hard == cut.hard
+                                    && cut.dx == 0.0
+                                    && cut.dy == 0.0
+                                    && cut.sigma == 0.0 =>
+                            {
+                                Image::Inner {
+                                    shade: Shade {
+                                        color: Color::rgba(0.0, 0.0, 0.0, cut.color.a),
+                                        ..s
+                                    },
+                                    after: 0.0,
+                                }
+                            }
+                            _ => return Err("an arithmetic composite".into()),
+                        }
+                    }
                     other => return Err(format!("a composite `{other}`")),
                 }
             }
@@ -186,7 +254,9 @@ pub(crate) fn element(node: XmlNode) -> Result<Vec<Effect>, String> {
                     knockout: false,
                 };
                 match source {
-                    Image::Source { .. } => Image::Stack(vec![Image::Shade(shade), source]),
+                    Image::Source { .. } | Image::Recolored { .. } => {
+                        Image::Stack(vec![Image::Shade(shade), source])
+                    }
                     _ => return Err("a drop shadow of a shadow".into()),
                 }
             }
@@ -201,13 +271,12 @@ pub(crate) fn element(node: XmlNode) -> Result<Vec<Effect>, String> {
     flat(last, &mut list);
     let at = list
         .iter()
-        .position(|i| matches!(i, Image::Source { .. }))
+        .position(|i| matches!(i, Image::Source { .. } | Image::Recolored { .. }))
         .ok_or("no drawing in the result")?;
-    if at + 1 != list.len() {
-        return Err("an inner shadow or an overlay".into());
-    }
-    let Image::Source { sigma: blur } = list[at] else {
-        return Err("no drawing in the result".into());
+    let (ops, blur) = match &list[at] {
+        Image::Source { sigma } => (Vec::new(), *sigma),
+        Image::Recolored { ops, sigma } => (ops.clone(), *sigma),
+        _ => return Err("no drawing in the result".into()),
     };
     let mut effects = Vec::new();
     for image in &list[..at] {
@@ -224,6 +293,30 @@ pub(crate) fn element(node: XmlNode) -> Result<Vec<Effect>, String> {
             hard: s.hard,
         }));
     }
+    for image in &list[at + 1..] {
+        let Image::Inner { shade: s, after } = image else {
+            return Err("an overlay".into());
+        };
+        // The blur that follows blurs the inner shadows too: they must
+        // have gone through it.
+        if (after - blur).abs() > 1e-6 {
+            return Err("an inner shadow blurred apart from the drawing".into());
+        }
+        effects.push(Effect::InnerShadow(InnerShadow {
+            color: Animated::Static(s.color),
+            offset: AnimatedPoint::fixed(s.dx, s.dy),
+            blur: Animated::Static(s.sigma),
+            hard: s.hard,
+        }));
+    }
+    if !ops.is_empty() && !effects.is_empty() {
+        return Err("shadows of a drawing with its colors changed".into());
+    }
+    // Color changes and the blur commute where colors keep their alpha;
+    // the blur comes last.
+    if !ops.is_empty() {
+        effects.extend(color_effects(ops));
+    }
     if blur > 0.0 {
         effects.push(Effect::Blur(Blur {
             radius: Animated::Static(blur),
@@ -232,21 +325,130 @@ pub(crate) fn element(node: XmlNode) -> Result<Vec<Effect>, String> {
     Ok(effects)
 }
 
-/// An `feColorMatrix` of a silhouette: Figma's hardening of the alpha
-/// (`… 0 0 0 127 0`), or its coloring (`0 0 0 0 r … 0 0 0 a 0`).
-fn color_matrix(primitive: XmlNode, image: Image) -> Result<Image, String> {
-    let Image::Shade(mut s) = image else {
-        return Err("a color matrix of a drawing".into());
-    };
-    if attr(primitive, "type").is_some_and(|t| t != "matrix") {
-        return Err("a color matrix other than `matrix`".into());
+/// `ops` as color effects, one for each run done in the same light.
+fn color_effects(ops: Vec<(ColorOp, bool)>) -> Vec<Effect> {
+    let mut out: Vec<ColorEffect> = Vec::new();
+    for (op, linear) in ops {
+        match out.last_mut() {
+            Some(last) if last.linear == linear => last.ops.push(op),
+            _ => out.push(ColorEffect {
+                ops: vec![op],
+                linear,
+            }),
+        }
     }
-    let m: Vec<f64> = attr(primitive, "values")
+    out.into_iter().map(Effect::Color).collect()
+}
+
+/// `image` with `op` changing its colors: the element's drawing, before any
+/// blur (color changes that keep alpha commute with blurs).
+fn recolor(image: Image, op: ColorOp, linear: bool) -> Result<Image, String> {
+    let commutes = |op: &ColorOp| op.matrix_at(0.0).is_some_and(|m| m.keeps_alpha());
+    match image {
+        Image::Source { sigma } if sigma == 0.0 || commutes(&op) => Ok(Image::Recolored {
+            ops: vec![(op, linear)],
+            sigma,
+        }),
+        Image::Recolored { mut ops, sigma } if sigma == 0.0 || commutes(&op) => {
+            ops.push((op, linear));
+            Ok(Image::Recolored { ops, sigma })
+        }
+        Image::Empty => Ok(Image::Empty),
+        _ => Err("a color change of a blurred drawing or of a shadow".into()),
+    }
+}
+
+/// The `feComponentTransfer` `primitive`'s functions.
+fn transfer(primitive: XmlNode) -> Result<ColorOp, String> {
+    let mut funcs = [
+        Transfer::Identity,
+        Transfer::Identity,
+        Transfer::Identity,
+        Transfer::Identity,
+    ];
+    for f in primitive.children().filter(|n| n.is_element()) {
+        let at = match f.tag_name().name() {
+            "feFuncR" => 0,
+            "feFuncG" => 1,
+            "feFuncB" => 2,
+            "feFuncA" => 3,
+            _ => continue,
+        };
+        let values = || -> Vec<f64> {
+            attr(f, "tableValues")
+                .unwrap_or("")
+                .split(|c: char| c == ',' || c.is_whitespace())
+                .filter(|p| !p.is_empty())
+                .filter_map(number)
+                .take(256)
+                .collect()
+        };
+        funcs[at] = match attr(f, "type").map(str::trim) {
+            Some("table") => Transfer::Table { values: values() },
+            Some("discrete") => Transfer::Discrete { values: values() },
+            Some("linear") => Transfer::Linear {
+                slope: num(f, "slope", 1.0),
+                intercept: num(f, "intercept", 0.0),
+            },
+            Some("gamma") => Transfer::Gamma {
+                amplitude: num(f, "amplitude", 1.0),
+                exponent: num(f, "exponent", 1.0),
+                offset: num(f, "offset", 0.0),
+            },
+            Some("identity") | None => Transfer::Identity,
+            Some(other) => return Err(format!("a transfer function `{other}`")),
+        };
+    }
+    let [red, green, blue, alpha] = funcs;
+    Ok(ColorOp::Transfer {
+        red,
+        green,
+        blue,
+        alpha,
+    })
+}
+
+/// An `feColorMatrix`: of a silhouette or an inner shadow, Figma's
+/// hardening of the alpha (`… 0 0 0 127 0`) or its coloring
+/// (`0 0 0 0 r … 0 0 0 a 0`); of the drawing, a color change.
+fn color_matrix(primitive: XmlNode, image: Image, linear: bool) -> Result<Image, String> {
+    let values: Vec<f64> = attr(primitive, "values")
         .unwrap_or("")
         .split(|c: char| c == ',' || c.is_whitespace())
         .filter(|p| !p.is_empty())
         .filter_map(number)
         .collect();
+    let (mut s, inner) = match image {
+        Image::Shade(s) => (s, None),
+        Image::Inner { shade, after } => (shade, Some(after)),
+        other => {
+            let first = values.first().copied();
+            let op = match attr(primitive, "type").map(str::trim).unwrap_or("matrix") {
+                "matrix" => {
+                    let m: [f64; 20] = values
+                        .as_slice()
+                        .try_into()
+                        .map_err(|_| "a color matrix without 20 values")?;
+                    ColorOp::Matrix {
+                        matrix: Animated::Static(ColorMatrix(m)),
+                    }
+                }
+                "saturate" => ColorOp::Saturate {
+                    amount: Animated::Static(first.unwrap_or(1.0)),
+                },
+                "hueRotate" => ColorOp::HueRotate {
+                    degrees: Animated::Static(first.unwrap_or(0.0)),
+                },
+                "luminanceToAlpha" => ColorOp::LuminanceToAlpha,
+                t => return Err(format!("a color matrix of type `{t}`")),
+            };
+            return recolor(other, op, linear);
+        }
+    };
+    if attr(primitive, "type").is_some_and(|t| t != "matrix") {
+        return Err("a color matrix other than `matrix` of a silhouette".into());
+    }
+    let m = values;
     if m.len() != 20 {
         return Err("a color matrix".into());
     }
@@ -262,7 +464,10 @@ fn color_matrix(primitive: XmlNode, image: Image) -> Result<Image, String> {
     } else {
         s.color = Color::rgba(m[4], m[9], m[14], s.color.a * k).clamped();
     }
-    Ok(Image::Shade(s))
+    Ok(match inner {
+        Some(after) => Image::Inner { shade: s, after },
+        None => Image::Shade(s),
+    })
 }
 
 /// A CSS filter function.
@@ -277,8 +482,90 @@ pub(crate) enum Function {
         sigma: f64,
         color: Color,
     },
+    /// A color function (`grayscale()`, `hue-rotate()`, ...) and its
+    /// amount (degrees for `hue-rotate()`).
+    Color(ColorFunction, f64),
     /// `url(#id)`.
     Url(String),
+}
+
+/// A CSS filter function that changes colors.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ColorFunction {
+    Grayscale,
+    Sepia,
+    Saturate,
+    HueRotate,
+    Invert,
+    Opacity,
+    Brightness,
+    Contrast,
+}
+
+impl ColorFunction {
+    fn named(name: &str) -> Option<ColorFunction> {
+        Some(match name {
+            "grayscale" => ColorFunction::Grayscale,
+            "sepia" => ColorFunction::Sepia,
+            "saturate" => ColorFunction::Saturate,
+            "hue-rotate" => ColorFunction::HueRotate,
+            "invert" => ColorFunction::Invert,
+            "opacity" => ColorFunction::Opacity,
+            "brightness" => ColorFunction::Brightness,
+            "contrast" => ColorFunction::Contrast,
+            _ => return None,
+        })
+    }
+
+    /// Its amount written as `args` (none: the full change).
+    fn amount(self, args: &str) -> Option<f64> {
+        if self == ColorFunction::HueRotate {
+            return if args.is_empty() {
+                Some(0.0)
+            } else {
+                angle(args)
+            };
+        }
+        let v = if args.is_empty() {
+            1.0
+        } else {
+            fraction(args)?
+        };
+        Some(match self {
+            // Past the full change is the full change.
+            ColorFunction::Grayscale
+            | ColorFunction::Sepia
+            | ColorFunction::Invert
+            | ColorFunction::Opacity => v.clamp(0.0, 1.0),
+            _ => v.max(0.0),
+        })
+    }
+
+    /// The op with `amount`.
+    pub(crate) fn op(self, amount: Animated<f64>) -> ColorOp {
+        match self {
+            ColorFunction::Grayscale => ColorOp::Grayscale { amount },
+            ColorFunction::Sepia => ColorOp::Sepia { amount },
+            ColorFunction::Saturate => ColorOp::Saturate { amount },
+            ColorFunction::HueRotate => ColorOp::HueRotate { degrees: amount },
+            ColorFunction::Invert => ColorOp::Invert { amount },
+            ColorFunction::Opacity => ColorOp::Opacity { amount },
+            ColorFunction::Brightness => ColorOp::Brightness { amount },
+            ColorFunction::Contrast => ColorOp::Contrast { amount },
+        }
+    }
+}
+
+/// Appends a color `op` (in sRGB, as CSS filter functions are done) to
+/// `effects`, to the color effect it ends with if any.
+pub(crate) fn push_color(effects: &mut Vec<Effect>, op: ColorOp) {
+    match effects.last_mut() {
+        Some(Effect::Color(last)) if !last.linear => last.ops.push(op),
+        _ => effects.push(Effect::Color(ColorEffect {
+            ops: vec![op],
+            linear: false,
+        })),
+    }
 }
 
 /// The functions of a CSS `filter` value, or the first one it cannot read.
@@ -313,6 +600,9 @@ pub(crate) fn functions(s: &str) -> Result<Vec<Function>, String> {
                 length(args, 0.0).ok_or_else(|| format!("blur({args})"))?
             }),
             "drop-shadow" => drop_shadow(args).ok_or_else(|| format!("drop-shadow({args})"))?,
+            n if let Some(f) = ColorFunction::named(n) => {
+                Function::Color(f, f.amount(args).ok_or_else(|| format!("{n}({args})"))?)
+            }
             "url" => Function::Url(
                 args.trim_matches(|c| c == '"' || c == '\'')
                     .trim_start_matches('#')
@@ -416,6 +706,19 @@ pub(crate) fn animated(keys: &[Keyframe<Vec<Function>>]) -> Option<Vec<Effect>> 
                     hard: false,
                 }));
             }
+            Function::Color(f, _) => push_color(
+                &mut out,
+                f.op(track(
+                    &|g| {
+                        if let Function::Color(_, v) = g {
+                            *v
+                        } else {
+                            0.0
+                        }
+                    },
+                    i,
+                )),
+            ),
             Function::Url(_) => return None,
         }
     }

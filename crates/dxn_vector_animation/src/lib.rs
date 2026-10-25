@@ -16,6 +16,7 @@ mod color;
 #[cfg(feature = "serde")]
 pub mod compiled;
 mod easing;
+pub mod filter;
 mod frame;
 mod geom;
 mod limits;
@@ -30,11 +31,12 @@ pub use frame::{ClipPath, Frame, FrameEffect, FrameMask, FramePaint, Item, Layer
 pub use geom::{Matrix, Path, PathEl, Point, Rect};
 pub use limits::{Error, Import, Limits, Stats};
 pub use scene::{
-    BlendMode, Blur, Clip, ClipShape, Dash, Direction, DropShadow, Effect, EllipseStart, Fill,
-    FillRule, Geometry, GradientStop, GradientUnits, Group, Image, ImageData, LineCap, LineJoin,
-    LinearGradient, LoopMode, Marker, Mask, MaskKind, MotionPath, MotionRotate, Node, Paint,
-    PaintOrder, RadialGradient, RectStart, Scene, Shape, ShapePath, Spread, Star, StarKind, Stroke,
-    TimeMap, TimeRange, Timeline, TransformOp, Trim, TrimMode,
+    BlendMode, Blur, Clip, ClipShape, ColorEffect, ColorMatrix, ColorOp, Dash, Direction,
+    DropShadow, Effect, EllipseStart, Fill, FillRule, Geometry, GradientStop, GradientUnits, Group,
+    Image, ImageData, InnerShadow, LineCap, LineJoin, LinearGradient, LoopMode, Marker, Mask,
+    MaskKind, MotionPath, MotionRotate, Node, Paint, PaintOrder, RadialGradient, RectStart, Scene,
+    Shape, ShapePath, Spread, Star, StarKind, Stroke, TimeMap, TimeRange, Timeline, Transfer,
+    TransformOp, Trim, TrimMode,
 };
 
 /// The name and version of the compiled scene format
