@@ -10,8 +10,8 @@ JavaScript and no engine work per frame.
 
 > **Status: phase 1.** The component, playback, the TSX and Rust APIs and an example app, checked headless
 > (`nsh test`), against 53 real animation files, and frame by frame in the iOS simulator, Chrome, the
-> Android emulator, GTK and GPUI on Linux, and GPUI on macOS. Windows is compiled for, not yet run; no real
-> phone has run it yet.
+> Android emulator, GTK and GPUI on Linux, and AppKit and GPUI on macOS. Windows is compiled for, not yet run;
+> no real phone has run it yet.
 
 ## Usage
 
@@ -240,7 +240,7 @@ writes the set and sets the photographs beside the reference renderer's frames:
 
 ```sh
 cargo run -p dxn_vector_animation_check -- scenes examples/check --corpus <dir>
-cd examples/check && nsh test check.test.tsx --target ios   # or web, android, linux, gpui
+cd examples/check && nsh test check.test.tsx --target ios   # or web, android, macos, linux, gpui
 cargo run -p dxn_vector_animation_check -- compare examples/check/shots examples/check --out <dir>
 ```
 
@@ -263,7 +263,7 @@ sRGB first.
   with `--force-device-scale-factor=2` (the runner's own Chrome draws at one).
 
 Last run (45 scenes, the check app's 29 and 16 corpus files, each at 25, 50 and 75%; NSH from the fork's
-`main` at 4faf2cfd, upstream merged, 2026-10-25):
+`main` at 4faf2cfd, upstream merged, with dXnSix/nsh#52 merged in for macOS, 2026-10-25):
 
 | Platform | Pixels a point | Tiles off the reference by, at most (live text aside) | This round's scenes (inner shadows, color effects, patterns, image shadows, moving layers, clear stops) | Live text |
 |---|---|---|---|---|
@@ -273,6 +273,7 @@ Last run (45 scenes, the check app's 29 and 16 corpus files, each at 25, 50 and 
 | Chrome | 2 | 1.25% | 0.22% | 4.2% |
 | GTK on Linux | 1 | 2.75% | 0.20% | 8.8% |
 | GPUI on Linux | 1 | 3.6% (the moving layer of small checks) | 3.6% | 9.2% |
+| macOS (AppKit) | 2 | 1.42% | 0.35% | 4.2% |
 | GPUI on macOS | 2 | 1.21% | 0.87% | 4.4% |
 
 At one pixel a point a pixel of anti-aliasing is a larger share: the corpus files of fine detail are the ones
@@ -283,7 +284,14 @@ edge of its six-point checks; the platforms at two or three pixels a point keep 
 photographs nothing while the screen is locked. GPUI showed some tiles held at a moment at another moment of
 their animation, on a busy display (two pixels a point): each canvas whose values move its whole drawing queued a
 worker rasterization every frame, and the workers fell behind. The fork's NSH keeps one in flight per canvas
-(dXnSix/nsh#38, to go upstream as `pr/gpui/01-canvas-one-job`); with it, no tile shows another moment.
+(dXnSix/nsh#38, to go upstream as `pr/gpui/01-canvas-one-job`); with it, no tile shows another moment. On macOS
+(AppKit) every canvas shadow fell upward, its scenes up to 7.1% off: NSH negated the shadow's offset for a base
+space that a canvas's flipped layer does not have. The fork fixes it (dXnSix/nsh#52, to go upstream as
+`pr/macos/02-canvas-shadow-offset`). A hold (`progress`) stopped the time value but not the run playing, and a
+run that loops went on to its next leg: GTK in the VM showed a page of tiles playing on through its holds. The
+player now stops the run itself. GTK in the VM still misses a page now and then: its host takes the test's steps
+seconds late (once more than 30 s), and its photographs show a moment from before; its frames take under 0.25 s.
+The cause is not found yet.
 
 ## What playing costs
 
