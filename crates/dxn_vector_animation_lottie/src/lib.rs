@@ -7,13 +7,24 @@
 //! layer masks (add, subtract, intersect, inverted) and track mattes
 //! (alpha, luminance, inverted), blend modes, keyframes with their bezier
 //! easings and holds, position keyframes with spatial tangents as motion
-//! paths (auto-orient included), and the layer effects Drop Shadow and
-//! Gaussian Blur.
+//! paths (auto-orient included), repeaters, and the layer effects Drop
+//! Shadow and Gaussian Blur.
 //!
-//! What a file holds beyond that (expressions, text layers, other effects,
-//! repeaters, merge paths) is left out with a warning in
-//! [`Import::warnings`]. dotLottie archives (ZIP) are read too: their first
-//! animation, its images embedded.
+//! Text layers drawn with the file's glyphs (`chars`), laid out, animated
+//! and laid along paths as lottie-web does it: text animators with range
+//! selectors (in percent or by index, over characters, words or lines,
+//! each shape, eased, smoothed, randomized deterministically) or After
+//! Effects' default expression selector, changing the anchor, position,
+//! scale, skew, rotation, opacity, colors, stroke width and tracking of
+//! each character; text on a mask's path. An animated character is a
+//! group of its own, constant where what selects it is and sampled at the
+//! file's frame rate where that moves, within [`Limits::max_keyframes`].
+//!
+//! What a file holds beyond that (expressions, wiggly and other
+//! expression text selectors, text without glyphs, other effects, merge
+//! paths) is left out with a warning in [`Import::warnings`]. dotLottie
+//! archives (ZIP) are read too: their first animation, its images
+//! embedded.
 
 mod convert;
 mod dotlottie;
