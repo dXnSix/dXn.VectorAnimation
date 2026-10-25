@@ -376,6 +376,12 @@ impl Compiler {
         if g.effects.iter().any(|e| matches!(e, Effect::Blur(_))) {
             return unsupported("a blur");
         }
+        if g.effects
+            .iter()
+            .any(|e| matches!(e, Effect::InnerShadow(_)))
+        {
+            return unsupported("an inner shadow");
+        }
         let linear = self.still_linear(g);
         let m = linear.unwrap_or(Matrix::IDENTITY);
         let mut out = Vec::new();
@@ -404,6 +410,12 @@ impl Compiler {
                     };
                     (offset, blur, scale)
                 }
+            };
+            // Inside a group whose colors change, so do the shadow's.
+            let shade = self.recolored(&shadow.color);
+            let shadow = &dxn_vector_animation::DropShadow {
+                color: shade,
+                ..shadow.clone()
             };
             let colors = values(&shadow.color);
             let Some(first) = colors.first().copied() else {

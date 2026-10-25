@@ -26,6 +26,7 @@ use crate::span;
 
 mod mask;
 mod paint;
+mod recolor;
 mod shadow;
 
 use paint::Painting;
@@ -735,6 +736,9 @@ struct Compiler {
     casting: Option<bool>,
     /// The display's pixels a point, for what the plan holds as images.
     pixels: f64,
+    /// The color effects of the groups drawn inside, outermost first: what
+    /// the colors drawn now go through.
+    recolor: Vec<Vec<dxn_vector_animation::ColorEffect>>,
 }
 
 /// Where the compiler was before a node: what drawing it is undone to.
@@ -746,6 +750,7 @@ struct Mark {
     alpha: Num,
     context: usize,
     ancestors: usize,
+    recolor: usize,
 }
 
 /// `g` without its children.
@@ -807,6 +812,7 @@ pub fn compile_for(scene: &Scene, base: Matrix, pixels: f64) -> Result<Plan, Uns
         sampled: Vec::new(),
         casting: None,
         pixels: if pixels > 0.0 { pixels } else { 1.0 },
+        recolor: Vec::new(),
     };
     c.group(&scene.root, TIME, 0)?;
     c.flush();
@@ -1190,6 +1196,7 @@ impl Compiler {
             self.context.len(),
             self.ancestors.len(),
         );
+        let recolor = self.recolor.len();
         let open = self.open();
         Mark {
             graph,
@@ -1199,6 +1206,7 @@ impl Compiler {
             alpha: open.alpha,
             context,
             ancestors,
+            recolor,
         }
     }
 
@@ -1208,6 +1216,7 @@ impl Compiler {
         self.layers.truncate(mark.layers);
         self.context.truncate(mark.context);
         self.ancestors.truncate(mark.ancestors);
+        self.recolor.truncate(mark.recolor);
         let open = self.open();
         if open.units.len() > mark.units {
             // The canvas then open was flushed: it is the first unit since.
@@ -1231,7 +1240,18 @@ impl Compiler {
     /// the part.
     fn sample(&mut self, node: &Node, joins: Option<usize>) -> usize {
         let depth = self.ancestors.len();
-        let raster = needs_raster(node);
+        // Within groups whose colors change (or that cast inner shadows),
+        // as the reference draws it: the fallback draws neither.
+        let raster = needs_raster(node)
+            || self.ancestors.iter().any(|(g, _)| {
+                g.effects.iter().any(|e| {
+                    matches!(
+                        e,
+                        dxn_vector_animation::Effect::Color(_)
+                            | dxn_vector_animation::Effect::InnerShadow(_)
+                    )
+                })
+            });
         let open = self.open();
         if let Some(i) = joins
             && i + 1 == open.units.len()
@@ -1339,10 +1359,15 @@ impl Compiler {
         if let Some(clip) = &g.clip {
             frame.extend(self.clip(clip, local)?);
         }
+        // A mask's colors are its own: the color effects drawn inside do
+        // not change them.
+        let recolor = std::mem::take(&mut self.recolor);
         let soft = match &g.mask {
-            Some(mask) => self.soft_mask(g, mask, local, depth)?,
-            None => None,
+            Some(mask) => self.soft_mask(g, mask, local, depth),
+            None => Ok(None),
         };
+        self.recolor = recolor;
+        let soft = soft?;
         // A mask that shows nothing anywhere: nothing of the group to draw
         // (an empty clip is not honoured everywhere).
         if soft.as_ref().is_some_and(mask::SoftMask::hides_all) {
@@ -1354,7 +1379,10 @@ impl Compiler {
         if let Some(mask) = &g.mask
             && soft.is_none()
         {
-            let ops = self.mask(mask, local, depth)?;
+            let recolor = std::mem::take(&mut self.recolor);
+            let ops = self.mask(mask, local, depth);
+            self.recolor = recolor;
+            let ops = ops?;
             if matches!(ops.as_slice(), [Op::BeginPath, Op::Clip(_), ..]) {
                 return Ok(());
             }
@@ -1365,6 +1393,13 @@ impl Compiler {
         if opacity.is(0.0) {
             return Ok(());
         }
+        // Color effects: the paints inside recolored; what they do to
+        // alpha fades the group.
+        let colors = self.begin_colors(g, local)?;
+        let opacity = match colors {
+            Some(k) => self.mul(opacity, k),
+            None => opacity,
+        };
         let isolate = !g.blend.is_normal()
             || (!opacity.is(1.0) && drawables(g, 2) > 1)
             || !shadows.is_empty();
@@ -1460,6 +1495,9 @@ impl Compiler {
                 }
             }
         }
+        if colors.is_some() {
+            self.end_colors();
+        }
         self.ancestors.pop();
         self.context.pop();
         if !self.open().canvas.is_empty() {
@@ -1494,10 +1532,14 @@ impl Compiler {
                     Some(hard) => self.hardened(alpha, hard),
                     None => alpha,
                 };
+                let data = match self.casting {
+                    Some(_) => image.data.clone(),
+                    None => self.recolored_image(&image.data)?,
+                };
                 self.draw(vec![
                     Op::Save,
                     Op::GlobalAlpha(alpha),
-                    Op::Image(image.data.clone(), image.rect),
+                    Op::Image(data, image.rect),
                     Op::Restore,
                 ]);
                 Ok(())
@@ -1589,7 +1631,10 @@ impl Compiler {
                         let shade = shadow::silhouette_color(color, hard);
                         self.g.color_track(&shade, time, 1.0)
                     }
-                    None => self.g.color_track(color, time, 1.0),
+                    None => {
+                        let color = self.recolored(color);
+                        self.g.color_track(&color, time, 1.0)
+                    }
                 };
                 ops.push(Op::GlobalAlpha(a));
                 if let Some(stroke) = stroke {
@@ -2239,7 +2284,8 @@ impl Compiler {
         let opacity = self.g.track(&fill.opacity, time, |o| o.clamp(0.0, 1.0));
         let a = self.mul(alpha, opacity);
         let mut alone = false;
-        match &fill.paint {
+        let paint = self.recolored_paint(&fill.paint)?;
+        match paint.as_ref() {
             ScenePaint::Solid { color } => {
                 ops.push(Op::GlobalAlpha(a));
                 ops.push(Op::FillColor(self.g.color_track(color, time, 1.0)));
@@ -2297,7 +2343,8 @@ impl Compiler {
             Op::LineJoin(stroke.join),
             Op::MiterLimit(stroke.miter_limit),
         ];
-        match &stroke.paint {
+        let paint = self.recolored_paint(&stroke.paint)?;
+        match paint.as_ref() {
             ScenePaint::Solid { color } => {
                 style.push(Op::StrokeColor(self.g.color_track(color, time, 1.0)))
             }
