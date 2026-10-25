@@ -158,15 +158,29 @@ core and the importers build for WebAssembly; a build that plays compiled scenes
   keyframes).
 - Text without glyphs: each line set in the file's font when drawn (family, weight and style from its
   font list), justified on the layer's anchor or in its box (not wrapped: that needs glyphs).
-- Left out with a warning: expressions, wiggly and other expression text selectors (and animators with no
-  other selector), animators and paths of text without glyphs, other effects (strokes of masks, wipes,
-  distortions) and layer styles (strokes, glows, bevels, satin, gradient overlays).
+- Expressions, evaluated at every frame a layer shows and baked into keyframes (straight between frames):
+  Bodymovin's rewritten form (`$bm_rt`, `$bm_sum` and its siblings) and the JavaScript expressions are
+  written in (variables, functions, `if`, `switch`, loops, `try`, arrays, strings, `Math`, vector math), with
+  After Effects' expression API: `time`, `value`, `valueAtTime`, `velocity`, `speed`, `key`, `numKeys`,
+  `nearestKey`, `loopIn` / `loopOut` and their `Duration` forms (cycle, pingpong, offset, continue),
+  `wiggle`, `temporalWiggle`, `smooth`, `seedRandom` / `random` / `gaussRandom` / `noise` (seeded by their
+  property: every import gives the same scene), `linear` / `ease` / `easeIn` / `easeOut`, `posterizeTime`,
+  time, angle and color conversions, `thisComp`, `comp(name)`, `thisLayer` and other layers' transforms,
+  timing and parents (each read after its own expression), and expression controls (`effect(name)(property)`:
+  sliders, angles, points, colors, checkboxes, layers).
+- Left out with a warning: expressions using anything else (layer space transforms such as `toComp`,
+  `sourceRectAtTime`, shape contents, text, markers) or on paths and text documents, which keep their
+  keyframes; wiggly and other expression text selectors (and animators with no other selector), animators
+  and paths of text without glyphs, other effects (strokes of masks, wipes, distortions) and layer styles
+  (strokes, glows, bevels, satin, gradient overlays).
 
 ## Untrusted input
 
 A remote animation is a document from the network. Reading one is bounded by `Limits`: its size in bytes,
 its nodes, keyframes, nesting depth, path points and timeline length. A file over a limit is refused with an
-error naming the limit. The renderer refuses images over 8192 × 8192 pixels.
+error naming the limit. Lottie expressions run within a budget of steps (per property and per file), with
+recursion, arrays and strings capped and their keyframes within half the keyframe limit; one over a bound is
+left out with a warning. The renderer refuses images over 8192 × 8192 pixels.
 
 ## Development
 
@@ -185,8 +199,8 @@ Tests are grouped by feature, one file each in a crate's `tests/` (`cargo test -
 1. **Done:** the scene model, Figma Motion's SVG subset, Lottie, the reference renderer and the CLI;
    effects, dotLottie archives, repeaters, Lottie text with glyphs, its animators and paths, Lottie shape
    modifiers, CSS selectors with combinators and more pseudo-classes, inner shadows, color effects,
-   patterns, live text, SMIL end times, accumulation and events.
-2. Lottie expressions.
+   patterns, live text, SMIL end times, accumulation and events; Lottie expressions.
+2. Lottie expressions on paths and text documents, and layer space transforms (`toComp`, `fromComp`).
 
 ## License
 

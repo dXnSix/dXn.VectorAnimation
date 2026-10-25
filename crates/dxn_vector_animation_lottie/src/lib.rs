@@ -33,14 +33,38 @@
 //! or, while anything it depends on moves, a path keyframe each frame,
 //! within half the limits of path points and keyframes.
 //!
-//! What a file holds beyond that (expressions, wiggly and other
-//! expression text selectors, animators of text without glyphs, other
-//! effects and layer styles) is left out with a warning in
-//! [`Import::warnings`]. dotLottie archives (ZIP)
-//! are read too: their first animation, its images embedded.
+//! Expressions are evaluated and baked into keyframes before the
+//! conversion: each property's expression runs at every frame its layer
+//! shows, and its results become keyframes, straight between frames. The
+//! interpreter reads Bodymovin's rewritten form (`$bm_rt`, `$bm_sum`,
+//! `$bm_sub`, `$bm_mul`, `$bm_div`, `$bm_mod`, `$bm_neg`) and the
+//! JavaScript expressions are written in (variables, functions, `if`,
+//! `switch`, loops, `try`, arrays, strings, `Math`, vector math on arrays),
+//! with After Effects' expression API: `time`, `value`, `valueAtTime`,
+//! `velocity`, `speed`, keyframes (`key`, `numKeys`, `nearestKey`),
+//! `loopIn` / `loopOut` and their `Duration` forms (cycle, pingpong,
+//! offset, continue), `wiggle`, `temporalWiggle`, `smooth`, `seedRandom`,
+//! `random`, `gaussRandom`, `noise`, `linear` / `ease` / `easeIn` /
+//! `easeOut`, `posterizeTime`, time, angle and color conversions,
+//! `thisComp`, `comp(name)`, `thisLayer` and other layers (their
+//! transforms, time remapping, timing and parents), and expression
+//! controls (`effect(name)(property)`); a property read from another is
+//! sampled after its own expression. Wiggles and random numbers are seeded
+//! by their property, so every import gives the same scene. Evaluation is
+//! bounded by a step budget, recursion caps and the keyframe limit. The
+//! expression selectors of text animators run per character: the text
+//! reads them (above).
+//!
+//! What a file holds beyond that (expressions using anything else or
+//! failing, which keep their keyframes; wiggly and other expression text
+//! selectors, animators of text without glyphs, other effects and layer
+//! styles) is left out with a warning in [`Import::warnings`]. dotLottie
+//! archives (ZIP) are read too: their first animation, its images
+//! embedded.
 
 mod convert;
 mod dotlottie;
+mod expressions;
 mod modifiers;
 mod props;
 
@@ -80,7 +104,7 @@ pub fn read_with(data: &[u8], limits: &Limits) -> Result<Import, Error> {
             limit: limits.max_bytes as f64,
         });
     }
-    let (root, mut left_out) = if dotlottie::sniff(data) {
+    let (mut root, mut left_out) = if dotlottie::sniff(data) {
         dotlottie::unpack(data, limits)?
     } else {
         (
@@ -88,6 +112,7 @@ pub fn read_with(data: &[u8], limits: &Limits) -> Result<Import, Error> {
             Vec::new(),
         )
     };
+    left_out.extend(expressions::bake(&mut root, limits));
     let (scene, warnings) = convert::Converter::run(&root, *limits)?;
     scene.check(limits)?;
     left_out.extend(warnings);
