@@ -1,4 +1,4 @@
-//! `VectorAnimation`: plays animated SVG and Lottie.
+//! `VectorAnimation`: plays animated SVG, Lottie and Rive.
 
 use std::{
     cell::{Cell, RefCell},
@@ -39,8 +39,8 @@ pub enum ResizeMode {
 #[derive(Debug, Clone, PartialEq, Props)]
 pub struct VectorAnimationProps {
     /// What it plays: a URL, an imported file, the text of an SVG or Lottie
-    /// file or a compiled scene, its bytes, or a Lottie or compiled scene's
-    /// JSON (a `.json` import).
+    /// file or a compiled scene, its bytes (a Rive file's too), or a Lottie
+    /// or compiled scene's JSON (a `.json` import).
     pub src: Prop<Option<Source>>,
     /// Stops playback where it is; `false` plays on from there.
     #[prop(default)]
@@ -283,15 +283,24 @@ pub fn VectorAnimation(
                     None => scene.timeline.loop_from(),
                     Some(_) => 0.0,
                 };
+                // A marker's own loop (a Rive animation's), else the
+                // timeline's.
+                let loop_mode = match &chosen {
+                    Some(Segment::Marker(name)) => scene
+                        .timeline
+                        .markers
+                        .iter()
+                        .find(|m| &m.name == name)
+                        .and_then(|m| m.loop_mode),
+                    _ => None,
+                }
+                .unwrap_or(scene.timeline.loop_mode);
                 let span = segment(scene, chosen);
-                let repeat = props
-                    .repeat
-                    .get()
-                    .unwrap_or(match scene.timeline.loop_mode {
-                        dxn_vector_animation::LoopMode::Once => Repeat::Once,
-                        _ => Repeat::Forever,
-                    });
-                let direction = match (props.direction.get(), scene.timeline.loop_mode) {
+                let repeat = props.repeat.get().unwrap_or(match loop_mode {
+                    dxn_vector_animation::LoopMode::Once => Repeat::Once,
+                    _ => Repeat::Forever,
+                });
+                let direction = match (props.direction.get(), loop_mode) {
                     (Direction::Normal, dxn_vector_animation::LoopMode::PingPong)
                         if props.repeat.get().is_none() =>
                     {

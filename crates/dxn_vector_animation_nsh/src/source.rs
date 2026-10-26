@@ -82,10 +82,18 @@ pub struct Loaded {
     pub warnings: Vec<String>,
 }
 
-/// Reads `bytes` (an SVG, a Lottie JSON, a dotLottie archive or a compiled
-/// scene).
+/// Reads `bytes` (an SVG, a Lottie JSON, a dotLottie archive, a Rive file
+/// or a compiled scene).
 pub fn read(bytes: &[u8]) -> Result<Loaded, String> {
     let limits = Limits::default();
+    if dxn_vector_animation_rive::sniff(bytes) {
+        return dxn_vector_animation_rive::read_with(bytes, &limits)
+            .map(|i| Loaded {
+                scene: i.scene,
+                warnings: i.warnings,
+            })
+            .map_err(|e| e.to_string());
+    }
     if compiled::sniff(bytes) {
         return compiled::from_json(bytes, &limits)
             .map(|scene| Loaded {
@@ -101,7 +109,7 @@ pub fn read(bytes: &[u8]) -> Result<Loaded, String> {
         } else if dxn_vector_animation_svg::sniff(bytes) {
             dxn_vector_animation_svg::read_with(bytes, &limits)
         } else {
-            return Err("neither SVG, Lottie nor a compiled scene".into());
+            return Err("neither SVG, Lottie, Rive nor a compiled scene".into());
         };
     import
         .map(|i| Loaded {

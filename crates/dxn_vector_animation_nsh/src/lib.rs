@@ -1,4 +1,4 @@
-//! Animated SVG and Lottie in NSH apps: the `VectorAnimation` component.
+//! Animated SVG, Lottie and Rive in NSH apps: the `VectorAnimation` component.
 //!
 //! A file is read with [dXn.VectorAnimation](https://github.com/dXnSix/dXn.VectorAnimation)
 //! into a scene, the scene compiled into canvases whose numbers and colors

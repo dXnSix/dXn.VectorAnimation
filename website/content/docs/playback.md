@@ -68,8 +68,9 @@ A paused player resumed before the loop start plays the rest of the delays first
 
 ## Segments
 
-`segment` plays a part of the timeline: a marker's span (Lottie markers) or `[start, end]` in seconds.
-`repeat` and `direction` apply to the segment.
+`segment` plays a part of the timeline: a marker's span (Lottie markers, a Rive file's animations) or
+`[start, end]` in seconds. `repeat` and `direction` apply to the segment; a marker with a loop of its own (a
+Rive animation's) repeats as it says unless `repeat` is set.
 
 ```tsx
 <VectorAnimation src={hero} segment="intro" repeat={false} onEnd={() => segment.set("loop")} />

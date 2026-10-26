@@ -1,6 +1,6 @@
 [package]
 name = "dxn_vector_animation_nsh"
-description = "Animated SVG and Lottie in NSH apps: the VectorAnimation component"
+description = "Animated SVG, Lottie and Rive in NSH apps: the VectorAnimation component"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -8,7 +8,7 @@ license.workspace = true
 repository.workspace = true
 homepage.workspace = true
 readme = "../../README.md"
-keywords = ["nsh", "animation", "lottie", "svg", "player"]
+keywords = ["nsh", "animation", "lottie", "rive", "player"]
 categories = ["gui", "multimedia"]
 
 [dependencies]
@@ -16,6 +16,7 @@ base64.workspace = true
 dxn_vector_animation = { workspace = true, features = ["serde"] }
 dxn_vector_animation_lottie.workspace = true
 dxn_vector_animation_render.workspace = true
+dxn_vector_animation_rive.workspace = true
 dxn_vector_animation_svg.workspace = true
 kurbo.workspace = true
 log.workspace = true

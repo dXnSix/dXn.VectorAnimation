@@ -72,6 +72,40 @@ fn Clicked() -> impl IntoElement {
         .child(text(move || status.get()))
 }
 
+/// A scene whose timeline loops, its player on a marker that plays once (a
+/// Rive animation's): it ends.
+#[component]
+fn OnceMarker() -> impl IntoElement {
+    use dxn_vector_animation::{Group, LoopMode, Marker, Scene, Timeline, compiled};
+    use dxn_vector_animation_nsh::Segment;
+
+    let status = signal(String::from("playing"));
+    let scene = Scene {
+        width: 10.0,
+        height: 10.0,
+        timeline: Timeline {
+            duration: 1.0,
+            frame_rate: None,
+            loop_start: 0.0,
+            loop_mode: LoopMode::Loop,
+            markers: vec![Marker {
+                loop_mode: Some(LoopMode::Once),
+                ..Marker::new("tap", 2.0, 0.2)
+            }],
+        },
+        root: Group::new(),
+    };
+    let json = compiled::to_json(&scene, false).unwrap();
+    view()
+        .child(
+            vector_animation()
+                .src(Some(Source::Text(json)))
+                .segment(Some(Segment::Marker("tap".into())))
+                .on_end(move || status.set("Ended".into())),
+        )
+        .child(text(move || status.get()))
+}
+
 /// A player of something that is not an animation.
 #[component]
 fn Broken() -> impl IntoElement {
@@ -165,8 +199,14 @@ fn plays_what_an_event_triggers() {
 }
 
 #[test]
+fn plays_a_marker_as_its_loop_says() {
+    let mut app = start::<OnceMarker>();
+    app.wait_for("Ended").unwrap();
+}
+
+#[test]
 fn reports_what_it_cannot_read() {
     let mut app = start::<Broken>();
-    app.wait_for("Error neither SVG, Lottie nor a compiled scene")
+    app.wait_for("Error neither SVG, Lottie, Rive nor a compiled scene")
         .unwrap();
 }

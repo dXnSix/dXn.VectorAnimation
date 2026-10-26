@@ -28,7 +28,7 @@ it ends; its ref moves playback and triggers what a file plays on events.
 | `repeat` | `boolean` or `number` | the file's loop mode | `true` forever, a number of times in all, `false` once |
 | `direction` | `"normal"`, `"reverse"`, `"alternate"` | `"normal"` | Which way it plays; `alternate` goes there and back |
 | `rate` | `number` | `1` | Playback speed |
-| `segment` | marker name or `[start, end]` | all of it | What part plays, in seconds or by a marker of the file |
+| `segment` | marker name or `[start, end]` | all of it | What part plays, in seconds or by a marker of the file (a Rive animation plays as its loop says unless `repeat` is set) |
 | `resizeMode` | `"contain"`, `"cover"`, `"stretch"`, `"center"` | `"contain"` | How the scene fits the view |
 | `progress` | `number` from 0 to 1 | none | The frame shown, set by the app (scrubbing); stops playback while set |
 | `posterFrame` | `"first"`, `"last"`, seconds or a marker | `"first"` | What shows when the user reduces motion |
@@ -52,7 +52,7 @@ says.
 |---|---|---|
 | `duration` | `number` | Seconds one play-through lasts |
 | `size` | `{ width, height }` | The animation's own size, in points |
-| `markers` | `{ name, start, duration }[]` | Its markers: Lottie's, and the segments it plays on events (`on:btn.click`) |
+| `markers` | `{ name, start, duration }[]` | Its markers: Lottie's, a Rive file's animations, and the segments it plays on events (`on:btn.click`) |
 | `events` | `string[]` | The events it has something to play on, such as `btn.click` |
 | `warnings` | `string[]` | What the file holds that the scene leaves out |
 
