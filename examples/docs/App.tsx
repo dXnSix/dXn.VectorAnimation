@@ -14,6 +14,9 @@ import { VectorAnimation, type VectorAnimationRef } from "dxn-vector-animation";
 import { scenes } from "./animations/index";
 import { gallery } from "./animations/gallery";
 
+// Every example plays under reduced motion too (`ignoreReduceMotion`): a reader whose system turns
+// animation effects off, as Windows' setting does, would otherwise see only the first frame. An app
+// gets the still frame by default and opts in the same way.
 const named = new Map<string, unknown>(scenes as [string, unknown][]);
 
 // A button that plays on a click: SMIL's `begin="click"`, the event
@@ -62,6 +65,7 @@ function Single(props: { src: unknown; name: string }) {
     <View style={{ flex: 1, padding: 10, gap: 8 }}>
       <View style={{ flex: 1 }}>
         <VectorAnimation
+          ignoreReduceMotion
           src={props.src as never}
           style={{ width: "100%", height: "100%" }}
           paused={paused()}
@@ -90,6 +94,7 @@ function Playback() {
     <View style={{ flex: 1, padding: 10, gap: 8 }}>
       <View style={{ flex: 1 }}>
         <VectorAnimation
+          ignoreReduceMotion
           src={named.get("figma") as never}
           style={{ width: "100%", height: "100%" }}
           paused={paused()}
@@ -127,6 +132,7 @@ function Events() {
     <View style={{ flex: 1, padding: 10, gap: 8 }}>
       <View style={{ flex: 1 }}>
         <VectorAnimation
+          ignoreReduceMotion
           src={CLICKED}
           style={{ width: "100%", height: "100%" }}
           ref={(r: VectorAnimationRef) => (player = r)}
@@ -164,6 +170,7 @@ function Files(props: { group: "lottie" | "dotlottie" | "svg" }) {
       {list.map(([name, src]) => (
         <View style={{ width: 200, flexShrink: 0, gap: 4, alignItems: "center" }}>
           <VectorAnimation
+            ignoreReduceMotion
             src={src as never}
             style={{ width: 200, height: 200, borderWidth: 1, borderColor: "#e5e7eb", borderRadius: 8 }}
             accessibilityLabel={name}
@@ -195,6 +202,7 @@ function All() {
         {(scenes as [string, unknown][]).map(([name, src]) => (
           <View style={{ gap: 4, alignItems: "center" }}>
             <VectorAnimation
+              ignoreReduceMotion
               src={src as never}
               style={{ width: 120, height: 120, borderWidth: 1, borderColor: "#e5e7eb", borderRadius: 8 }}
               accessibilityLabel={name}
@@ -212,6 +220,7 @@ function Bare(props: { src: unknown; name: string }) {
   return (
     <View style={{ flex: 1 }}>
       <VectorAnimation
+        ignoreReduceMotion
         src={props.src as never}
         style={{ width: "100%", height: "100%" }}
         accessibilityLabel={props.name}

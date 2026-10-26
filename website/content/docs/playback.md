@@ -119,6 +119,10 @@ When the user turns on reduced motion, the player shows its poster frame and run
 of the segment by default, or `posterFrame="last"`, a time in seconds or a marker's start.
 `ignoreReduceMotion` plays anyway, for animations that carry meaning (a progress indicator).
 
+The examples on this site set `ignoreReduceMotion`, so they play even when your system asks for reduced motion
+(Windows' "Animation effects" turned off, for one, which browsers report that way): they are here to be seen. An
+app that does not set it shows the still frame to such a reader.
+
 `paused` is the app's to set: it knows which screen is in front. A list row that scrolls away is disposed
 with its animation.
 

@@ -108,6 +108,10 @@ The app reads which example to show from the page's address, `examples/index.htm
 iframe. The grids (all the scenes, and each group of files) report their height to the page, which sizes the frame
 to it: the page scrolls, not the frame, and a grid wraps into more rows on a narrow screen.
 
+Every `VectorAnimation` in the app sets `ignoreReduceMotion`, so the examples play for a reader who prefers reduced
+motion as well (see [Playback](./playback.md#reduced-motion-and-off-screen)); an app of your own shows the still
+frame to that reader unless it sets the prop too.
+
 :::note Load size
 The examples' web runtime holds the engine, QuickJS, the player and the importers: about 5.7 MB gzipped, loaded
 once and then cached by the browser for every example on the site.
