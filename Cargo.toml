@@ -8,6 +8,7 @@ default-members = [
     "crates/dxn_vector_animation",
     "crates/dxn_vector_animation_svg",
     "crates/dxn_vector_animation_lottie",
+    "crates/dxn_vector_animation_rive",
     "crates/dxn_vector_animation_render",
     "crates/dxn_vector_animation_cli",
 ]
@@ -25,6 +26,7 @@ dxn_vector_animation = { version = "0.1.0", path = "crates/dxn_vector_animation"
 dxn_vector_animation_svg = { version = "0.1.0", path = "crates/dxn_vector_animation_svg" }
 dxn_vector_animation_lottie = { version = "0.1.0", path = "crates/dxn_vector_animation_lottie" }
 dxn_vector_animation_render = { version = "0.1.0", path = "crates/dxn_vector_animation_render" }
+dxn_vector_animation_rive = { version = "0.1.0", path = "crates/dxn_vector_animation_rive" }
 dxn_vector_animation_nsh = { version = "0.1.0", path = "crates/dxn_vector_animation_nsh" }
 base64 = "0.23.1"
 clap = { version = "4.6.7", features = ["derive"] }

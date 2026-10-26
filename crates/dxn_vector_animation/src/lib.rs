@@ -3,8 +3,8 @@
 //! A [`Scene`] is a tree of [`Group`]s, [`Shape`]s and [`Image`]s whose
 //! properties are [`Animated`]: constants, or [`Track`]s of [`Keyframe`]s
 //! with an [`Easing`] per segment, on one [`Timeline`]. Importers
-//! (`dxn_vector_animation_svg`, `dxn_vector_animation_lottie`) read files into
-//! it. A renderer either samples it ([`Scene::frame_at`] gives a [`Frame`],
+//! (`dxn_vector_animation_svg`, `dxn_vector_animation_lottie`,
+//! `dxn_vector_animation_rive`) read files into it. A renderer either samples it ([`Scene::frame_at`] gives a [`Frame`],
 //! a flat display list) or reads the tracks and drives them with an
 //! animation system of its own.
 //!

@@ -31,7 +31,7 @@ jobs:
           fi
       - run: cargo clippy --workspace --exclude dxn_vector_animation_nsh --exclude dxn_vector_animation_check --all-targets --all-features -- -D warnings
       - run: cargo test --all-features
-      - run: cargo check -p dxn_vector_animation -p dxn_vector_animation_svg -p dxn_vector_animation_lottie --target wasm32-unknown-unknown
+      - run: cargo check -p dxn_vector_animation -p dxn_vector_animation_svg -p dxn_vector_animation_lottie -p dxn_vector_animation_rive --target wasm32-unknown-unknown
 
   nsh:
     name: NSH player (clippy, test)

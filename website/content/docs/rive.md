@@ -1,0 +1,90 @@
+---
+title: Rive
+description: What dxn_vector_animation_rive reads of a Rive file (.riv) - an artboard's shapes, paints, clips, solos and images, its linear animations as markers - and what it leaves out for now.
+group: Inputs
+order: 75
+---
+
+`dxn_vector_animation_rive` reads Rive files (`.riv`, the format the Rive editor exports, version 7) into a
+scene. It is pure Rust, builds for the web like the other importers, and reads the file's objects with the
+types and properties of one tag of Rive's own runtime (`RUNTIME_TAG`), put together as that runtime puts them.
+
+```rust
+let data = std::fs::read("icons.riv")?;
+for name in dxn_vector_animation_rive::artboards(&data)? {
+    println!("artboard {name}");
+}
+let import = dxn_vector_animation_rive::read(&data)?; // the first artboard
+for marker in &import.scene.timeline.markers {
+    println!("{} at {} s for {} s, {:?}", marker.name, marker.start, marker.duration, marker.loop_mode);
+}
+```
+
+`read_options(data, &limits, &Options { artboard: Some("Menu".into()) })` reads another artboard.
+
+## An artboard as a scene
+
+| Rive | The scene |
+|---|---|
+| The artboard: its size, origin and clip, its own fills | The scene's size; the root group clipped to it, its content moved by the origin; a background shape |
+| Drawables in Rive's draw order (the first in the file on top) | One group each, in that order, under its ancestors' transforms: translation, rotation, scale |
+| Opacity, multiplied down the tree into each fill and stroke | Each fill's and stroke's `opacity` |
+| Points paths: straight vertices rounding their corners, mirrored, asymmetric and detached cubic vertices | Paths, built as Rive builds them |
+| Rectangles, ellipses, polygons, stars, triangles | `Rect` and `Ellipse` where they draw the same, paths otherwise |
+| Fills and strokes: solid colors, linear and radial gradients, caps, joins, fill rules, blend modes | `Fill`, `Stroke`, `Paint`, `BlendMode`; the clockwise fill rule with the outlines turned as Rive turns them |
+| Strokes the transform does not scale (`transformAffectsStroke` off) | The outline moved into the artboard's space, stroked there: the width and the gradient are the artboard's |
+| Trim paths (sequential, synchronized) and dashes | `Trim` (combined, each path) and `Dash` |
+| Feathered fills and strokes, offset in the artboard's or the shape's space | A group of the paint blurred by a Gaussian of half the strength, as Rive's renderer feathers; an inner feather is the area around the outline blurred and clipped to it. Rive draws feathered fills only under the clockwise rule, and so does the scene |
+| Clipping shapes | Clips of the source's shapes |
+| Solos and hidden drawables | Opacity held at 0 where a solo shows another child or a drawable is hidden |
+| Embedded images (PNG, JPEG, WebP) | Images about their origin; the reference renderer draws an embedded color profile's colors in sRGB, as a browser does |
+| Text: runs in styles (font size, line height, letter spacing, variation axes, fills and strokes) | Each style's glyph outlines, shaped with the file's embedded font (rustybuzz, as Rive shapes with HarfBuzz) and broken into lines and laid out as Rive does: paragraphs, wrapping, alignment, auto width, auto height and fixed sizes, origins (top or baseline), vertical alignment, paragraph spacing, and hidden, clipped and fitted overflow. Text keyed over time (a counter) is laid out at each change, each layout shown while it holds |
+| Bones and skins | Bones carry what is under them (a bone sits at its parent's tip); a skin deforms its outline's vertices and handles by the weights of its bones, as Rive's runtime does |
+| Image meshes | The image drawn through each triangle, moved onto the mesh's (by the bones when skinned) |
+| Constraints: translation, rotation, scale, transform, distance, IK (any number of bones, inverted too) and follow-path | Applied as Rive's runtime applies them, in its update order (targets first, an IK chain's other children after its tip), with their strengths, spaces, copy factors, offsets and limits; what they move is baked into a matrix at 60 frames a second |
+| Draw rules | Drawables moved before or after their target as Rive sorts its draw order; a target keyed over time draws the drawable in each place it takes, while it is there |
+| Clipping shapes over several drawables | One clip over each run of drawables under the same clipping shapes, of the source's outlines as one path under the clip's rule; clips do not set what they hold apart, so blend modes inside mix with what is under them |
+| Text modifiers: groups with their translation, rotation, scale, origin and opacity; ranges by characters, characters without spaces, words or lines, of a run or all, by percentage or index, with falloffs, an interpolator, offsets, strengths, modes and clamping | Each glyph moved, turned, scaled and faded as much as the ranges cover its characters, at each time they change, as Rive's runtime does |
+| Joysticks | Their x and y animations applied over the others at the fraction their values say: their own (keyed or not), or where their handle node is within their bounds |
+| Nested artboards | The artboard they show, converted on its own and drawn at their transform about its origin, clipped to it; its nested animations play on the parent's clock in layers, a later one overriding an earlier one where both key a property: a simple animation while it plays (`isPlaying` may be keyed) at its speed, repeating as its loop says; a state machine's entry animation; a remap animation at the time keyed. A nested artboard playing alike in each of the parent's animations keeps one copy of its keyframes, restarted by a time remap |
+
+## Animations
+
+Each linear animation of the artboard is a span of the timeline under a [marker](./scene-model.md#the-timeline) of its
+name, one after another with a second between them. The marker carries the animation's loop (once, loop,
+ping-pong), and the player plays a marker as its loop says. The animation the artboard's default state
+machine enters first comes first, at 0: the timeline's span is that animation's, so a player with no
+`segment` plays what the file plays when it opens. An animation's work area and speed (backwards too) set what
+of it plays and how fast. Where an animation does not key a property, the property holds its setup value.
+
+Keyframes keep their holds, straight lines and cubic easings; Rive's value curves become cubic easings of the
+change. Elastic easings, colors whose alpha and color both change (Rive mixes them straight, the scene
+premultiplied), products of moving opacities and outlines whose tangents turn are sampled at 60 frames a
+second, straight between samples, within half of the keyframe limit.
+
+```tsx
+import { VectorAnimation } from "dxn-vector-animation";
+
+<VectorAnimation src="https://example.com/icons.riv" segment="hover" />
+```
+
+```sh
+vector-animation inspect icons.riv                      # artboard size, one marker per animation
+vector-animation render icons.riv --marker hover --fps 30
+vector-animation render menu.riv --artboard Menu -t 0.5
+```
+
+## Left out for now
+
+What a file holds beyond that is left out with a warning (`Import::warnings`, `inspect`, `onLoad`):
+
+- state machines (the animation their entry plays plays; each animation is a marker), listeners, inputs,
+  events and data binding;
+- text variation and follow-path modifiers and text ellipses, layout, draggable and scroll constraints,
+  scripting and audio.
+
+These come in the phases of the [design](https://github.com/dXnSix/dXn.VectorAnimation/blob/main/docs/design/rive.md):
+what the runtime evaluates (what is left of text), then state machines in the
+core and the player, then data binding and layout.
+
+Next: [Limits](./limits.md), which bound a Rive file as they bound the others.

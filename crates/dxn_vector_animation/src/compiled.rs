@@ -1,6 +1,6 @@
 //! The compiled scene format (`.vector-animation.json`): a scene saved as
 //! JSON with its format name and version, so a player loads it without
-//! reading SVG or Lottie again.
+//! reading SVG, Lottie or Rive again.
 
 use std::fmt::{self, Write as _};
 
