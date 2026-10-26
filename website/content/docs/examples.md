@@ -91,6 +91,18 @@ caption: Animated SVG files as Figma Motion and LottieFiles write them, each in 
 | `navigation-bar-selection` | JSON, dotLottie, SVG | A navigation bar's selection moving between four tabs, one marker each |
 | `boxer` | JSON, SVG | A character animation from After Effects (Lottie 4.8, 30 frames a second) |
 
+Two of the SVG files do not look like their JSON and dotLottie versions, and the fault is in the files: LottieFiles'
+SVG export writes them differently, and a browser draws them as the tiles do (read off Chromium's frames at many times
+over several loops; the importer, the reference renderer and the player match it).
+
+- `alien-button`: the "o" of "Connect" is a dot, not a ring. The file writes the letter's inner contour as a path of
+  its own, filled white, where the JSON fills one compound path whose inner contour cuts the counter out. And the glow
+  under the button is missing: the file has none of the JSON's purple drop shadow and a much smaller blur on the
+  button's outline.
+- `navigation-bar-selection`: the colored backgrounds of the bars that animate sit half their width off their labels.
+  The file's rectangle starts at `x = 0` while its group moves from minus half its width to 0 as it grows, where the
+  JSON's rectangle grows from its left edge about a center that moves along.
+
 ## How the examples are built
 
 The examples are an NSH app in the repository, `examples/docs`, on the player. The site's workflow builds the
