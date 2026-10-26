@@ -50,11 +50,17 @@ for marker in &import.scene.timeline.markers {
 
 ## Animations
 
+The artboard's default state machine comes first, at 0, under a marker of its name: it plays as Rive's
+runtime plays it when nothing changes its inputs. Each layer enters its first state; transitions whose
+conditions hold for the inputs' values are taken (a trigger never fires), at their exit times, mixing from
+one state into the next over their durations and easings; later layers override earlier ones where they
+key the same property, and a property no state applies keeps its last value. The timeline's span is the
+machine's until it settles and then what repeats (`loop_start` where it settles), so a player with no
+`segment` plays what the file plays when it opens.
+
 Each linear animation of the artboard is a span of the timeline under a [marker](./scene-model.md#the-timeline) of its
-name, one after another with a second between them. The marker carries the animation's loop (once, loop,
-ping-pong), and the player plays a marker as its loop says. The animation the artboard's default state
-machine enters first comes first, at 0: the timeline's span is that animation's, so a player with no
-`segment` plays what the file plays when it opens. An animation's work area and speed (backwards too) set what
+name, one after another with a second between them, after the state machine. The marker carries the
+animation's loop (once, loop, ping-pong), and the player plays a marker as its loop says. An animation's work area and speed (backwards too) set what
 of it plays and how fast. Where an animation does not key a property, the property holds its setup value.
 
 Keyframes keep their holds, straight lines and cubic easings; Rive's value curves become cubic easings of the
@@ -78,13 +84,14 @@ vector-animation render menu.riv --artboard Menu -t 0.5
 
 What a file holds beyond that is left out with a warning (`Import::warnings`, `inspect`, `onLoad`):
 
-- state machines (the animation their entry plays plays; each animation is a marker), listeners, inputs,
-  events and data binding;
+- state machines' listeners and input changes, triggers, blend states, conditions on view models, other
+  state machines than the default, nested state machines beyond their entry animation, events and data
+  binding;
 - text variation and follow-path modifiers and text ellipses, layout, draggable and scroll constraints,
   scripting and audio.
 
 These come in the phases of the [design](https://github.com/dXnSix/dXn.VectorAnimation/blob/main/docs/design/rive.md):
-what the runtime evaluates (what is left of text), then state machines in the
-core and the player, then data binding and layout.
+what the runtime evaluates (what is left of text), then interactive state machines in
+the core and the player, then data binding and layout.
 
 Next: [Limits](./limits.md), which bound a Rive file as they bound the others.

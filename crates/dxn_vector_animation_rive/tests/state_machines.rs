@@ -1,0 +1,200 @@
+//! State machines played as Rive's runtime plays them with their inputs as
+//! they are: layers together, exit times, mixes and conditions.
+
+#![allow(clippy::unwrap_used, clippy::expect_used, missing_docs)]
+
+mod common;
+
+use common::{Riv, V, color_at, key, near, scene, ty};
+use dxn_vector_animation::{LoopMode, Scene};
+
+const RED: [u8; 3] = [255, 0, 0];
+const BLUE: [u8; 3] = [0, 0, 255];
+const WHITE: [u8; 3] = [255, 255, 255];
+
+/// A 100 × 50 artboard with a red square (shape 1) at (10, 15) and a blue
+/// one (shape 5) at (10, 35), and three animations: "moveA" (0) moving the
+/// red one from x 10 to 90 in a second, looping; "moveB" (1) the blue one
+/// in two, looping; "backA" (2) the red one from 90 to 10 in a second, once.
+fn squares() -> Riv {
+    let mut riv = Riv::new()
+        .artboard(100.0, 50.0)
+        .rect_shape(0, 10.0, 15.0, 10.0, 10.0, 0xFFFF_0000)
+        .rect_shape(0, 10.0, 35.0, 10.0, 10.0, 0xFF00_00FF);
+    for (name, object, from, to, frames, loop_value) in [
+        ("moveA", 1, 10.0, 90.0, 10, 1),
+        ("moveB", 5, 10.0, 90.0, 20, 1),
+        ("backA", 1, 90.0, 10.0, 10, 0),
+    ] {
+        riv = riv
+            .obj(
+                ty::LINEAR_ANIMATION,
+                &[
+                    (key::ANIMATION_NAME, V::S(name)),
+                    (key::FPS, V::U(10)),
+                    (key::DURATION, V::U(frames)),
+                    (key::LOOP, V::U(loop_value)),
+                ],
+            )
+            .obj(ty::KEYED_OBJECT, &[(key::OBJECT_ID, V::U(object))])
+            .obj(
+                ty::KEYED_PROPERTY,
+                &[(key::PROPERTY_KEY, V::U(u64::from(key::X)))],
+            );
+        for (frame, value) in [(0, from), (frames, to)] {
+            riv = riv.obj(
+                ty::KEY_FRAME_DOUBLE,
+                &[
+                    (key::FRAME, V::U(frame)),
+                    (key::VALUE, V::D(value)),
+                    (key::INTERPOLATION, V::U(1)),
+                ],
+            );
+        }
+    }
+    riv
+}
+
+/// A transition to state `to` (states count from the layer's first: entry
+/// 0, any 1, exit 2, then the animation states), with `props` and
+/// `conditions` (each a type and its properties).
+type Transition<'a> = (u64, &'a [(u16, V)], &'a [(u16, &'a [(u16, V)])]);
+
+fn transition(mut riv: Riv, (to, props, conditions): &Transition<'_>) -> Riv {
+    let mut all = vec![(key::STATE_TO_ID, V::U(*to))];
+    all.extend(props.iter().cloned());
+    riv = riv.obj(ty::STATE_TRANSITION, &all);
+    for (ty, props) in *conditions {
+        riv = riv.obj(*ty, props);
+    }
+    riv
+}
+
+/// A layer: its entry's transitions, its any state's, then a state for
+/// each of `states` (an animation and its transitions).
+fn layer(
+    mut riv: Riv,
+    entry: &[Transition<'_>],
+    any: &[Transition<'_>],
+    states: &[(u64, &[Transition<'_>])],
+) -> Riv {
+    riv = riv
+        .obj(ty::STATE_MACHINE_LAYER, &[])
+        .obj(ty::ENTRY_STATE, &[]);
+    for t in entry {
+        riv = transition(riv, t);
+    }
+    riv = riv.obj(ty::ANY_STATE, &[]);
+    for t in any {
+        riv = transition(riv, t);
+    }
+    riv = riv.obj(ty::EXIT_STATE, &[]);
+    for (animation, transitions) in states {
+        riv = riv.obj(
+            ty::ANIMATION_STATE,
+            &[(key::ANIMATION_ID, V::U(*animation))],
+        );
+        for t in *transitions {
+            riv = transition(riv, t);
+        }
+    }
+    riv
+}
+
+fn machine(riv: Riv) -> Riv {
+    riv.obj(
+        ty::STATE_MACHINE,
+        &[(key::ANIMATION_NAME, V::S("State Machine 1"))],
+    )
+}
+
+fn at(s: &Scene, t: f64, x: u32, y: u32) -> [u8; 3] {
+    color_at(s, t, x, y)
+}
+
+#[test]
+fn layers_play_together() {
+    // Layer one plays "moveA", layer two "moveB": half a second in, the red
+    // square is at 50, the blue one at 30.
+    let riv = layer(machine(squares()), &[(3, &[], &[])], &[], &[(0, &[])]);
+    let riv = layer(riv, &[(3, &[], &[])], &[], &[(1, &[])]);
+    let s = scene(&riv);
+    let m = &s.timeline.markers[0];
+    assert_eq!(
+        (m.name.as_str(), m.loop_mode),
+        ("State Machine 1", Some(LoopMode::Loop))
+    );
+    // Both loops repeat every 2 s.
+    assert!(
+        (s.timeline.duration - 2.0).abs() < 0.02,
+        "{}",
+        s.timeline.duration
+    );
+    assert!(near(at(&s, 0.5, 50, 15), RED, 2));
+    assert!(near(at(&s, 0.5, 30, 35), BLUE, 2));
+    assert_eq!(at(&s, 0.5, 10, 35), WHITE);
+}
+
+#[test]
+fn exit_times_hand_over_with_a_mix() {
+    // "moveA", then at its end "backA", mixing over half a second.
+    const EXIT_TIME_PERCENT: u64 = (1 << 2) | (1 << 3);
+    let riv = layer(
+        machine(squares()),
+        &[(3, &[], &[])],
+        &[],
+        &[
+            (
+                0,
+                &[(
+                    4,
+                    &[
+                        (key::TRANSITION_FLAGS, V::U(EXIT_TIME_PERCENT)),
+                        (key::EXIT_TIME, V::U(100)),
+                        (key::TRANSITION_DURATION, V::U(500)),
+                    ],
+                    &[],
+                )],
+            ),
+            (2, &[]),
+        ],
+    );
+    let s = scene(&riv);
+    // A quarter into the mix: "moveA" at 30 (looped), "backA" at 70, half
+    // way between them.
+    assert!(near(at(&s, 1.25, 50, 15), RED, 2));
+    // "backA" played out: back at 10, held.
+    assert!(near(at(&s, 2.5, 10, 15), RED, 2));
+    assert_eq!(s.timeline.loop_mode, LoopMode::Once);
+}
+
+#[test]
+fn conditions_hold_for_the_inputs_values() {
+    // From any state to "backA" when "go" is on.
+    let with = |go: bool| {
+        let riv = machine(squares()).obj(
+            ty::STATE_MACHINE_BOOL,
+            &[(key::INPUT_NAME, V::S("go")), (key::BOOL_VALUE, V::B(go))],
+        );
+        layer(
+            riv,
+            &[(3, &[], &[])],
+            &[(
+                4,
+                &[],
+                &[(
+                    ty::TRANSITION_BOOL_CONDITION,
+                    &[
+                        (key::CONDITION_INPUT, V::U(0)),
+                        (key::CONDITION_OP, V::U(0)),
+                    ],
+                )],
+            )],
+            &[(0, &[]), (2, &[])],
+        )
+    };
+    let on = scene(&with(true));
+    assert!(near(at(&on, 0.25, 70, 15), RED, 2));
+    let off = scene(&with(false));
+    assert!(near(at(&off, 0.25, 30, 15), RED, 2));
+}

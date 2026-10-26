@@ -25,7 +25,7 @@ use crate::{
     defs::{self, props as p, types as t},
     file::{Artboard, File, KeyedProperty, Object},
     geometry::{self, Vertex},
-    modifiers, order,
+    machine, modifiers, order,
     rig::{self, Rig},
     text,
 };
@@ -173,6 +173,24 @@ pub(crate) struct Converter<'a> {
     constrained: HashMap<usize, Vec<TransformOp>>,
     /// The clips of the clipping shapes, made once.
     clips: HashMap<usize, Option<Clip>>,
+    /// The default state machine as it plays, first on the timeline.
+    plan: Option<Rc<Plan>>,
+}
+
+/// The default state machine as Rive's runtime plays it with its inputs as
+/// they are: what each layer applies at each frame from 0.
+struct Plan {
+    name: String,
+    layers: Vec<Vec<machine::Applied>>,
+    anims: Vec<machine::Anim>,
+    /// Each animation's frame rate.
+    fps: Vec<f64>,
+    /// Seconds a frame.
+    dt: f64,
+    /// The seconds it plays over, and where it repeats from (`None`: it
+    /// holds at the end).
+    span: f64,
+    loop_start: Option<f64>,
 }
 
 /// Each glyph of a modified text at a time: where it goes and its opacity.
@@ -297,13 +315,20 @@ impl<'a> Converter<'a> {
             rig: Rig::default(),
             constrained: HashMap::new(),
             clips: HashMap::new(),
+            plan: None,
         };
         c.index_keys();
         match clock {
             Clock::Timeline => {
+                c.plan = c.machine_plan().map(Rc::new);
                 c.lay_out_animations();
                 c.layers = vec![c.segments.clone()];
-                c.spans = c.segments.iter().map(|s| (s.start, s.duration)).collect();
+                c.spans = c
+                    .plan
+                    .iter()
+                    .map(|p| (0.0, p.span))
+                    .chain(c.segments.iter().map(|s| (s.start, s.duration)))
+                    .collect();
                 if c.segments.is_empty() && !ab.state_machines.is_empty() {
                     // Without animations of its own, the timeline of an
                     // artboard playing a state machine is what its nested
@@ -340,10 +365,15 @@ impl<'a> Converter<'a> {
     /// file's order, each under a marker of its name.
     fn lay_out_animations(&mut self) {
         let animations = &self.ab.animations;
-        let first = entry_animation(self.ab, None).unwrap_or(0);
+        // After the state machine when it plays first; else the animation
+        // its entry plays first.
+        let first = match self.plan {
+            Some(_) => 0,
+            None => entry_animation(self.ab, None).unwrap_or(0),
+        };
         let order =
             std::iter::once(first).chain((0..animations.len()).filter(move |i| *i != first));
-        let mut start = 0.0;
+        let mut start = self.plan.as_ref().map_or(0.0, |p| p.span + GAP);
         for i in order {
             let Some(spec) = animations.get(i).map(|a| Spec::of(&a.object)) else {
                 continue;
@@ -390,19 +420,34 @@ impl<'a> Converter<'a> {
                 markers: Vec::new(),
             };
         }
+        let markers = self.segments.iter().map(|s| Marker {
+            loop_mode: Some(s.loop_mode),
+            ..Marker::new(s.name.clone(), s.start, s.duration)
+        });
+        if let Some(plan) = &self.plan {
+            let loop_mode = match plan.loop_start {
+                Some(_) => LoopMode::Loop,
+                None => LoopMode::Once,
+            };
+            return Timeline {
+                duration: plan.span,
+                frame_rate: None,
+                loop_start: plan.loop_start.unwrap_or(0.0),
+                loop_mode,
+                markers: std::iter::once(Marker {
+                    loop_mode: Some(loop_mode),
+                    ..Marker::new(plan.name.clone(), 0.0, plan.span)
+                })
+                .chain(markers)
+                .collect(),
+            };
+        }
         Timeline {
             duration: first.map_or(0.0, |s| s.duration),
             frame_rate: first.map(|s| s.fps),
             loop_start: 0.0,
             loop_mode: first.map_or(LoopMode::Once, |s| s.loop_mode),
-            markers: self
-                .segments
-                .iter()
-                .map(|s| Marker {
-                    loop_mode: Some(s.loop_mode),
-                    ..Marker::new(s.name.clone(), s.start, s.duration)
-                })
-                .collect(),
+            markers: markers.collect(),
         }
     }
 
@@ -416,30 +461,351 @@ impl<'a> Converter<'a> {
         if k.uint(p::INTERPOLATING_KEY_FRAME_INTERPOLATION_TYPE) == 0 {
             return Interp::Hold;
         }
-        let Some(i) = k
+        match k
             .id(p::INTERPOLATING_KEY_FRAME_INTERPOLATOR_ID)
             .and_then(|i| self.object(i))
-        else {
-            return Interp::Linear;
-        };
-        let c = || {
-            [
-                i.num(p::CUBIC_INTERPOLATOR_X1),
-                i.num(p::CUBIC_INTERPOLATOR_Y1),
-                i.num(p::CUBIC_INTERPOLATOR_X2),
-                i.num(p::CUBIC_INTERPOLATOR_Y2),
-            ]
-        };
-        match i.ty {
-            t::CUBIC_EASE_INTERPOLATOR => Interp::Cubic(c()),
-            t::CUBIC_VALUE_INTERPOLATOR => Interp::Value(c()),
-            t::ELASTIC_INTERPOLATOR => Interp::Elastic {
-                easing: i.uint(p::ELASTIC_INTERPOLATOR_EASING_VALUE),
-                amplitude: i.num(p::ELASTIC_INTERPOLATOR_AMPLITUDE),
-                period: i.num(p::ELASTIC_INTERPOLATOR_PERIOD),
-            },
-            _ => Interp::Linear,
+        {
+            Some(i) => interpolator(i),
+            None => Interp::Linear,
         }
+    }
+
+    // ---- The state machine -----------------------------------------------
+
+    /// The default state machine (the artboard's, else its first) played
+    /// with its inputs as they are, a frame each 1/60 s until it settles
+    /// into what repeats.
+    fn machine_plan(&mut self) -> Option<Plan> {
+        const DT: f64 = 1.0 / 60.0;
+        let ab = self.ab;
+        let index = ab
+            .object()
+            .id(p::ARTBOARD_DEFAULT_STATE_MACHINE_ID)
+            .filter(|i| *i < ab.state_machines.len())
+            .or((!ab.state_machines.is_empty()).then_some(0))?;
+        let sm = &ab.state_machines[index];
+        let specs: Vec<Spec> = ab.animations.iter().map(|a| Spec::of(&a.object)).collect();
+        let anims: Vec<machine::Anim> = specs
+            .iter()
+            .map(|s| machine::Anim {
+                start: s.from,
+                end: s.to,
+                speed: s.speed,
+                loop_mode: s.loop_mode,
+            })
+            .collect();
+        let inputs: Vec<Option<f64>> = sm
+            .inputs
+            .iter()
+            .map(|i| {
+                let o = i.as_ref()?;
+                match o.ty {
+                    t::STATE_MACHINE_BOOL => Some(o.num(p::STATE_MACHINE_BOOL_VALUE)),
+                    t::STATE_MACHINE_NUMBER => Some(o.num(p::STATE_MACHINE_NUMBER_VALUE)),
+                    t::STATE_MACHINE_TRIGGER => Some(0.0),
+                    _ => None,
+                }
+            })
+            .collect();
+        let mut unread: BTreeSet<&'static str> = BTreeSet::new();
+        let mut layers: Vec<Vec<machine::State>> = Vec::new();
+        for layer in &sm.layers {
+            let mut states = Vec::new();
+            for st in &layer.states {
+                let kind = match st.object.as_ref().map(|o| o.ty) {
+                    Some(t::ENTRY_STATE) => machine::Kind::Entry,
+                    Some(t::EXIT_STATE) => machine::Kind::Exit,
+                    Some(t::ANY_STATE) => machine::Kind::Any,
+                    Some(t::ANIMATION_STATE) => machine::Kind::Animation(
+                        st.object
+                            .as_ref()
+                            .and_then(|o| o.id(p::ANIMATION_STATE_ANIMATION_ID))
+                            .filter(|a| *a < anims.len()),
+                    ),
+                    Some(ty) => {
+                        unread.extend(defs::type_name(ty));
+                        machine::Kind::Other
+                    }
+                    None => machine::Kind::Other,
+                };
+                let mut transitions = Vec::new();
+                for tr in &st.transitions {
+                    let o = &tr.object;
+                    let Some(to) = o.id(p::STATE_TRANSITION_STATE_TO_ID) else {
+                        continue;
+                    };
+                    let mut conditions = Vec::new();
+                    for c in &tr.conditions {
+                        let input = c
+                            .id(p::TRANSITION_INPUT_CONDITION_INPUT_ID)
+                            .unwrap_or(usize::MAX);
+                        let op = c.uint(p::TRANSITION_VALUE_CONDITION_OP_VALUE);
+                        conditions.push(match c.ty {
+                            t::TRANSITION_BOOL_CONDITION if op <= 1 => {
+                                machine::Cond::Bool(input, op == 0)
+                            }
+                            t::TRANSITION_BOOL_CONDITION => machine::Cond::Fixed(false),
+                            t::TRANSITION_NUMBER_CONDITION => machine::Cond::Number(
+                                input,
+                                op,
+                                c.num(p::TRANSITION_NUMBER_CONDITION_VALUE),
+                            ),
+                            t::TRANSITION_TRIGGER_CONDITION => machine::Cond::Trigger(input),
+                            ty => {
+                                unread.extend(defs::type_name(ty));
+                                machine::Cond::Fixed(false)
+                            }
+                        });
+                    }
+                    let ease = o
+                        .id(p::STATE_TRANSITION_INTERPOLATOR_ID)
+                        .and_then(|i| self.object(i))
+                        .map(interpolator);
+                    transitions.push(machine::Trans {
+                        to,
+                        flags: o.uint(p::STATE_TRANSITION_FLAGS),
+                        duration: o.num(p::STATE_TRANSITION_DURATION),
+                        exit_time: o.num(p::STATE_TRANSITION_EXIT_TIME),
+                        conditions,
+                        ease,
+                    });
+                }
+                states.push(machine::State { kind, transitions });
+            }
+            layers.push(states);
+        }
+        for name in unread {
+            self.warn(format!(
+                "state machines: left out: {name} (playing nothing, or never holding)"
+            ));
+        }
+        let play = |frames: usize| -> Vec<Vec<machine::Applied>> {
+            layers
+                .iter()
+                .map(|states| machine::play(states, &anims, &inputs, frames, DT))
+                .collect()
+        };
+        // Where each layer settles: after its last change of state or mix.
+        const HORIZON: usize = 30 * 60;
+        let mut played = play(HORIZON);
+        let mut settled = 0;
+        let mut steady = true;
+        let mut periods = Vec::new();
+        for l in &played {
+            let changed = |what: &dyn Fn(usize) -> bool| {
+                (1..l.len()).rev().find(|&k| what(k)).map_or(0, |k| k + 1)
+            };
+            let last_change = changed(&|k| l[k].serial != l[k - 1].serial || l[k].mix < 1.0);
+            if last_change + 120 >= l.len() {
+                steady = false;
+            }
+            let looping = l.last().and_then(|a| a.current).and_then(|(a, _)| {
+                let an = anims[a];
+                let d = (an.end - an.start).abs() / an.speed.abs();
+                match an.loop_mode {
+                    LoopMode::Loop if d > 0.0 => Some(d),
+                    LoopMode::PingPong if d > 0.0 => Some(2.0 * d),
+                    _ => None,
+                }
+            });
+            match looping {
+                Some(period) => {
+                    periods.push(period);
+                    settled = settled.max(last_change);
+                }
+                // Still from the last frame that moved.
+                None => settled = settled.max(changed(&|k| l[k] != l[k - 1]).saturating_sub(1)),
+            }
+        }
+        // Nested artboards play on: what they repeat over repeats too, and
+        // what they play once is played out.
+        match self.nested_span() {
+            Some((d, LoopMode::Once)) => settled = settled.max((d / DT).ceil() as usize),
+            Some((d, _)) if d > 0.0 => periods.push(d),
+            _ => {}
+        }
+        let (span, loop_start) = if !steady {
+            self.warn(
+                "state machines: layers that keep changing states play their first 30 s, then from the start",
+            );
+            ((HORIZON - 1) as f64 * DT, Some(0.0))
+        } else if periods.is_empty() {
+            (settled as f64 * DT, None)
+        } else {
+            let (period, exact) = common_period(&periods);
+            if !exact {
+                self.warn(format!(
+                    "state machines: layers loop over lengths with no common one within a minute: the scene repeats every {period:.2} s"
+                ));
+            }
+            (settled as f64 * DT + period, Some(settled as f64 * DT))
+        };
+        let frames = (span / DT).round() as usize + 1;
+        if frames > played.first().map_or(0, Vec::len) {
+            played = play(frames);
+        }
+        for l in &mut played {
+            l.truncate(frames);
+        }
+        Some(Plan {
+            name: sm.object.string(p::ANIMATION_NAME),
+            layers: played,
+            anims,
+            fps: specs.iter().map(|s| s.fps).collect(),
+            dt: DT,
+            span,
+            loop_start,
+        })
+    }
+
+    /// The keys of a property keyed by `list` over the state machine's span:
+    /// in each frame, what the last layer applying it applies (its state's
+    /// animation, or while it mixes, its two states mixed from the value
+    /// the property had when the mix began); what it last had where none
+    /// does.
+    fn machine_keys<T: Keyed>(
+        &self,
+        plan: &Plan,
+        list: &[(usize, &KeyedProperty)],
+        setup: &T,
+        value: &impl Fn(&Object) -> Option<T>,
+        keys: &mut Vec<Key<T>>,
+    ) {
+        let mut curves: HashMap<usize, Curve<T>> = HashMap::new();
+        for (a, kp) in list {
+            let fps = plan.fps.get(*a).copied().unwrap_or(60.0);
+            let mut own: Vec<Key<T>> = kp
+                .keyframes
+                .iter()
+                .filter_map(|k| {
+                    Some(Key {
+                        t: k.num(p::KEY_FRAME_FRAME) / fps,
+                        value: value(k)?,
+                        interp: self.interp(k),
+                    })
+                })
+                .collect();
+            own.sort_by(|a, b| a.t.total_cmp(&b.t));
+            if !own.is_empty() {
+                curves.insert(
+                    *a,
+                    Curve {
+                        setup: setup.clone(),
+                        keys: own,
+                    },
+                );
+            }
+        }
+        if curves.is_empty() {
+            return;
+        }
+        let keyed = |x: Option<(usize, f64)>| x.filter(|(a, _)| curves.contains_key(a));
+        let applies =
+            |ap: &machine::Applied| keyed(ap.current).is_some() || keyed(ap.from).is_some();
+        let frames = plan.layers.first().map_or(0, Vec::len);
+        let effective = |k: usize| {
+            plan.layers
+                .iter()
+                .rposition(|l| l.get(k).is_some_and(applies))
+        };
+        let dt = plan.dt;
+        let ease = |e: Option<Interp>, m: f64| match e {
+            Some(interp) => Curve {
+                setup: 0.0,
+                keys: vec![
+                    Key {
+                        t: 0.0,
+                        value: 0.0,
+                        interp,
+                    },
+                    Key {
+                        t: 1.0,
+                        value: 1.0,
+                        interp: Interp::Hold,
+                    },
+                ],
+            }
+            .at(m),
+            None => m,
+        };
+        let hold_last = |keys: &mut Vec<Key<T>>| {
+            if let Some(k) = keys.last_mut() {
+                k.interp = Interp::Hold;
+            }
+        };
+        let mut resets: HashMap<(usize, usize), T> = HashMap::new();
+        let mut k = 0;
+        while k < frames {
+            let Some(l) = effective(k) else {
+                hold_last(keys);
+                k += 1;
+                continue;
+            };
+            let ap = plan.layers[l][k];
+            if ap.from.is_none()
+                && let Some((a, t0)) = keyed(ap.current)
+            {
+                // What the state plays until it changes: the animation's own
+                // keys.
+                let mut e = k + 1;
+                while e < frames
+                    && effective(e) == Some(l)
+                    && plan.layers[l][e].serial == ap.serial
+                    && plan.layers[l][e].from.is_none()
+                {
+                    e += 1;
+                }
+                let until = if e >= frames {
+                    plan.span.max(k as f64 * dt)
+                } else {
+                    e as f64 * dt
+                };
+                let anim = plan.anims[a];
+                for seg in steady_pieces(
+                    &anim,
+                    a,
+                    plan.fps.get(a).copied().unwrap_or(60.0),
+                    t0,
+                    anim.speed * ap.direction,
+                    k as f64 * dt,
+                    until,
+                ) {
+                    piece_keys(&seg, &curves[&a], keys);
+                    hold_last(keys);
+                }
+                k = e;
+                continue;
+            }
+            let reset = resets
+                .entry((l, ap.began))
+                .or_insert_with(|| {
+                    let t = ap.began as f64 * dt - 1e-9;
+                    if keys.first().is_none_or(|f| t < f.t) {
+                        setup.clone()
+                    } else {
+                        Curve {
+                            setup: setup.clone(),
+                            keys: keys.clone(),
+                        }
+                        .at(t)
+                    }
+                })
+                .clone();
+            let mut v = reset;
+            if let Some((a, t)) = keyed(ap.from) {
+                v = v.mix(&curves[&a].at(t), ease(ap.ease, ap.from_mix));
+            }
+            if let Some((a, t)) = keyed(ap.current) {
+                v = v.mix(&curves[&a].at(t), ease(ap.ease, ap.mix));
+            }
+            keys.push(Key {
+                t: k as f64 * dt,
+                value: v,
+                interp: Interp::Linear,
+            });
+            k += 1;
+        }
+        hold_last(keys);
     }
 
     /// Property `key` of object `i` over the timeline: what the last layer
@@ -466,6 +832,23 @@ impl<'a> Converter<'a> {
         };
         let segments = self.layers[layer].clone();
         let mut keys: Vec<Key<T>> = Vec::new();
+        // The state machine first, where the timeline's animations play.
+        if layer == 0
+            && let Some(plan) = self.plan.clone()
+        {
+            self.machine_keys(&plan, &list, &setup, &value, &mut keys);
+            // Its setup value until the machine first applies it.
+            if keys.first().is_none_or(|k| k.t > 0.0) {
+                keys.insert(
+                    0,
+                    Key {
+                        t: 0.0,
+                        value: setup.clone(),
+                        interp: Interp::Hold,
+                    },
+                );
+            }
+        }
         // The setup value from `t` on, unless it holds already.
         let hold = |keys: &mut Vec<Key<T>>, t: f64| {
             if keys.last().is_none_or(|k| k.value != setup) {
@@ -3044,7 +3427,14 @@ impl<'a> Converter<'a> {
             self.warn(format!("left out: {what}"));
         }
         let machines = self.ab.state_machines.len();
-        if machines > 0 {
+        if self.plan.is_some() {
+            self.warn(
+                "state machines: the default one plays first with its inputs as they are (listeners, triggers and input changes left out); each animation is a marker",
+            );
+            if machines > 1 {
+                self.warn(format!("left out: {} other state machine(s)", machines - 1));
+            }
+        } else if machines > 0 {
             self.warn(format!(
                 "left out: {machines} state machine(s); the animation its entry plays plays, and each animation is a marker"
             ));
@@ -3303,6 +3693,101 @@ fn piece_keys<T: Keyed>(seg: &Segment, anim: &Curve<T>, out: &mut Vec<Key<T>>) {
         value: anim.at(last),
         interp: Interp::Hold,
     });
+}
+
+/// How interpolator `i` eases.
+fn interpolator(i: &Object) -> Interp {
+    let c = || {
+        [
+            i.num(p::CUBIC_INTERPOLATOR_X1),
+            i.num(p::CUBIC_INTERPOLATOR_Y1),
+            i.num(p::CUBIC_INTERPOLATOR_X2),
+            i.num(p::CUBIC_INTERPOLATOR_Y2),
+        ]
+    };
+    match i.ty {
+        t::CUBIC_EASE_INTERPOLATOR => Interp::Cubic(c()),
+        t::CUBIC_VALUE_INTERPOLATOR => Interp::Value(c()),
+        t::ELASTIC_INTERPOLATOR => Interp::Elastic {
+            easing: i.uint(p::ELASTIC_INTERPOLATOR_EASING_VALUE),
+            amplitude: i.num(p::ELASTIC_INTERPOLATOR_AMPLITUDE),
+            period: i.num(p::ELASTIC_INTERPOLATOR_PERIOD),
+        },
+        _ => Interp::Linear,
+    }
+}
+
+/// The shortest length all of `periods` repeat over, within a minute; else
+/// the longest of them (and `false`).
+fn common_period(periods: &[f64]) -> (f64, bool) {
+    let longest = periods.iter().copied().fold(0.0, f64::max);
+    for m in 1..=3600 {
+        let c = longest * f64::from(m);
+        if c > 60.0 {
+            break;
+        }
+        if periods.iter().all(|p| {
+            let r = c / p;
+            (r - r.round()).abs() < 1e-4
+        }) {
+            return (c, true);
+        }
+    }
+    (longest, false)
+}
+
+/// Animation `index` played from its own second `t0` at `rate` (its seconds
+/// a second, backwards when negative) from scene time `from` to `until`,
+/// looping, turning or holding at its ends as its loop says: one piece for
+/// each pass.
+fn steady_pieces(
+    anim: &machine::Anim,
+    index: usize,
+    fps: f64,
+    t0: f64,
+    rate: f64,
+    from: f64,
+    until: f64,
+) -> Vec<Segment> {
+    let piece = |start: f64, duration: f64, a: f64, b: f64, speed: f64| Segment {
+        animation: index,
+        name: String::new(),
+        start,
+        duration,
+        from: a.min(b),
+        to: a.max(b),
+        speed,
+        fps,
+        loop_mode: LoopMode::Once,
+    };
+    let mut out = Vec::new();
+    let (mut t, mut at, mut v) = (t0, from, rate);
+    while at < until - 1e-9 && out.len() < 4096 {
+        if v == 0.0 || anim.end <= anim.start {
+            out.push(piece(at, until - at, t, t, 0.0));
+            break;
+        }
+        let bound = if v > 0.0 { anim.end } else { anim.start };
+        let next = (at + ((bound - t) / v).max(0.0)).min(until);
+        let t_next = t + (next - at) * v;
+        if next > at {
+            out.push(piece(at, next - at, t, t_next, v));
+        }
+        at = next;
+        t = t_next;
+        if at >= until - 1e-9 {
+            break;
+        }
+        match anim.loop_mode {
+            LoopMode::Loop => t = if v > 0.0 { anim.start } else { anim.end },
+            LoopMode::PingPong => v = -v,
+            LoopMode::Once => {
+                out.push(piece(at, until - at, bound, bound, 0.0));
+                break;
+            }
+        }
+    }
+    out
 }
 
 /// Cubic easing `c` run backwards.

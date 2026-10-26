@@ -37,7 +37,7 @@ The NSH player:
 - Lottie expressions on paths and text documents, and layer space transforms (`toComp`, `fromComp`).
 - Rive, as its [design](https://github.com/dXnSix/dXn.VectorAnimation/blob/main/docs/design/rive.md) says: what
   the runtime evaluates (what is left of text), then
-  state machines in the core and the player, then data binding and layout.
+  interactive state machines in the core and the player, then data binding and layout.
 - Real phones and their frame times.
 - Why GTK in a slow virtual machine sometimes takes the check app's steps seconds late.
 

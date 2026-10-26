@@ -93,7 +93,7 @@ fn each_animation_is_a_marker_with_its_loop() {
 }
 
 #[test]
-fn the_animation_the_state_machine_enters_comes_first() {
+fn the_default_state_machine_plays_first() {
     let riv = animation(square(), "idle", 20, 1);
     let riv = animation(riv, "intro", 10, 0)
         .obj(
@@ -107,9 +107,22 @@ fn the_animation_the_state_machine_enters_comes_first() {
         .obj(ty::EXIT_STATE, &[])
         .obj(ty::ANIMATION_STATE, &[(key::ANIMATION_ID, V::U(1))]);
     let s = scene(&riv);
-    assert_eq!(s.timeline.markers[0].name, "intro");
-    assert_eq!(s.timeline.markers[0].start, 0.0);
-    assert_eq!(s.timeline.duration, 1.0);
+    // The machine plays "intro" once, then holds: its span, then the
+    // animations one after another.
+    let m = &s.timeline.markers;
+    assert_eq!(
+        (m[0].name.as_str(), m[0].start, m[0].loop_mode),
+        ("State Machine 1", 0.0, Some(LoopMode::Once))
+    );
+    assert!(
+        (s.timeline.duration - 1.0).abs() < 0.02,
+        "{}",
+        s.timeline.duration
+    );
+    assert_eq!((m[1].name.as_str(), m[2].name.as_str()), ("idle", "intro"));
+    assert!(m[1].start > s.timeline.duration);
+    // The square moves only in "idle": still while the machine plays.
+    assert!(near(color_at(&s, 0.5, 10, 25), [255, 0, 0], 2));
 }
 
 #[test]

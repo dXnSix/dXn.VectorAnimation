@@ -76,6 +76,10 @@ pub mod ty {
     pub const TEXT_MODIFIER_RANGE: u16 = 158;
     pub const TEXT_MODIFIER_GROUP: u16 = 159;
     pub const CUBIC_INTERPOLATOR_COMPONENT: u16 = 163;
+    pub const STATE_MACHINE_NUMBER: u16 = 56;
+    pub const STATE_MACHINE_BOOL: u16 = 59;
+    pub const TRANSITION_NUMBER_CONDITION: u16 = 70;
+    pub const TRANSITION_BOOL_CONDITION: u16 = 71;
 }
 
 /// Property keys.
@@ -222,6 +226,15 @@ pub mod key {
     pub const INTERPOLATOR_Y1: u16 = 338;
     pub const INTERPOLATOR_X2: u16 = 339;
     pub const INTERPOLATOR_Y2: u16 = 340;
+    pub const INPUT_NAME: u16 = 138;
+    pub const NUMBER_VALUE: u16 = 140;
+    pub const BOOL_VALUE: u16 = 141;
+    pub const TRANSITION_FLAGS: u16 = 152;
+    pub const CONDITION_INPUT: u16 = 155;
+    pub const CONDITION_OP: u16 = 156;
+    pub const CONDITION_VALUE: u16 = 157;
+    pub const TRANSITION_DURATION: u16 = 158;
+    pub const EXIT_TIME: u16 = 160;
 }
 
 /// A property's value.

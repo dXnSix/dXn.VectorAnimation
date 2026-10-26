@@ -191,10 +191,10 @@ pub(crate) struct KeyedProperty {
     pub keyframes: Vec<Object>,
 }
 
-/// A state machine as the file writes it (its own object is read with its
-/// states, by phase 3's state machines).
+/// A state machine as the file writes it.
 #[derive(Debug)]
 pub(crate) struct StateMachine {
+    pub object: Object,
     pub inputs: Vec<Option<Object>>,
     pub layers: Vec<Layer>,
     pub listeners: Vec<Listener>,
@@ -390,6 +390,7 @@ fn place(
         }
     } else if ty == types::STATE_MACHINE {
         artboard.state_machines.push(StateMachine {
+            object,
             inputs: Vec::new(),
             layers: Vec::new(),
             listeners: Vec::new(),

@@ -182,7 +182,17 @@ The core gains what Rive needs, each with the reference renderer's drawing and t
    Rive draws them on the outline moved into the artboard's space, untransformed, and so does the scene (the
    shape outside its drawable's transform, the transform on its paths, which move points and not strokes;
    gradients moved into the artboard's space). Checked against Rive's runtime.
-8. **State machines** (phase 3): `Scene::state_machines` (inputs, layers, states playing markers, blend
+8. **Done: the default state machine as it plays untouched** (`machine.rs`): a port of
+   `StateMachineLayerInstance` (any-state and state transitions, conditions on the inputs' values, exit
+   times, mixes with their easings, spilled time) and of `LinearAnimationInstance::advance` (one-shot,
+   loop, ping-pong), stepped a frame each 1/60 s in 32-bit floats as the runtime keeps time, until every
+   layer settles (into a still pose or loops, whose common length repeats from there, nested artboards'
+   loops too). Each property then takes, frame by frame, what the last layer applying it applies: a state
+   that plays steadily as its animation's own keys (pieces between loop ends), a mix sampled per frame from
+   the value the property had when the transition began (Rive's `AnimationReset`); where none applies it
+   keeps its last value. The machine is a marker at 0 and the timeline's span. Checked against Rive's
+   runtime played frame by frame: the test files draw the same; Studiorun, Sobo, the snake and the weather
+   card within 0.3% of pixels. **Still to come**: the interactive machine, `Scene::state_machines` (inputs, layers, states playing markers, blend
    states, transitions with conditions, exit times and mixes, listeners on nodes' outlines, events), an
    evaluator in the core turning inputs over time into weighted times on the timeline for each layer, and
    `Scene::frame_blend` sampling the scene at several times and interpolating.
@@ -217,5 +227,6 @@ The core gains what Rive needs, each with the reference renderer's drawing and t
 2. **What the runtime evaluates:** feather, strokes that do not scale, nested artboards, text, bones and
    meshes, constraints, draw rules, text modifiers (done; variation and follow-path modifiers and
    ellipses left), elastic easing.
-3. **State machines** in the core, the CLI and the player.
+3. **State machines**: done as they play untouched; their inputs, listeners and events in the core, the CLI
+   and the player to come.
 4. **Data binding and layout.**

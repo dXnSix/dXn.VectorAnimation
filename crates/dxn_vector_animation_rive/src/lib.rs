@@ -13,11 +13,14 @@
 //! stars and triangles; embedded images; and opacity, multiplied down the
 //! tree into each fill and stroke as Rive applies it.
 //!
-//! The artboard's linear animations lie one after another on the timeline,
-//! each under a marker of its name that carries its loop: the one the
-//! default state machine enters first at 0 (the timeline's span), the
-//! others after it. A property an animation does not key holds its setup
-//! value in that animation's span. Keyframes keep their holds, straight
+//! The artboard's default state machine plays first, as Rive's runtime plays
+//! it with its inputs as they are (its layers together, transitions whose
+//! conditions hold, exit times and mixes), under a marker of its name: the
+//! timeline's span, repeating from where it settles. The linear animations
+//! lie after it one after another, each under a marker of its name that
+//! carries its loop; without a state machine the timeline's span is the
+//! first. A property an animation does not key holds its setup value in
+//! that animation's span. Keyframes keep their holds, straight
 //! lines and cubic easings; value curves become cubic easings of the change;
 //! elastic easings, products of moving opacities, and outlines whose
 //! tangents turn are sampled at 60 frames a second, straight between
@@ -52,7 +55,8 @@
 //! their ranges cover its characters (by characters, words or lines, with
 //! falloffs), as Rive's runtime applies them.
 //!
-//! What a file holds beyond that (state machines, text variation and
+//! What a file holds beyond that (state machines' listeners and input
+//! changes, nested state machines beyond their entry, text variation and
 //! follow-path modifiers, text ellipses, layout,
 //! data binding, scripting, audio) is left out with a warning in
 //! [`Import::warnings`].
@@ -62,6 +66,7 @@ mod curve;
 mod defs;
 mod file;
 mod geometry;
+mod machine;
 mod modifiers;
 mod order;
 mod rig;

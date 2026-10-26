@@ -202,8 +202,10 @@ them alone.
   and radial gradients, fill rules (clockwise too), blend modes, trim paths and dashes; feathered edges
   (outer and inner, offset, blurred as Rive's renderer blurs them); strokes the transform does not scale; clipping shapes; solos and hidden
   drawables; opacity multiplied down the tree into each paint; embedded images (PNG, JPEG, WebP).
-- Linear animations, one after another on the timeline, each under a marker of its name carrying its loop
-  (the one the default state machine enters first at 0), within their work areas and at their speeds; holds,
+- The default state machine first, as Rive plays it with its inputs as they are: layers together,
+  transitions whose conditions hold, exit times, mixes, repeating from where it settles.
+- Linear animations, one after another on the timeline, each under a marker of its name carrying its loop,
+  within their work areas and at their speeds; holds,
   straight lines, cubic easings and value curves as easings; elastic easings, colors mixed straight and
   values computed from several moving ones sampled at 60 frames a second.
 - Nested artboards, drawn at their transform about their origin and clipped to their artboard, playing
@@ -217,8 +219,8 @@ them alone.
   skins deforming outlines and image meshes by their bones' weights. Constraints (translation, rotation,
   scale, transform, distance, IK, follow-path) applied as Rive's runtime applies them. Draw rules, keyed too.
   Text modifiers moving, turning, scaling and fading glyphs by their ranges.
-- Left out with a warning, for the phases of [its design](docs/design/rive.md) to come: state machines (the
-  entry's animation plays), text variation and follow-path modifiers and ellipses, layout, data
+- Left out with a warning, for the phases of [its design](docs/design/rive.md) to come: state machines'
+  listeners and input changes, nested state machines beyond their entry, text variation and follow-path modifiers and ellipses, layout, data
   binding, scripting and audio.
 
 ## Untrusted input
@@ -561,7 +563,7 @@ The scene model and its inputs:
    markers with their loops; feathered edges; strokes that do not scale; nested artboards; text; joysticks;
    bones, skins and image meshes; constraints; draw rules; text modifiers.
 4. Rive, as [its design](docs/design/rive.md) says: what the runtime evaluates (what is
-   left of text), then state machines in the core and the player, then data binding and layout.
+   left of text), then interactive state machines in the core and the player, then data binding and layout.
 
 The NSH player:
 
