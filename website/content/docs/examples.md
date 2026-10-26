@@ -1,6 +1,6 @@
 ---
 title: Examples
-description: Every check scene of the NSH player, live in the browser, and how the examples app is built.
+description: Every check scene of the NSH player and a gallery of free animations, live in the browser, and how the examples app is built.
 group: Examples
 order: 150
 ---
@@ -50,13 +50,55 @@ caption: The check scenes, each in a tile.
 
 The two examples of [Playback](./playback.md), `playback` and `events`, belong to the examples app itself.
 
+## Animations from the wild
+
+Free animations from [LottieFiles](https://lottiefiles.com/), downloaded in each of the three formats the
+player reads. Each file is compiled ahead and played as it is; a tile's name is its file's name in
+`fixtures/gallery/`, and [`SOURCES.md`](https://github.com/dXnSix/dXn.VectorAnimation/blob/main/fixtures/gallery/SOURCES.md)
+there records where they come from.
+
+### Lottie JSON
+
+```example
+demo: lottie-files
+height: 260
+caption: Lottie JSON files, each in a tile.
+```
+
+### dotLottie
+
+```example
+demo: dotlottie-files
+height: 260
+caption: dotLottie files (`.lottie` archives), each in a tile.
+```
+
+The three archives here are dotLottie 2 (`a/<id>.json`), a layout the importer does not read yet: it looks for
+dotLottie 1's `animations/<id>.json`, so the tiles stay empty until it does. Each holds the same animation as
+its Lottie JSON above.
+
+### Animated SVG
+
+```example
+demo: svg-files
+height: 260
+caption: Animated SVG files as Figma Motion and LottieFiles write them, each in a tile.
+```
+
+| File | Formats | What it shows |
+|---|---|---|
+| `alien-button` | JSON, dotLottie, SVG | A glowing button with gradients, seven markers |
+| `alphabet-a` | JSON, dotLottie, SVG | A letter with moving eyes and gradient shading, three seconds |
+| `navigation-bar-selection` | JSON, dotLottie, SVG | A navigation bar's selection moving between four tabs, one marker each |
+| `boxer` | JSON, SVG | A character animation from After Effects (Lottie 4.8, 30 frames a second) |
+
 ## How the examples are built
 
 The examples are an NSH app in the repository, `examples/docs`, on the player. The site's workflow builds the
 dXnSix fork of NSH, writes the scenes and publishes the app for the web into the site:
 
 ```bash
-cargo run --release -p dxn_vector_animation_check -- scenes examples/docs
+cargo run --release -p dxn_vector_animation_check -- scenes examples/docs --gallery fixtures/gallery
 cd examples/docs
 nsh package "$PWD/App.tsx" --target web --out /tmp/examples   # /tmp/examples/Vector Animation Examples/
 cp -R "/tmp/examples/Vector Animation Examples" ../../website/public/examples
@@ -64,8 +106,8 @@ cp -R "/tmp/examples/Vector Animation Examples" ../../website/public/examples
 
 The app reads which example to show from the page's address, `examples/index.html?demo=<name>`, through NSH's web host
 (`host.js`, named by `web.host` in its `nsh.json`); without a name it shows them all. Each page embeds one in an
-iframe. The grid of all of them reports its height to the page, which sizes the frame to it: the page scrolls,
-not the frame, and the grid wraps into more rows on a narrow screen.
+iframe. The grids (all the scenes, and each group of files) report their height to the page, which sizes the frame
+to it: the page scrolls, not the frame, and a grid wraps into more rows on a narrow screen.
 
 :::note Load size
 The examples' web runtime holds the engine, QuickJS, the player and the importers: about 5.7 MB gzipped, loaded

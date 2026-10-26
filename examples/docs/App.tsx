@@ -2,13 +2,16 @@
 // `?demo=<name>` (the web host, host.js, reads it): it fills the frame, with
 // its controls. Without one, every example shows, a grid of tiles.
 //
-// The scenes are the check set (`vector-animation-check scenes examples/docs`
-// writes animations/), and two of this app's own: `playback` and `events`.
+// The scenes are the check set (`vector-animation-check scenes examples/docs
+// --gallery fixtures/gallery` writes animations/), and two of this app's own:
+// `playback` and `events`. The gallery's files, compiled ahead, show as grids:
+// `lottie-files`, `dotlottie-files` and `svg-files`.
 import { mount, Scroll, signal, Text, View } from "nsh";
 import { Button } from "nsh/base";
 import { host } from "nsh/host";
 import { VectorAnimation, type VectorAnimationRef } from "dxn-vector-animation";
 import { scenes } from "./animations/index";
+import { gallery } from "./animations/gallery";
 
 const named = new Map<string, unknown>(scenes as [string, unknown][]);
 
@@ -131,6 +134,39 @@ function Events() {
   );
 }
 
+const GALLERY = {
+  "lottie-files": "lottie",
+  "dotlottie-files": "dotlottie",
+  "svg-files": "svg",
+} as const;
+
+/** One group of the gallery's files, a tile each; the frame is as tall as the grid. */
+function Files(props: { group: "lottie" | "dotlottie" | "svg" }) {
+  const list = gallery[props.group];
+  return (
+    <View
+      style={{ padding: 12, flexDirection: "row", flexWrap: "wrap", gap: 14, justifyContent: "center" }}
+      onLayout={(e) => {
+        host.call("height", Math.ceil(e.size.height)).catch(() => {});
+      }}
+    >
+      {list.map(([name, src]) => (
+        <View style={{ width: 200, flexShrink: 0, gap: 4, alignItems: "center" }}>
+          <VectorAnimation
+            src={src as never}
+            style={{ width: 200, height: 200, borderWidth: 1, borderColor: "#e5e7eb", borderRadius: 8 }}
+            accessibilityLabel={name}
+          />
+          <Text style={{ fontSize: 12, opacity: 0.7 }}>{name}</Text>
+        </View>
+      ))}
+      {list.length === 0 ? (
+        <Text style={{ opacity: 0.7 }}>These archives are dotLottie 2, which the importer does not read yet.</Text>
+      ) : null}
+    </View>
+  );
+}
+
 /**
  * Every scene, a tile each. The grid's height goes to the page that frames
  * it (the host's `height`), which sizes the frame to it, so the page scrolls
@@ -173,6 +209,7 @@ function App() {
         if (d === undefined) return null;
         if (d === "playback") return <Playback />;
         if (d === "events") return <Events />;
+        if (d in GALLERY) return <Files group={GALLERY[d as keyof typeof GALLERY]} />;
         const src = named.get(d);
         if (src !== undefined) return <Single src={src} name={d} />;
         if (d === "" || d === "all") return <All />;

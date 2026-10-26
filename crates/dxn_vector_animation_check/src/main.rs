@@ -1,8 +1,10 @@
 //! `vector-animation-check`: the device checks of the player.
 //!
-//! - `scenes <app> [--corpus <dir>]` writes the check app's animations: the
-//!   check set's own scenes (`scenes.rs`), and, from a corpus folder, the
-//!   files of `CORPUS` that are there.
+//! - `scenes <app> [--corpus <dir>] [--gallery <dir>]` writes the check app's
+//!   animations: the check set's own scenes (`scenes.rs`), and, from a corpus
+//!   folder, the files of `CORPUS` that are there. A gallery folder's files
+//!   (`.json`, `.lottie`, `.svg`) are written beside them as `gallery.ts`, in
+//!   a group each, and are no part of the check set.
 //! - `compare <shots> <app> [--tile <points>] [--out <dir>]` finds the tiles
 //!   in each screenshot `frame-<page>-<percent>.png` the check app's test
 //!   took, renders the reference frame of each at the tile's size, and
@@ -85,7 +87,7 @@ fn main() -> ExitCode {
         Some("compare") => compare::run(&args[1..]),
         Some("profile") => profile::run(&args[1..]),
         _ => Err(
-            "usage: vector-animation-check scenes <app> [--corpus <dir>]\n       \
+            "usage: vector-animation-check scenes <app> [--corpus <dir>] [--gallery <dir>]\n       \
                   vector-animation-check compare <shots> <app> [--tile <points>] [--out <dir>]\n       \
                   vector-animation-check profile <dir> [--size <points>] [--ratio <pixels a point>]"
                 .into(),
@@ -158,11 +160,75 @@ fn write_scenes(args: &[String]) -> Result<(), String> {
         format!("{imports}\nexport const scenes: [string, object][] = [\n{entries}];\n"),
     )
     .map_err(|e| e.to_string())?;
+    write_gallery(&dir, option(args, "--gallery").map(Path::new))?;
     println!(
         "{} scenes in {} ({} pages)",
         list.len(),
         dir.display(),
         list.len().div_ceil(PAGE)
     );
+    Ok(())
+}
+
+/// The gallery's groups, by file extension: the title is the group's name in
+/// `gallery.ts`.
+const GALLERY: &[(&str, &str)] = &[("lottie", "json"), ("dotlottie", "lottie"), ("svg", "svg")];
+
+/// Writes `gallery-<group>-<file>.json` for every file of `folder` that reads
+/// and `gallery.ts`, which lists them by group (empty without a folder).
+fn write_gallery(dir: &Path, folder: Option<&Path>) -> Result<(), String> {
+    let mut files: Vec<PathBuf> = match folder {
+        Some(folder) => std::fs::read_dir(folder)
+            .map_err(|e| format!("{}: {e}", folder.display()))?
+            .flatten()
+            .map(|e| e.path())
+            .collect(),
+        None => Vec::new(),
+    };
+    files.sort();
+    let mut imports = String::from("// Written by `vector-animation-check scenes --gallery`.\n");
+    let mut groups = String::new();
+    let mut count = 0;
+    for (group, extension) in GALLERY {
+        let mut entries = String::new();
+        for path in files
+            .iter()
+            .filter(|p| p.extension().is_some_and(|e| e == *extension))
+        {
+            let Some(stem) = path.file_stem().and_then(|s| s.to_str()) else {
+                continue;
+            };
+            let data = std::fs::read(path).map_err(|e| format!("{}: {e}", path.display()))?;
+            let read = if *extension == "svg" {
+                dxn_vector_animation_svg::read(&data).map(|i| i.scene)
+            } else {
+                dxn_vector_animation_lottie::read(&data).map(|i| i.scene)
+            };
+            let scene = match read {
+                Ok(scene) => scene,
+                Err(e) => {
+                    eprintln!("{}: {e}: left out", path.display());
+                    continue;
+                }
+            };
+            let file = format!("gallery-{group}-{stem}");
+            let json = dxn_vector_animation::compiled::to_json(&scene, false)
+                .map_err(|e| format!("{stem}: {e}"))?;
+            std::fs::write(dir.join(format!("{file}.json")), json).map_err(|e| e.to_string())?;
+            let id = format!("g{count}");
+            imports.push_str(&format!("import {id} from \"./{file}.json\";\n"));
+            entries.push_str(&format!("    [\"{stem}\", {id}],\n"));
+            count += 1;
+        }
+        groups.push_str(&format!("  {group}: [\n{entries}  ],\n"));
+    }
+    std::fs::write(
+        dir.join("gallery.ts"),
+        format!(
+            "{imports}\nexport const gallery: Record<\"lottie\" | \"dotlottie\" | \"svg\", [string, object][]> = {{\n{groups}}};\n"
+        ),
+    )
+    .map_err(|e| e.to_string())?;
+    println!("{count} gallery scenes");
     Ok(())
 }

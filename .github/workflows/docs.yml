@@ -76,7 +76,7 @@ jobs:
           echo "NSH: dXnSix/nsh $(git -C nsh rev-parse --short HEAD)" >> "$GITHUB_STEP_SUMMARY"
       - name: Write the examples' scenes
         working-directory: repo
-        run: cargo run --release -p dxn_vector_animation_check -- scenes examples/docs
+        run: cargo run --release -p dxn_vector_animation_check -- scenes examples/docs --gallery fixtures/gallery
       # As a local `.cargo/config.toml` patches NSH's crates on a desk.
       - name: Patch NSH's crates into the examples app
         working-directory: repo
