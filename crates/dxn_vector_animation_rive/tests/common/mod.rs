@@ -141,6 +141,7 @@ pub mod key {
     pub const PATH_FLAGS: u16 = 128;
     pub const DRAWABLE_FLAGS: u16 = 129;
     pub const ANIMATION_ID: u16 = 149;
+    pub const STATE_SPEED: u16 = 292;
     pub const STATE_TO_ID: u16 = 151;
     pub const LINK_CORNER_RADIUS: u16 = 164;
     pub const CLIP: u16 = 196;

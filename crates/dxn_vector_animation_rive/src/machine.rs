@@ -74,6 +74,9 @@ pub(crate) enum Kind {
 pub(crate) struct State {
     pub kind: Kind,
     pub transitions: Vec<Trans>,
+    /// How fast it plays its animation (backwards when negative, from its
+    /// end).
+    pub speed: f64,
 }
 
 /// What a layer applies at a frame: the animation of its state and that
@@ -83,7 +86,8 @@ pub(crate) struct Applied {
     /// Counts the states the layer has entered: the same while it stays.
     pub serial: u32,
     pub current: Option<(usize, f64)>,
-    /// The way the current animation plays (1 or -1, ping-pong turning it).
+    /// The rate the current animation plays at, on its own speed: its
+    /// state's speed, ping-pong turning it.
     pub direction: f64,
     pub from: Option<(usize, f64)>,
     pub mix: f64,
@@ -97,6 +101,8 @@ pub(crate) struct Applied {
 #[derive(Debug, Clone, Copy)]
 struct Playing {
     anim: usize,
+    /// Its state's speed.
+    speed: f32,
     time: f32,
     total: f32,
     last_total: f32,
@@ -105,10 +111,11 @@ struct Playing {
 }
 
 impl Playing {
-    fn new(anim: usize, a: &Anim) -> Playing {
+    fn new(anim: usize, a: &Anim, speed: f64) -> Playing {
         Playing {
             anim,
-            time: if a.speed >= 0.0 { a.start } else { a.end } as f32,
+            speed: speed as f32,
+            time: if speed >= 0.0 { a.start } else { a.end } as f32,
             total: 0.0,
             last_total: 0.0,
             spilled: 0.0,
@@ -116,14 +123,16 @@ impl Playing {
         }
     }
 
-    fn keep_going(&self, a: &Anim) -> bool {
-        let directed = a.speed as f32 * self.direction;
+    fn keep_going(&self, a: &Anim, multiplier: f32) -> bool {
+        let directed = a.speed as f32 * self.direction * multiplier;
         a.loop_mode != LoopMode::Once
             || (directed > 0.0 && self.time < a.end as f32)
             || (directed < 0.0 && self.time > a.start as f32)
     }
 
-    fn advance(&mut self, elapsed: f32, a: &Anim) {
+    /// `seconds` on (`AnimationStateInstance::advance`).
+    fn advance(&mut self, seconds: f32, a: &Anim) {
+        let elapsed = seconds * self.speed;
         let delta = elapsed * a.speed as f32 * self.direction;
         self.spilled = 0.0;
         if delta == 0.0 {
@@ -131,7 +140,7 @@ impl Playing {
         }
         self.last_total = self.total;
         self.total += delta.abs();
-        let kill_spilled = !self.keep_going(a);
+        let kill_spilled = !self.keep_going(a, elapsed);
         self.time += delta;
         let (start, end) = (a.start as f32, a.end as f32);
         let range = end - start;
@@ -206,8 +215,12 @@ struct Layer<'a> {
 
 impl Layer<'_> {
     fn enter(&mut self, state: usize) {
-        let playing = match self.states.get(state).map(|s| s.kind) {
-            Some(Kind::Animation(Some(a))) => self.anims.get(a).map(|an| Playing::new(a, an)),
+        let playing = match self.states.get(state) {
+            Some(&State {
+                kind: Kind::Animation(Some(a)),
+                speed,
+                ..
+            }) => self.anims.get(a).map(|an| Playing::new(a, an, speed)),
             _ => None,
         };
         self.current = Some(Entered { state, playing });
@@ -405,7 +418,7 @@ impl Layer<'_> {
         Applied {
             serial: self.serial,
             current: playing.map(|p| (p.anim, f64::from(p.time))),
-            direction: playing.map_or(1.0, |p| f64::from(p.direction)),
+            direction: playing.map_or(1.0, |p| f64::from(p.direction * p.speed)),
             from: if self.mix < 1.0 {
                 self.from
                     .and_then(|f| f.playing)

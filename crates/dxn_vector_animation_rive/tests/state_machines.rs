@@ -285,3 +285,17 @@ fn nested_state_machines_follow_the_inputs_their_parent_keys() {
     assert!(near(at(&s, 0.25, 30, 15), RED, 2));
     assert!(near(at(&s, 0.75, 70, 15), RED, 2));
 }
+
+#[test]
+fn a_state_of_negative_speed_plays_its_animation_backwards_from_its_end() {
+    // "backA" (red from 90 to 10, once) at speed -1: from 10 to 90.
+    let riv = layer(machine(squares()), &[(3, &[], &[])], &[], &[]).obj(
+        ty::ANIMATION_STATE,
+        &[(key::ANIMATION_ID, V::U(2)), (key::STATE_SPEED, V::D(-1.0))],
+    );
+    let s = scene(&riv);
+    assert_eq!(at(&s, 0.25, 30, 15), RED);
+    assert_eq!(at(&s, 0.25, 70, 15), WHITE);
+    assert_eq!(at(&s, 1.5, 90, 15), RED);
+    assert_eq!(at(&s, 1.5, 10, 15), WHITE);
+}

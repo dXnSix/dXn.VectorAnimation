@@ -559,9 +559,9 @@ impl<'a> Converter<'a> {
             if last_change + 120 >= l.len() {
                 steady = false;
             }
-            let looping = l.last().and_then(|a| a.current).and_then(|(a, _)| {
-                let an = anims[a];
-                let d = (an.end - an.start).abs() / an.speed.abs();
+            let looping = l.last().and_then(|ap| {
+                let an = anims[ap.current?.0];
+                let d = (an.end - an.start).abs() / (an.speed * ap.direction).abs();
                 match an.loop_mode {
                     LoopMode::Loop if d > 0.0 => Some(d),
                     LoopMode::PingPong if d > 0.0 => Some(2.0 * d),
@@ -712,7 +712,16 @@ impl<'a> Converter<'a> {
                         ease,
                     });
                 }
-                states.push(machine::State { kind, transitions });
+                let speed = st
+                    .object
+                    .as_ref()
+                    .filter(|o| o.is(t::ADVANCEABLE_STATE))
+                    .map_or(1.0, |o| o.num(p::ADVANCEABLE_STATE_SPEED));
+                states.push(machine::State {
+                    kind,
+                    transitions,
+                    speed,
+                });
             }
             layers.push(states);
         }
