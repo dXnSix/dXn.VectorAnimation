@@ -141,6 +141,7 @@ fn an_artboard_is_read_by_name() {
         &Limits::default(),
         &Options {
             artboard: Some("Second".into()),
+            ..Options::default()
         },
     )
     .unwrap();
@@ -148,6 +149,7 @@ fn an_artboard_is_read_by_name() {
     assert_eq!(read(&riv).unwrap().scene.width, 20.0);
     let missing = Options {
         artboard: Some("Third".into()),
+        ..Options::default()
     };
     assert!(read_options(&riv, &Limits::default(), &missing).is_err());
 }

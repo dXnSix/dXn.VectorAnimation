@@ -34,7 +34,7 @@ pub(crate) enum Cond {
     Bool(usize, bool),
     /// Holds when the number input compares (Rive's op 0 to 5) to the value.
     Number(usize, u64, f64),
-    /// A trigger: holds only when fired, which nothing does here.
+    /// A trigger: holds in the frame it is fired in (its input 1).
     Trigger(usize),
     /// A condition of a kind not read: holds as `true` says.
     Fixed(bool),
@@ -285,7 +285,7 @@ impl Layer<'_> {
                 5 => v > value,
                 _ => false,
             }),
-            Cond::Trigger(i) => input(i).is_none(),
+            Cond::Trigger(i) => input(i).is_none_or(|v| v != 0.0),
             Cond::Fixed(b) => b,
         }
     }

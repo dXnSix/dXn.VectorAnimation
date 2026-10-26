@@ -131,6 +131,7 @@ fn read(file: &Path, artboard: Option<&str>) -> Result<(Format, Import), String>
     if dxn_vector_animation_rive::sniff(&data) {
         let options = dxn_vector_animation_rive::Options {
             artboard: artboard.map(str::to_owned),
+            ..Default::default()
         };
         return dxn_vector_animation_rive::read_options(&data, &limits, &options)
             .map(|i| (Format::Rive, i))

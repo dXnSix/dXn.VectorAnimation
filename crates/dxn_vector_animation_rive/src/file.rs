@@ -227,6 +227,7 @@ pub(crate) struct Transition {
 /// A listener and its actions.
 #[derive(Debug)]
 pub(crate) struct Listener {
+    pub object: Object,
     pub actions: Vec<Object>,
 }
 
@@ -428,6 +429,7 @@ fn place(
             }
         } else if is_a(ty, types::STATE_MACHINE_LISTENER) {
             sm.listeners.push(Listener {
+                object,
                 actions: Vec::new(),
             });
         } else if is_a(ty, types::LISTENER_ACTION) || is_a(ty, types::LISTENER_INPUT_TYPE) {

@@ -69,21 +69,72 @@ mod curve;
 mod defs;
 mod file;
 mod geometry;
+mod interact;
 mod machine;
 mod modifiers;
 mod order;
 mod rig;
 mod text;
 
-use dxn_vector_animation::{Error, Import, Limits};
+use dxn_vector_animation::{Error, Import, Limits, Point};
 
 pub use defs::RUNTIME_TAG;
+pub use interact::{
+    Action, Change, Input, InputKind, Interaction, Listener, Machine, Pointer, PointerEvent,
+    machine,
+};
 
 /// What to read of a file.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq)]
 pub struct Options {
     /// The artboard to read, by name; the file's first when `None`.
     pub artboard: Option<String>,
+    /// What is done to the artboard's default state machine, in time order:
+    /// the machine plays as Rive plays it with these changes made to its
+    /// inputs (what a user's clicks and taps would make).
+    pub inputs: Vec<InputChange>,
+    /// The nodes its listeners moved to the pointer, in time order.
+    pub aligned: Vec<Aligned>,
+}
+
+/// A node a listener moved to the pointer at a time (Rive's
+/// `ListenerAlignTarget`): from then on it sits where the pointer is, or
+/// moves as far as the pointer did since its last event when it keeps its
+/// offset.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Aligned {
+    /// The timeline's seconds it is moved at.
+    pub time: f64,
+    /// The node, by its index in the artboard (as the scene's group ids
+    /// name objects).
+    pub node: usize,
+    /// Where the pointer is, in the scene's coordinates.
+    pub to: Point,
+    /// Where it was at its last event, when the node keeps its offset from
+    /// it.
+    pub from: Option<Point>,
+}
+
+/// A change made to a state machine's input at a time.
+#[derive(Debug, Clone, PartialEq)]
+pub struct InputChange {
+    /// The timeline's seconds it is made at.
+    pub time: f64,
+    /// The input's name.
+    pub input: String,
+    /// What it is set to.
+    pub value: InputValue,
+}
+
+/// What an input is set to.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum InputValue {
+    /// A bool input on or off.
+    Bool(bool),
+    /// A number input's value.
+    Number(f64),
+    /// A trigger fired.
+    Fire,
 }
 
 /// Whether `data` looks like a Rive file.
@@ -111,7 +162,7 @@ pub fn read_options(data: &[u8], limits: &Limits, options: &Options) -> Result<I
         });
     }
     let file = file::read(data)?;
-    let (scene, warnings) = convert::Converter::run(&file, options.artboard.as_deref(), *limits)?;
+    let (scene, warnings) = convert::Converter::run(&file, options, *limits)?;
     scene.check(limits)?;
     Ok(Import {
         scene,

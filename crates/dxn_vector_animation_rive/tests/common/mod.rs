@@ -81,6 +81,11 @@ pub mod ty {
     pub const TRANSITION_NUMBER_CONDITION: u16 = 70;
     pub const TRANSITION_BOOL_CONDITION: u16 = 71;
     pub const NESTED_BOOL: u16 = 123;
+    pub const STATE_MACHINE_TRIGGER: u16 = 58;
+    pub const LISTENER_SINGLE: u16 = 114;
+    pub const LISTENER_BOOL_CHANGE: u16 = 117;
+    pub const LISTENER_ALIGN_TARGET: u16 = 126;
+    pub const TRANSITION_TRIGGER_CONDITION: u16 = 68;
     pub const KEY_FRAME_BOOL: u16 = 84;
 }
 
@@ -241,6 +246,12 @@ pub mod key {
     pub const NESTED_INPUT: u16 = 237;
     pub const NESTED_BOOL_VALUE: u16 = 238;
     pub const BOOL_KEY_VALUE: u16 = 181;
+    pub const LISTENER_TARGET: u16 = 224;
+    pub const LISTENER_TYPE: u16 = 225;
+    pub const ALIGN_TARGET: u16 = 240;
+    pub const ALIGN_PRESERVE_OFFSET: u16 = 541;
+    pub const ACTION_INPUT: u16 = 227;
+    pub const ACTION_BOOL_VALUE: u16 = 228;
 }
 
 /// A property's value.

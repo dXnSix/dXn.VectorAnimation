@@ -174,16 +174,27 @@ pub(crate) struct Converter<'a> {
     constrained: HashMap<usize, Vec<TransformOp>>,
     /// The clips of the clipping shapes, made once.
     clips: HashMap<usize, Option<Clip>>,
-    /// The default state machine as it plays, first on the timeline.
+    /// The default state machine as it plays, first on the timeline, and
+    /// the changes made to its inputs.
     plan: Option<Rc<Plan>>,
+    changes: Vec<crate::InputChange>,
+    /// The nodes listeners moved to the pointer.
+    aligned: Vec<crate::Aligned>,
     /// A nested artboard's state machine: the layer it is, and what it
     /// plays in each span.
     machine_layer: Option<usize>,
     nested_plans: Vec<Rc<Plan>>,
+    /// What the default state machine's listeners listen on: their shapes
+    /// are kept (unpainted when they paint nothing) for a player's pointer
+    /// to hit.
+    hit_targets: Vec<usize>,
 }
 
 /// Seconds a frame of a state machine played.
-const DT: f64 = 1.0 / 60.0;
+pub(crate) const DT: f64 = 1.0 / 60.0;
+
+/// The frames a state machine is played over at most (ten minutes).
+const MAX_FRAMES: usize = 10 * 60 * 60;
 
 /// A state machine ready to play: its layers' states, the animations they
 /// play, their frame rates, and its inputs' values.
@@ -193,6 +204,8 @@ struct Machine {
     anims: Vec<machine::Anim>,
     fps: Vec<f64>,
     inputs: Vec<Option<f64>>,
+    /// Each input's name.
+    names: Vec<String>,
 }
 
 /// A nested artboard's state machine, as its parent plays it: the layer of
@@ -280,10 +293,10 @@ impl<'a> Converter<'a> {
     /// The scene of the artboard named `name` (the first without one).
     pub(crate) fn run(
         file: &'a File,
-        name: Option<&str>,
+        options: &crate::Options,
         limits: Limits,
     ) -> Result<(Scene, BTreeSet<String>), Error> {
-        let index = match name {
+        let index = match options.artboard.as_deref() {
             Some(name) => file
                 .artboards
                 .iter()
@@ -294,7 +307,8 @@ impl<'a> Converter<'a> {
             }
             None => 0,
         };
-        let (scene, mut warnings) = Self::convert(file, index, Clock::Timeline, 0, limits)?;
+        let (scene, mut warnings) =
+            Self::convert(file, index, Clock::Timeline, options, 0, limits)?;
         let others = file.artboards.len() - 1;
         if others > 0 {
             warnings.insert(format!(
@@ -310,6 +324,7 @@ impl<'a> Converter<'a> {
         file: &'a File,
         index: usize,
         clock: Clock,
+        options: &crate::Options,
         depth: usize,
         limits: Limits,
     ) -> Result<(Scene, BTreeSet<String>), Error> {
@@ -356,13 +371,19 @@ impl<'a> Converter<'a> {
             constrained: HashMap::new(),
             clips: HashMap::new(),
             plan: None,
+            changes: options.inputs.clone(),
+            aligned: options.aligned.clone(),
             machine_layer: None,
             nested_plans: Vec::new(),
+            hit_targets: Vec::new(),
         };
         c.index_keys();
         match clock {
             Clock::Timeline => {
                 c.plan = c.machine_plan().map(Rc::new);
+                if c.plan.is_some() {
+                    c.hit_targets = c.listener_targets();
+                }
                 c.lay_out_animations();
                 c.layers = vec![c.segments.clone()];
                 c.spans = c
@@ -522,32 +543,89 @@ impl<'a> Converter<'a> {
 
     // ---- The state machine -----------------------------------------------
 
+    /// The default state machine: the artboard's, else its first.
+    fn default_machine(&self) -> Option<usize> {
+        let ab = self.ab;
+        ab.object()
+            .id(p::ARTBOARD_DEFAULT_STATE_MACHINE_ID)
+            .filter(|i| *i < ab.state_machines.len())
+            .or((!ab.state_machines.is_empty()).then_some(0))
+    }
+
+    /// The objects the default state machine's listeners listen on.
+    fn listener_targets(&self) -> Vec<usize> {
+        let Some(sm) = self.default_machine().map(|i| &self.ab.state_machines[i]) else {
+            return Vec::new();
+        };
+        sm.listeners
+            .iter()
+            .filter_map(|l| l.object.id(p::STATE_MACHINE_LISTENER_TARGET_ID))
+            .filter(|&i| i < self.ab.objects.len())
+            .collect()
+    }
+
     /// The default state machine (the artboard's, else its first) played
     /// with its inputs as they are, a frame each 1/60 s until it settles
     /// into what repeats.
     fn machine_plan(&mut self) -> Option<Plan> {
-        let ab = self.ab;
-        let index = ab
-            .object()
-            .id(p::ARTBOARD_DEFAULT_STATE_MACHINE_ID)
-            .filter(|i| *i < ab.state_machines.len())
-            .or((!ab.state_machines.is_empty()).then_some(0))?;
+        let index = self.default_machine()?;
         let Machine {
             name,
             layers,
             anims,
             fps,
             inputs,
+            names,
         } = self.machine(index)?;
+        // The changes made, each at the first frame at or after its time:
+        // (frame, input, value; `None` fires a trigger).
+        let mut changes: Vec<(usize, usize, Option<f64>)> = Vec::new();
+        for c in self.changes.clone() {
+            let Some(input) = names.iter().position(|n| *n == c.input) else {
+                self.warn(format!(
+                    "no input named {:?} in state machine {name:?}",
+                    c.input
+                ));
+                continue;
+            };
+            let frame = (c.time.max(0.0) / DT - 1e-6).ceil() as usize;
+            let value = match c.value {
+                crate::InputValue::Bool(b) => Some(f64::from(u8::from(b))),
+                crate::InputValue::Number(n) => Some(n),
+                crate::InputValue::Fire => None,
+            };
+            changes.push((frame.min(MAX_FRAMES), input, value));
+        }
+        changes.sort_by_key(|c| c.0);
+        let inputs_at = |k: usize| {
+            let mut v = inputs.clone();
+            for &(frame, input, value) in &changes {
+                if frame > k {
+                    break;
+                }
+                let Some(slot) = v.get_mut(input) else {
+                    continue;
+                };
+                match value {
+                    Some(value) => *slot = Some(value),
+                    // Fired: on in its frame alone.
+                    None if frame == k => *slot = Some(1.0),
+                    None => {}
+                }
+            }
+            v
+        };
         let play = |frames: usize| -> Vec<Vec<machine::Applied>> {
             layers
                 .iter()
-                .map(|states| machine::play(states, &anims, &|_| inputs.clone(), frames, DT))
+                .map(|states| machine::play(states, &anims, &inputs_at, frames, DT))
                 .collect()
         };
-        // Where each layer settles: after its last change of state or mix.
-        const HORIZON: usize = 30 * 60;
-        let mut played = play(HORIZON);
+        // Where each layer settles: after its last change of state or mix,
+        // half a minute past the last change of an input at most.
+        let last_change = changes.last().map_or(0, |c| c.0);
+        let horizon = last_change + 30 * 60;
+        let mut played = play(horizon.min(MAX_FRAMES));
         let mut settled = 0;
         let mut steady = true;
         let mut periods = Vec::new();
@@ -584,11 +662,13 @@ impl<'a> Converter<'a> {
             Some((d, _)) if d > 0.0 => periods.push(d),
             _ => {}
         }
+        // What repeats starts no earlier than the last change.
+        settled = settled.max(last_change);
         let (span, loop_start) = if !steady {
             self.warn(
                 "state machines: layers that keep changing states play their first 30 s, then from the start",
             );
-            ((HORIZON - 1) as f64 * DT, Some(0.0))
+            ((horizon - 1) as f64 * DT, Some(last_change as f64 * DT))
         } else if periods.is_empty() {
             (settled as f64 * DT, None)
         } else {
@@ -732,6 +812,15 @@ impl<'a> Converter<'a> {
         }
         Some(Machine {
             name: sm.object.string(p::ANIMATION_NAME),
+            names: sm
+                .inputs
+                .iter()
+                .map(|i| {
+                    i.as_ref()
+                        .map(|o| o.string(p::STATE_MACHINE_COMPONENT_NAME))
+                        .unwrap_or_default()
+                })
+                .collect(),
             layers,
             fps: specs.iter().map(|s| s.fps).collect(),
             anims,
@@ -748,6 +837,7 @@ impl<'a> Converter<'a> {
             anims,
             fps,
             inputs,
+            ..
         }) = self.machine(m.machine)
         else {
             return Vec::new();
@@ -1146,7 +1236,8 @@ impl<'a> Converter<'a> {
             };
             (x, Curve::fixed(0.0))
         } else if o.is(t::NODE) {
-            (self.num_curve(i, p::NODE_X), self.num_curve(i, p::NODE_Y))
+            let (x, y) = (self.num_curve(i, p::NODE_X), self.num_curve(i, p::NODE_Y));
+            self.aligned_to(i, x, y)
         } else {
             (Curve::fixed(0.0), Curve::fixed(0.0))
         };
@@ -1158,6 +1249,57 @@ impl<'a> Converter<'a> {
             scale_y: self.num_curve(i, p::TRANSFORM_COMPONENT_SCALE_Y),
             length: o.is(t::BONE).then(|| self.num_curve(i, p::BONE_LENGTH)),
         })
+    }
+
+    /// Node `i`'s position `x`, `y` as listeners move it to the pointer
+    /// (`ListenerAlignTarget::perform`): each move held until the next key.
+    fn aligned_to(
+        &mut self,
+        i: usize,
+        mut x: Curve<f64>,
+        mut y: Curve<f64>,
+    ) -> (Curve<f64>, Curve<f64>) {
+        let moves: Vec<crate::Aligned> = self
+            .aligned
+            .iter()
+            .filter(|a| a.node == i)
+            .cloned()
+            .collect();
+        if moves.is_empty() {
+            return (x, y);
+        }
+        let Ok(chain) = self.chain(i) else {
+            return (x, y);
+        };
+        let parent = self.ops(&chain[..chain.len() - 1]);
+        // The scene's coordinates are the artboard's moved by its origin.
+        let ab = self.ab.object();
+        let origin = Point::new(
+            ab.num(p::LAYOUT_COMPONENT_WIDTH) * ab.num(p::ARTBOARD_ORIGIN_X),
+            ab.num(p::LAYOUT_COMPONENT_HEIGHT) * ab.num(p::ARTBOARD_ORIGIN_Y),
+        );
+        if !(x.keys.is_empty() && y.keys.is_empty()) {
+            self.warn(
+                "nodes listeners move that animations move too: each move holds to the next key",
+            );
+        }
+        for m in moves {
+            let Some(inverse) = transform_at(&parent, m.time).invert() else {
+                continue;
+            };
+            let local = |p: Point| inverse.apply(Point::new(p.x - origin.x, p.y - origin.y));
+            let to = local(m.to);
+            let (vx, vy) = match m.from {
+                Some(from) => {
+                    let from = local(from);
+                    (x.at(m.time) + to.x - from.x, y.at(m.time) + to.y - from.y)
+                }
+                None => (to.x, to.y),
+            };
+            hold_from(&mut x, m.time, vx);
+            hold_from(&mut y, m.time, vy);
+        }
+        (x, y)
     }
 
     /// The transform operations of object `i` itself.
@@ -1684,7 +1826,20 @@ impl<'a> Converter<'a> {
         let transform = self.ops(&chain);
         let painted = self.paints(i, &paths, &opacity, &transform)?;
         if painted.is_empty() {
-            return Ok(None);
+            // Rive hits a listener's shapes by their outlines, painted or
+            // not.
+            if !self
+                .hit_targets
+                .iter()
+                .any(|&t| self.is_ancestor_or_self(t, i))
+            {
+                return Ok(None);
+            }
+            let outline = Node::shape(Shape {
+                paths: paths.into_iter().map(|(s, _)| s).collect(),
+                ..Default::default()
+            });
+            return Ok(Some(self.group(i, transform, vec![outline])));
         }
         Ok(Some(self.painted_group(i, transform, painted)))
     }
@@ -3253,8 +3408,14 @@ impl<'a> Converter<'a> {
             spans,
             machine,
         };
-        let (scene, warnings) =
-            Self::convert(self.file, index, clock, self.depth + 1, self.limits)?;
+        let (scene, warnings) = Self::convert(
+            self.file,
+            index,
+            clock,
+            &crate::Options::default(),
+            self.depth + 1,
+            self.limits,
+        )?;
         for w in warnings {
             self.warn(format!("nested artboard: {w}"));
         }
@@ -3730,7 +3891,7 @@ impl<'a> Converter<'a> {
         let machines = self.ab.state_machines.len();
         if self.plan.is_some() {
             self.warn(
-                "state machines: the default one plays first with its inputs as they are (listeners, triggers and input changes left out); each animation is a marker",
+                "state machines: the default one plays first, its inputs as the options change them (its listeners act through a player's pointer); each animation is a marker",
             );
             if machines > 1 {
                 self.warn(format!("left out: {} other state machine(s)", machines - 1));
@@ -3912,6 +4073,33 @@ fn ops_breaks(ops: &[TransformOp], out: &mut Vec<Breaks>) {
 /// are (a cubic easing turned round when it plays backwards), its ends at
 /// their values, and the frames of what a cut leaves of an easing that is
 /// not straight or held.
+/// `curve` holding `value` from `t` to its next key, as it was before.
+fn hold_from(curve: &mut Curve<f64>, t: f64, value: f64) {
+    let keys = &curve.keys;
+    let i = keys.partition_point(|k| k.t <= t);
+    let mut out: Vec<Key<f64>> = keys[..i].to_vec();
+    match out.last() {
+        None if t > 0.0 => out.push(Key {
+            t: 0.0,
+            value: curve.at(0.0),
+            interp: Interp::Hold,
+        }),
+        Some(k) if k.t < t && k.interp != Interp::Hold => out.push(Key {
+            t,
+            value: curve.at(t),
+            interp: Interp::Hold,
+        }),
+        _ => {}
+    }
+    out.push(Key {
+        t,
+        value,
+        interp: Interp::Hold,
+    });
+    out.extend_from_slice(&keys[i..]);
+    curve.keys = out;
+}
+
 fn piece_keys<T: Keyed>(seg: &Segment, anim: &Curve<T>, out: &mut Vec<Key<T>>) {
     let (from, to) = (seg.from.min(seg.to), seg.from.max(seg.to));
     if seg.speed == 0.0 || to - from <= 0.0 {
