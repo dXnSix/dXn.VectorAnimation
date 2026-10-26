@@ -1396,7 +1396,7 @@ impl Compiler {
                         points.push(m.apply(Point::new(px, py)));
                     }
                 }
-                Op::Ellipse([cx, cy, rx, ry], _) => {
+                Op::Ellipse([cx, cy, rx, ry], _) | Op::EllipseArc([cx, cy, rx, ry, _, _], _) => {
                     let (cx, cy, rx, ry) = (n(*cx), n(*cy), n(*rx).abs(), n(*ry).abs());
                     for (px, py) in [
                         (cx - rx, cy - ry),
@@ -1454,6 +1454,7 @@ fn op_nums(op: &Op) -> Vec<Num> {
             out
         }
         Op::Ellipse(v, _) => v.to_vec(),
+        Op::EllipseArc(v, _) => v.to_vec(),
         _ => Vec::new(),
     }
 }

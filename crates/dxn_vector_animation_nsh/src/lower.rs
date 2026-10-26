@@ -280,6 +280,18 @@ pub(crate) fn painter(ops: &[Op], nodes: &Nodes) -> Painter {
                     ccw: *ccw,
                 })
             }
+            Op::EllipseArc([cx, cy, rx, ry, start, end], ccw) => CanvasOp::Path(PathOp::Ellipse {
+                geometry: [
+                    n(&mut p, *cx),
+                    n(&mut p, *cy),
+                    n(&mut p, *rx),
+                    n(&mut p, *ry),
+                    canvas::Num::Const(0.0),
+                ],
+                start: n(&mut p, *start),
+                end: n(&mut p, *end),
+                ccw: *ccw,
+            }),
             Op::Close => CanvasOp::Path(PathOp::Close),
             Op::Fill(rule) => CanvasOp::Fill(None, fill_rule(*rule)),
             Op::Stroke => CanvasOp::Stroke(None),

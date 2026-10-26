@@ -12,11 +12,11 @@
 use std::sync::Arc;
 
 use dxn_vector_animation::{
-    Animated, BlendMode, Clip, Dash, Direction, Fill, FillRule, Frame, FramePaint, FrameTextSpan,
-    Geometry, Group, ImageData, Item, Keyframe, LineCap, LineJoin, Mask, Matrix, MotionPath,
-    MotionRotate, Node, Paint as ScenePaint, PaintOrder, Path, PathEl, Point, Rect, Scene, Shape,
-    ShapePath, Stroke, Text, TextAnchor, TextSpan, TimeMap, TimeRange, Track, TransformOp, Trim,
-    TrimMode,
+    Animated, BlendMode, Clip, Dash, Direction, EllipseStart, Fill, FillRule, Frame, FramePaint,
+    FrameTextSpan, Geometry, Group, ImageData, Item, Keyframe, LineCap, LineJoin, Mask, Matrix,
+    MotionPath, MotionRotate, Node, Paint as ScenePaint, PaintOrder, Path, PathEl, Point, Rect,
+    Scene, Shape, ShapePath, Stroke, Text, TextAnchor, TextSpan, TimeMap, TimeRange, Track,
+    TransformOp, Trim, TrimMode,
     outline::{geometry_path, path_length, trim_paths},
     transform::{decompose, point_along, transform_at, unwrap_angles},
 };
@@ -499,6 +499,8 @@ pub enum Op {
     RoundRect([Num; 4], Num),
     /// `ellipse(cx, cy, rx, ry, 0, 0, 2π, ccw)`.
     Ellipse([Num; 4], bool),
+    /// `ellipse(cx, cy, rx, ry, 0, start, end, ccw)`: an arc of it.
+    EllipseArc([Num; 6], bool),
     /// `closePath()`.
     Close,
     /// `fill(rule)`.
@@ -2793,6 +2795,10 @@ impl Compiler {
         let period = self.g.sum(&lengths);
         let round = self.g.math(MathOp::Mul, period, Num::Const(slots as f64));
         let offset = self.g.track(&dash.offset, time, |o| -o);
+        // Round an ellipse each dash is an arc between two angles the graph
+        // moves, a few nodes a dash, where a part of an outline moves each
+        // of its points.
+        let ellipse = ellipse_outline(s, longest);
         let mut ops = Vec::new();
         for c in 0..slots {
             for k in (0..pattern.len()).step_by(2) {
@@ -2807,10 +2813,53 @@ impl Compiler {
                 let wrapped = self.g.math(MathOp::Mod, at, round);
                 let a = self.g.math(MathOp::Sub, wrapped, period);
                 let b = self.g.math(MathOp::Add, a, lengths[k]);
-                ops.extend(self.parts(&contours, (a, b), &ends, true, alpha, style));
+                match &ellipse {
+                    Some(e) => ops.extend(self.dash_arc(e, (a, b), longest, alpha, style)),
+                    None => ops.extend(self.parts(&contours, (a, b), &ends, true, alpha, style)),
+                }
             }
         }
         Ok(ops)
+    }
+
+    /// A dash from `a` to `b` along ellipse `e` (an outline `total` long),
+    /// stroked with `style`: an arc between the angles where they are, the
+    /// part off the outline cut off; one of no length still draws its caps,
+    /// as a dash pattern does, and one off the outline moves far out of
+    /// sight (as [`Self::part_path`]'s dots).
+    fn dash_arc(
+        &mut self,
+        e: &EllipseOutline,
+        (a, b): (Num, Num),
+        total: f64,
+        alpha: Num,
+        style: &[Op],
+    ) -> Vec<Op> {
+        let from = self.g.lookup(a, &e.lengths, &e.angles);
+        let to = self.g.lookup(b, &e.lengths, &e.angles);
+        let to = self
+            .g
+            .math(MathOp::Add, to, Num::Const(if e.ccw { -DOT } else { DOT }));
+        let touched = self.g.step(b, -STEP, true);
+        let reached = self.g.step(a, total + STEP, false);
+        let shown = self.g.math(MathOp::Mul, touched, reached);
+        let far = self.far();
+        let away = self.g.math(MathOp::Mul, shown, Num::Const(-far));
+        let away = self.g.math(MathOp::Add, away, Num::Const(far));
+        let [cx, cy, rx, ry] = e.geometry.map(Num::Const);
+        let mut ops = vec![
+            Op::Save,
+            Op::BeginPath,
+            Op::Save,
+            Op::Translate(away, Num::Const(0.0)),
+            Op::EllipseArc([cx, cy, rx, ry, from, to], e.ccw),
+            Op::Restore,
+            Op::GlobalAlpha(alpha),
+        ];
+        ops.extend(style.iter().cloned());
+        ops.push(Op::Stroke);
+        ops.push(Op::Restore);
+        ops
     }
 
     /// The part of `runs` from `a` to `b` (as at `ends`, over time), as a
@@ -2964,6 +3013,84 @@ fn sample_times(tracks: &[&Animated<f64>]) -> Vec<f64> {
 fn min_max(values: impl Iterator<Item = f64>) -> (f64, f64) {
     values.fold((f64::INFINITY, f64::NEG_INFINITY), |(lo, hi), v| {
         (lo.min(v), hi.max(v))
+    })
+}
+
+/// The arc a dash of no length still draws, so that it has caps (radians).
+const DOT: f64 = 1e-4;
+
+/// An outline that is one constant ellipse, what [`Compiler::dash_arc`]
+/// draws a dash of: the angle where each length along it is.
+struct EllipseOutline {
+    /// `cx, cy, rx, ry`.
+    geometry: [f64; 4],
+    /// Lengths along the outline, rising from 0 to its length.
+    lengths: Vec<f64>,
+    /// The angles at `lengths` (`ellipse()`'s, from its start the way it
+    /// runs).
+    angles: Vec<f64>,
+    ccw: bool,
+}
+
+/// `s`'s outline as an ellipse, when it is one ellipse that stays (its
+/// lengths scaled to `total`, the outline's length as dashes measure it).
+fn ellipse_outline(s: &Shape, total: f64) -> Option<EllipseOutline> {
+    /// Steps of a turn the lengths are summed over, and how many go
+    /// between two of its points.
+    const STEPS: usize = 512;
+    const EVERY: usize = 4;
+    let [path] = s.paths.as_slice() else {
+        return None;
+    };
+    let Geometry::Ellipse {
+        center,
+        radius,
+        direction,
+        start,
+    } = &path.geometry
+    else {
+        return None;
+    };
+    if !path.transform.is_empty() || path.geometry.is_animated() || total <= 0.0 {
+        return None;
+    }
+    let (cx, cy) = (center.x.sample(0.0), center.y.sample(0.0));
+    let (rx, ry) = (radius.x.sample(0.0).abs(), radius.y.sample(0.0).abs());
+    if rx <= 0.0 || ry <= 0.0 {
+        return None;
+    }
+    let first = match start {
+        EllipseStart::Right => 0.0,
+        EllipseStart::Top => -std::f64::consts::FRAC_PI_2,
+    };
+    let ccw = *direction == Direction::CounterClockwise;
+    let sign = if ccw { -1.0 } else { 1.0 };
+    let turn = std::f64::consts::TAU;
+    let (mut lengths, mut angles) = (vec![0.0], vec![first]);
+    if (rx - ry).abs() <= 1e-9 * rx {
+        lengths.push(total);
+        angles.push(first + sign * turn);
+    } else {
+        let at = |t: f64| (rx * t.cos(), ry * t.sin());
+        let (mut length, mut last) = (0.0, at(first));
+        for i in 1..=STEPS {
+            let angle = first + sign * turn * i as f64 / STEPS as f64;
+            let p = at(angle);
+            length += (p.0 - last.0).hypot(p.1 - last.1);
+            last = p;
+            if i % EVERY == 0 {
+                lengths.push(length);
+                angles.push(angle);
+            }
+        }
+        let scale = total / length;
+        lengths.iter_mut().for_each(|l| *l *= scale);
+    }
+    Some(EllipseOutline {
+        geometry: [cx, cy, rx, ry],
+        lengths,
+        angles,
+        ccw,
     })
 }
 

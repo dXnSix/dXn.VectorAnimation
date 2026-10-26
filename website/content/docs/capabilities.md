@@ -48,6 +48,8 @@ caption: A badge turning and growing along a path, and a card fading: layers, dr
   as the outline, moved along it. Where both ends move (spinners, Figma's path trims), the part is a path of
   its own whose points the graph moves, cut from lookups of the outline sampled by length.
 - **Dash patterns** that move are such parts, one per dash, each going round the outline: up to 256 at once.
+  Round a circle or an ellipse each dash is an arc between two angles the graph moves, a few nodes a dash
+  instead of a moving point for every point of the part, so a ring of a hundred dashes starts at once.
 
 ```example
 demo: trims

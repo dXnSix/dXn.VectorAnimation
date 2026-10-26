@@ -485,6 +485,24 @@ impl<'g> Replay<'g> {
                     );
                     self.add_path(&p);
                 }
+                Op::EllipseArc([cx, cy, rx, ry, start, end], _) => {
+                    // As canvas draws it: from `start` to `end` (the plan
+                    // never asks for more than a turn), in short steps.
+                    let (cx, cy, rx, ry) = (self.n(*cx), self.n(*cy), self.n(*rx), self.n(*ry));
+                    let (start, end) = (self.n(*start), self.n(*end));
+                    let steps = ((end - start).abs() / 0.005).ceil().max(1.0) as usize;
+                    let mut p = Path::new();
+                    for i in 0..=steps {
+                        let t = start + (end - start) * i as f64 / steps as f64;
+                        let point = Point::new(cx + rx * t.cos(), cy + ry * t.sin());
+                        if i == 0 {
+                            p.move_to(point);
+                        } else {
+                            p.line_to(point);
+                        }
+                    }
+                    self.add_path(&p);
+                }
                 Op::Close => self.path.close(),
                 Op::Fill(rule) => self.fill(*rule, out),
                 Op::Stroke => self.stroke(out),
