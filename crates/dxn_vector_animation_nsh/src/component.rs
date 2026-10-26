@@ -1,6 +1,11 @@
 //! `VectorAnimation`: plays animated SVG and Lottie.
 
-use std::{cell::RefCell, collections::HashMap, rc::Rc, sync::Arc};
+use std::{
+    cell::{Cell, RefCell},
+    collections::HashMap,
+    rc::Rc,
+    sync::Arc,
+};
 
 use dxn_vector_animation::{Frame, ImageData, Matrix, Rect, Scene};
 use nsh_core::{
@@ -357,8 +362,38 @@ pub fn VectorAnimation(
                 } else {
                     from
                 };
-                // The engine's clock, frame by frame.
-                let tick = move || async move {
+                if native {
+                    // The parts sampled frame by frame read the graph's
+                    // time each frame, so they stay with the rest: a clock
+                    // of their own counts from its first engine frame, not
+                    // from when the graph starts, and what it draws would
+                    // stay behind the rest by the difference.
+                    let over = Rc::new(Cell::new(false));
+                    if mixed {
+                        let over = over.clone();
+                        ticking.replace(Some(spawn(async move {
+                            clock.set(from);
+                            while !over.get() {
+                                next_frame().await;
+                                let t = f64::from(time.value().await);
+                                if !over.get() {
+                                    clock.set(t);
+                                }
+                            }
+                        })));
+                    }
+                    time.set(from as f32);
+                    let animation = playback.animation(&time, from);
+                    let end = animation.start();
+                    run.replace(Some(animation));
+                    let ended = end.await;
+                    over.set(true);
+                    if ended {
+                        clock.set(playback.last());
+                        cx.emit(VectorAnimationEvent::End);
+                    }
+                } else {
+                    // The engine's clock, frame by frame.
                     clock.set(from);
                     let started = next_frame().await;
                     loop {
@@ -370,20 +405,6 @@ pub fn VectorAnimation(
                             break;
                         }
                     }
-                };
-                if native {
-                    if mixed {
-                        ticking.replace(Some(spawn(tick())));
-                    }
-                    time.set(from as f32);
-                    let animation = playback.animation(&time, from);
-                    let end = animation.start();
-                    run.replace(Some(animation));
-                    if end.await {
-                        cx.emit(VectorAnimationEvent::End);
-                    }
-                } else {
-                    tick().await;
                     cx.emit(VectorAnimationEvent::End);
                 }
             })));

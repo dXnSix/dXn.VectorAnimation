@@ -117,6 +117,11 @@ logged at info level:
 VectorAnimation: a part sampled frame by frame (a shape whose commands change many times)
 ```
 
+These parts take their time from the graph: each frame they read the value the rest of the scene plays from, so
+they stay with it, within a frame or two, however late the engine's own frames begin (a clock of their own
+began with the engine's first frame, not with the graph, and on the web they ran a fifth of a second and more
+behind the rest). When a run ends they rest on its last frame.
+
 :::info Approximations
 Figma's knock-outs and hard silhouettes count any coverage of a pixel where the canvas counts coverage, which
 leaves a faint ring on edges between pixels. A mask whose overlapping see-through shapes change can show a

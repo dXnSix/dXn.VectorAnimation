@@ -370,7 +370,8 @@ The view is the animation's own size unless the app sizes it.
   alone: a canvas of its own drawing the part within copies of the groups it is in (their clips, masks and
   transforms; the layers it is drawn in fade and blend it), the rest of the scene still on the graph.
   Sampled siblings with nothing drawn between share one canvas. A group whose own transform, clip or mask
-  the graph cannot express is sampled whole. The reasons are logged. One of the 53 corpus files has a part
+  the graph cannot express is sampled whole. The sampled parts read the graph's time each frame, so they
+  stay with the rest. The reasons are logged. One of the 53 corpus files has a part
   sampled: Lottie's merge paths, baked at every frame.
 - **Approximations that remain.** Figma's knock-outs and hard silhouettes count any coverage of a pixel;
   the canvas counts the coverage (a faint ring along edges that do not fall on whole pixels). A mask whose
