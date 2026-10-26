@@ -81,8 +81,10 @@ const ANIMATABLE: &[&str] = &[
     "stroke-width",
     "stroke-dashoffset",
     "stroke-dasharray",
+    "stop-color",
     "d",
     "visibility",
+    "display",
     "x",
     "y",
     "width",
@@ -339,6 +341,12 @@ impl<'a, 'input> Converter<'a, 'input> {
             .iter()
             .enumerate()
             .filter(|(i, _)| !converter.smil_used.contains(i))
+            // Drawing in a `<defs>` that no `<use>` shows is not a loss.
+            .filter(|(_, a)| {
+                !doc.descendants()
+                    .find(|n| n.id() == a.target)
+                    .is_some_and(is_unused_drawing)
+            })
             .map(|(_, a)| {
                 format!(
                     "SMIL animation of `{}` on <{}> is left out",
@@ -625,7 +633,15 @@ impl<'a, 'input> Converter<'a, 'input> {
             });
         }
         let declared = self.cascade(node);
-        if declared.get("display").is_some_and(|d| d.trim() == "none") {
+        if declared.get("display").is_some_and(|d| d.trim() == "none")
+            && !self.smil_animates(node, "display")
+        {
+            // Hidden for good: what animates inside it is not lost.
+            for d in node.descendants() {
+                if let Some(list) = self.smil_targets.get(&d.id()) {
+                    self.smil_used.extend(list);
+                }
+            }
             return Ok(None);
         }
         let style = self.inherit(parent, &declared);
@@ -652,6 +668,13 @@ impl<'a, 'input> Converter<'a, 'input> {
         };
         self.with_group_props(node, &declared, &animations, content)
             .map(Some)
+    }
+
+    /// Whether a SMIL animation of `attribute` targets `node`.
+    fn smil_animates(&self, node: XmlNode<'a, 'input>, attribute: &str) -> bool {
+        self.smil_targets
+            .get(&node.id())
+            .is_some_and(|l| l.iter().any(|&i| self.smil[i].attribute == attribute))
     }
 
     /// The children of a container as a group.
@@ -1179,6 +1202,11 @@ impl<'a, 'input> Converter<'a, 'input> {
         let visibility = animations
             .get("visibility")
             .map(|keys| visibility_track(keys));
+        let display = animations.get("display").map(|keys| display_track(keys));
+        let visibility = match (visibility, display) {
+            (Some(v), Some(d)) => Some(combine(&[&v, &d], |o| o[0] * o[1])),
+            (v, d) => v.or(d),
+        };
         let mut bounds_cache: Option<Option<Rect>> = None;
         let mut bounds = |content: &Node| *bounds_cache.get_or_insert_with(|| node_bounds(content));
         let transform = self.transform_ops(declared, animations, &mut || bounds(&content));
@@ -2031,6 +2059,13 @@ impl<'a, 'input> Converter<'a, 'input> {
         }
     }
 
+    /// The SMIL and CSS keyframes of an element that is drawn only where
+    /// something refers to it (a gradient or its stop).
+    fn smil_tracks(&mut self, node: XmlNode<'a, 'input>) -> HashMap<String, Vec<Keyframe<String>>> {
+        let declared = self.cascade(node);
+        self.animations(node, &declared, &Style::default())
+    }
+
     /// The gradient `id` refers to: `Some(None)` for one that draws nothing,
     /// `None` when there is no gradient by that id.
     fn gradient(&mut self, id: &str) -> Option<Option<Paint>> {
@@ -2061,6 +2096,7 @@ impl<'a, 'input> Converter<'a, 'input> {
             .copied()
             .find(|n| n.children().any(|c| c.tag_name().name() == "stop"))?;
         let mut stops: Vec<GradientStop> = Vec::new();
+        let mut stop_colors: Vec<Animated<Color>> = Vec::new();
         for stop in stops_node
             .children()
             .filter(|c| c.tag_name().name() == "stop")
@@ -2072,22 +2108,37 @@ impl<'a, 'input> Converter<'a, 'input> {
                 .unwrap_or(0.0)
                 .clamp(0.0, 1.0);
             let offset = stops.last().map_or(offset, |s| offset.max(s.offset));
-            let color = declared
-                .get("stop-color")
-                .and_then(|c| color(c))
-                .unwrap_or(Color::BLACK);
             let opacity = declared
                 .get("stop-opacity")
                 .and_then(|o| fraction(o))
                 .unwrap_or(1.0);
+            let base = declared
+                .get("stop-color")
+                .and_then(|c| color(c))
+                .unwrap_or(Color::BLACK)
+                .with_opacity(opacity);
+            let moving = self.smil_tracks(stop);
+            stop_colors.push(match moving.get("stop-color") {
+                Some(keys) => self.track(
+                    keys,
+                    "stop-color",
+                    |v| color(v).map(|c| c.with_opacity(opacity)),
+                    base,
+                ),
+                None => Animated::Static(base),
+            });
             stops.push(GradientStop {
                 offset,
-                color: color.with_opacity(opacity),
+                color: base,
             });
         }
         match stops.len() {
             0 => return Some(None),
-            1 => return Some(Some(Paint::solid(stops[0].color))),
+            1 => {
+                return Some(Some(Paint::Solid {
+                    color: stop_colors.remove(0),
+                }));
+            }
             _ => {}
         }
         let units = match attr("gradientUnits") {
@@ -2107,17 +2158,47 @@ impl<'a, 'input> Converter<'a, 'input> {
             GradientUnits::UserSpace => (self.view.width, self.view.height),
             GradientUnits::BoundingBox => (1.0, 1.0),
         };
-        let coord = |name: &str, default: &str, reference: f64| {
-            attr(name)
+        // The attribute of the first element of the chain that has it or
+        // animates it, as a track.
+        let moving: Vec<_> = chain.iter().map(|n| self.smil_tracks(*n)).collect();
+        let coord = |this: &mut Self, name: &str, default: &str, reference: f64| {
+            let fixed = attr(name)
                 .or(Some(default))
                 .and_then(|v| length(v, reference))
-                .unwrap_or(0.0)
+                .unwrap_or(0.0);
+            let keys = chain
+                .iter()
+                .zip(&moving)
+                .find(|(n, m)| n.attribute(name).is_some() || m.contains_key(name))
+                .and_then(|(_, m)| m.get(name));
+            match keys {
+                Some(keys) => this.track(keys, name, |v| length(v, reference), fixed),
+                None => Animated::Static(fixed),
+            }
         };
-        let stops = Animated::Static(stops);
+        let stops = if stop_colors.iter().any(Animated::is_animated) {
+            let offsets: Vec<f64> = stops.iter().map(|s| s.offset).collect();
+            let refs: Vec<&Animated<Color>> = stop_colors.iter().collect();
+            combine(&refs, |colors| {
+                offsets
+                    .iter()
+                    .zip(colors)
+                    .map(|(&offset, &color)| GradientStop { offset, color })
+                    .collect::<Vec<_>>()
+            })
+        } else {
+            Animated::Static(stops)
+        };
         Some(Some(if tag == "linearGradient" {
             Paint::LinearGradient(LinearGradient {
-                start: AnimatedPoint::fixed(coord("x1", "0%", vw), coord("y1", "0%", vh)),
-                end: AnimatedPoint::fixed(coord("x2", "100%", vw), coord("y2", "0%", vh)),
+                start: AnimatedPoint {
+                    x: coord(self, "x1", "0%", vw),
+                    y: coord(self, "y1", "0%", vh),
+                },
+                end: AnimatedPoint {
+                    x: coord(self, "x2", "100%", vw),
+                    y: coord(self, "y2", "0%", vh),
+                },
                 stops,
                 units,
                 transform,
@@ -2125,13 +2206,27 @@ impl<'a, 'input> Converter<'a, 'input> {
             })
         } else {
             let diag = (vw * vw + vh * vh).sqrt() / 2f64.sqrt();
-            let (cx, cy) = (coord("cx", "50%", vw), coord("cy", "50%", vh));
-            let fx = attr("fx").and_then(|v| length(v, vw)).unwrap_or(cx);
-            let fy = attr("fy").and_then(|v| length(v, vh)).unwrap_or(cy);
+            let (cx, cy) = (coord(self, "cx", "50%", vw), coord(self, "cy", "50%", vh));
+            let has = |name: &str| {
+                chain
+                    .iter()
+                    .zip(&moving)
+                    .any(|(n, m)| n.attribute(name).is_some() || m.contains_key(name))
+            };
+            let fx = if has("fx") {
+                coord(self, "fx", "0", vw)
+            } else {
+                cx.clone()
+            };
+            let fy = if has("fy") {
+                coord(self, "fy", "0", vh)
+            } else {
+                cy.clone()
+            };
             Paint::RadialGradient(RadialGradient {
-                center: AnimatedPoint::fixed(cx, cy),
-                radius: Animated::Static(coord("r", "50%", diag)),
-                focal: AnimatedPoint::fixed(fx, fy),
+                center: AnimatedPoint { x: cx, y: cy },
+                radius: coord(self, "r", "50%", diag),
+                focal: AnimatedPoint { x: fx, y: fy },
                 stops,
                 units,
                 transform,
@@ -2295,13 +2390,20 @@ impl<'a, 'input> Converter<'a, 'input> {
             };
             let declared = self.cascade(child);
             let style = self.inherit(&clip_style, &declared);
-            let Some(geometry) = self.geometry(child, &declared, &HashMap::new()) else {
+            let animations = self.animations(child, &declared, &style);
+            let Some(geometry) = self.geometry(child, &declared, &animations) else {
                 if child.tag_name().name() == "text" {
                     self.warn("<text> in a clip path is left out");
                 }
                 continue;
             };
-            if let Some(list) = declared
+            if animations.keys().any(|k| {
+                ["transform", "translate", "rotate", "scale", "smil-"]
+                    .iter()
+                    .any(|p| k.starts_with(p))
+            }) {
+                ops.extend(self.transform_ops(&declared, &animations, &mut || None));
+            } else if let Some(list) = declared
                 .get("transform")
                 .and_then(|t| transform_list(t, (0.0, 0.0)))
             {
@@ -2404,6 +2506,19 @@ impl<'a, 'input> Converter<'a, 'input> {
     }
 }
 
+/// `display` keyframes as an opacity of 0 (`none`) or 1, each held until
+/// the next keyframe: `display` does not interpolate.
+fn display_track(keys: &[Keyframe<String>]) -> Animated<f64> {
+    let frames = keys
+        .iter()
+        .map(|k| {
+            let shown = if k.value.trim() == "none" { 0.0 } else { 1.0 };
+            Keyframe::new(k.time, shown, dxn_vector_animation::Easing::Hold)
+        })
+        .collect();
+    Animated::from_keyframes(frames, 1.0)
+}
+
 /// CSS `visibility` keyframes as an opacity of 0 or 1. Between a visible
 /// and a hidden keyframe the element is visible (CSS interpolates
 /// `visibility` so), so it shows from the start of a segment that ends
@@ -2435,13 +2550,13 @@ fn visibility_track(keys: &[Keyframe<String>]) -> Animated<f64> {
 /// `f` of several tracks as one: keyframe by keyframe when they share
 /// their keyframe times and easings (or all but one are constant), else
 /// sampled finely between every keyframe time of any.
-fn combine<T: Interpolate + PartialEq>(
-    tracks: &[&Animated<f64>],
-    f: impl Fn(&[f64]) -> T,
+fn combine<V: Interpolate + Clone, T: Interpolate + PartialEq>(
+    tracks: &[&Animated<V>],
+    f: impl Fn(&[V]) -> T,
 ) -> Animated<T> {
     const SAMPLES: usize = 12;
     let at = |t: f64| f(&tracks.iter().map(|a| a.sample(t)).collect::<Vec<_>>());
-    let moving: Vec<&[Keyframe<f64>]> = tracks
+    let moving: Vec<&[Keyframe<V>]> = tracks
         .iter()
         .map(|a| a.keyframes())
         .filter(|k| !k.is_empty())
@@ -2462,11 +2577,11 @@ fn combine<T: Interpolate + PartialEq>(
                 .iter()
                 .enumerate()
                 .map(|(i, k)| {
-                    let values: Vec<f64> = tracks
+                    let values: Vec<V> = tracks
                         .iter()
                         .map(|a| match a.keyframes() {
                             [] => a.sample(0.0),
-                            keys => keys[i].value,
+                            keys => keys[i].value.clone(),
                         })
                         .collect();
                     Keyframe::new(k.time, f(&values), k.easing.clone())
@@ -2527,6 +2642,21 @@ fn combine<T: Interpolate + PartialEq>(
 }
 
 /// Elements drawn only where something refers to them.
+/// Whether `node` is graphics in a `<defs>` (not a clip path, mask,
+/// gradient or other thing drawn through a reference), where only a `<use>`
+/// of it would draw it.
+fn is_unused_drawing(node: XmlNode<'_, '_>) -> bool {
+    let mut in_defs = false;
+    for n in node.ancestors() {
+        match n.tag_name().name() {
+            "defs" => in_defs = true,
+            _ if is_reference_only(n) => return false,
+            _ => {}
+        }
+    }
+    in_defs
+}
+
 fn is_reference_only(node: XmlNode<'_, '_>) -> bool {
     matches!(
         node.tag_name().name(),

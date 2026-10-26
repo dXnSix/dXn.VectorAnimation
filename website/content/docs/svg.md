@@ -125,8 +125,12 @@ caption: An SMIL spinner - stroke-dasharray, stroke-dashoffset and a rotating an
 | Timing | `dur`, `repeatCount`, `repeatDur`, `fill="freeze"`, `accumulate="sum"`, `additive="sum"` |
 | `begin` | Offsets (negative ones start part way), other animations' begins, ends and repeats (`a.end + 1s`, `a.repeat(2)`), and events (`click`, `btn.mouseover + 0.5s`); `indefinite` never begins |
 | `end` | Offsets and other animations' begins and ends cut instances short |
+| Where | On drawn elements and on what they draw through a reference: the shapes of a `<clipPath>`, the content of a `<mask>`, a gradient's `x1`, `y1`, `x2`, `y2` (`cx`, `cy`, `r`, `fx`, `fy` on a radial one) and its `<stop>`s' `stop-color` (as LottieFiles' SVG exports write them) |
+| `display` | `none` and any other value, held between keyframes; a `display="none"` element with a `display` animation shows when it says |
 
 Several animations of one attribute apply in the order they began, and CSS wins over SMIL on the same property. At most 4,000 animation instances on the timeline and 4,000 on events are resolved (a cycle of begins cannot use up what clicks need), and 10,000 iterations of one are unrolled; a file that asks for more gets a warning saying what is left out. SMIL animations that repeat forever share [the loop](#the-loop) with CSS ones.
+
+An animation inside a `display="none"` element, or in a `<defs>` group no `<use>` draws, is not a loss and gets no warning. `stop-opacity` of a `<stop>` is the one animation of a gradient that is left out, with a warning.
 
 ### Events
 
