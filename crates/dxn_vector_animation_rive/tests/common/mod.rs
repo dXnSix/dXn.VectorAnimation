@@ -80,6 +80,8 @@ pub mod ty {
     pub const STATE_MACHINE_BOOL: u16 = 59;
     pub const TRANSITION_NUMBER_CONDITION: u16 = 70;
     pub const TRANSITION_BOOL_CONDITION: u16 = 71;
+    pub const NESTED_BOOL: u16 = 123;
+    pub const KEY_FRAME_BOOL: u16 = 84;
 }
 
 /// Property keys.
@@ -235,6 +237,9 @@ pub mod key {
     pub const CONDITION_VALUE: u16 = 157;
     pub const TRANSITION_DURATION: u16 = 158;
     pub const EXIT_TIME: u16 = 160;
+    pub const NESTED_INPUT: u16 = 237;
+    pub const NESTED_BOOL_VALUE: u16 = 238;
+    pub const BOOL_KEY_VALUE: u16 = 181;
 }
 
 /// A property's value.
@@ -302,6 +307,7 @@ const COMPONENTS: &[u16] = &[
     ty::TEXT_MODIFIER_RANGE,
     ty::TEXT_MODIFIER_GROUP,
     ty::CUBIC_INTERPOLATOR_COMPONENT,
+    ty::NESTED_BOOL,
 ];
 
 /// A Rive file being written.

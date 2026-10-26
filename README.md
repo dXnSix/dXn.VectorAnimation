@@ -203,7 +203,8 @@ them alone.
   (outer and inner, offset, blurred as Rive's renderer blurs them); strokes the transform does not scale; clipping shapes; solos and hidden
   drawables; opacity multiplied down the tree into each paint; embedded images (PNG, JPEG, WebP).
 - The default state machine first, as Rive plays it with its inputs as they are: layers together,
-  transitions whose conditions hold, exit times, mixes, repeating from where it settles.
+  transitions whose conditions hold, exit times, mixes, repeating from where it settles. Nested artboards'
+  state machines too, their inputs as the parent's animations key them.
 - Linear animations, one after another on the timeline, each under a marker of its name carrying its loop,
   within their work areas and at their speeds; holds,
   straight lines, cubic easings and value curves as easings; elastic easings, colors mixed straight and
@@ -220,7 +221,7 @@ them alone.
   scale, transform, distance, IK, follow-path) applied as Rive's runtime applies them. Draw rules, keyed too.
   Text modifiers moving, turning, scaling and fading glyphs by their ranges.
 - Left out with a warning, for the phases of [its design](docs/design/rive.md) to come: state machines'
-  listeners and input changes, nested state machines beyond their entry, text variation and follow-path modifiers and ellipses, layout, data
+  listeners and input changes, text variation and follow-path modifiers and ellipses, layout, data
   binding, scripting and audio.
 
 ## Untrusted input

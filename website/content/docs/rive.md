@@ -46,7 +46,7 @@ for marker in &import.scene.timeline.markers {
 | Clipping shapes over several drawables | One clip over each run of drawables under the same clipping shapes, of the source's outlines as one path under the clip's rule; clips do not set what they hold apart, so blend modes inside mix with what is under them |
 | Text modifiers: groups with their translation, rotation, scale, origin and opacity; ranges by characters, characters without spaces, words or lines, of a run or all, by percentage or index, with falloffs, an interpolator, offsets, strengths, modes and clamping | Each glyph moved, turned, scaled and faded as much as the ranges cover its characters, at each time they change, as Rive's runtime does |
 | Joysticks | Their x and y animations applied over the others at the fraction their values say: their own (keyed or not), or where their handle node is within their bounds |
-| Nested artboards | The artboard they show, converted on its own and drawn at their transform about its origin, clipped to it; its nested animations play on the parent's clock in layers, a later one overriding an earlier one where both key a property: a simple animation while it plays (`isPlaying` may be keyed) at its speed, repeating as its loop says; a state machine's entry animation; a remap animation at the time keyed. A nested artboard playing alike in each of the parent's animations keeps one copy of its keyframes, restarted by a time remap |
+| Nested artboards | The artboard they show, converted on its own and drawn at their transform about its origin, clipped to it; its nested animations play on the parent's clock in layers, a later one overriding an earlier one where both key a property: a simple animation while it plays (`isPlaying` may be keyed) at its speed, repeating as its loop says; a state machine as Rive plays it, its inputs as the parent's animations key them (in each of the parent's spans, those holding the same inputs sharing one run of it; laid out over many spans, it plays in the parent's state machine); a remap animation at the time keyed. A nested artboard playing alike in each of the parent's animations keeps one copy of its keyframes, restarted by a time remap |
 
 ## Animations
 
@@ -85,8 +85,7 @@ vector-animation render menu.riv --artboard Menu -t 0.5
 What a file holds beyond that is left out with a warning (`Import::warnings`, `inspect`, `onLoad`):
 
 - state machines' listeners and input changes, triggers, blend states, conditions on view models, other
-  state machines than the default, nested state machines beyond their entry animation, events and data
-  binding;
+  state machines than the default, events and data binding;
 - text variation and follow-path modifiers and text ellipses, layout, draggable and scroll constraints,
   scripting and audio.
 

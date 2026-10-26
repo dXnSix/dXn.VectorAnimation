@@ -192,7 +192,11 @@ The core gains what Rive needs, each with the reference renderer's drawing and t
    the value the property had when the transition began (Rive's `AnimationReset`); where none applies it
    keeps its last value. The machine is a marker at 0 and the timeline's span. Checked against Rive's
    runtime played frame by frame: the test files draw the same; Studiorun, Sobo, the snake and the weather
-   card within 0.3% of pixels. **Still to come**: the interactive machine, `Scene::state_machines` (inputs, layers, states playing markers, blend
+   card within 0.3% of pixels. **Done: nested state machines** the same way, in each of the parent's spans,
+   their inputs (`NestedBool`, `NestedNumber`) read from the parent's keys frame by frame; spans holding the
+   same inputs share one run behind a time remap, and an artboard laid out over many spans plays its machine
+   in the parent's state machine alone (Studiorun stays at 686k keyframes). **Still to come**: the
+   interactive machine, `Scene::state_machines` (inputs, layers, states playing markers, blend
    states, transitions with conditions, exit times and mixes, listeners on nodes' outlines, events), an
    evaluator in the core turning inputs over time into weighted times on the timeline for each layer, and
    `Scene::frame_blend` sampling the scene at several times and interpolating.

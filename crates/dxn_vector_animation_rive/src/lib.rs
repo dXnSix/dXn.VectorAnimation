@@ -55,8 +55,11 @@
 //! their ranges cover its characters (by characters, words or lines, with
 //! falloffs), as Rive's runtime applies them.
 //!
+//! A nested artboard's state machine plays the same way, its inputs as the
+//! parent's animations set them.
+//!
 //! What a file holds beyond that (state machines' listeners and input
-//! changes, nested state machines beyond their entry, text variation and
+//! changes, text variation and
 //! follow-path modifiers, text ellipses, layout,
 //! data binding, scripting, audio) is left out with a warning in
 //! [`Import::warnings`].

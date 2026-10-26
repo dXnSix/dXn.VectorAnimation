@@ -192,7 +192,7 @@ struct Entered {
 struct Layer<'a> {
     states: &'a [State],
     anims: &'a [Anim],
-    inputs: &'a [Option<f64>],
+    inputs: Vec<Option<f64>>,
     current: Option<Entered>,
     from: Option<Entered>,
     any: Option<usize>,
@@ -422,19 +422,19 @@ impl Layer<'_> {
 }
 
 /// What layer `states` applies at each of `frames` frames of `dt` seconds
-/// from its entry, the inputs at `inputs` (`None`: an input of a kind not
-/// read).
+/// from its entry, the inputs at each frame as `inputs` says (`None`: an
+/// input of a kind not read).
 pub(crate) fn play(
     states: &[State],
     anims: &[Anim],
-    inputs: &[Option<f64>],
+    inputs: &dyn Fn(usize) -> Vec<Option<f64>>,
     frames: usize,
     dt: f64,
 ) -> Vec<Applied> {
     let mut layer = Layer {
         states,
         anims,
-        inputs,
+        inputs: Vec::new(),
         current: None,
         from: None,
         any: states.iter().position(|s| s.kind == Kind::Any),
@@ -449,6 +449,9 @@ pub(crate) fn play(
         layer.enter(entry);
     }
     (0..frames)
-        .map(|k| layer.advance(if k == 0 { 0.0 } else { dt as f32 }, k))
+        .map(|k| {
+            layer.inputs = inputs(k);
+            layer.advance(if k == 0 { 0.0 } else { dt as f32 }, k)
+        })
         .collect()
 }

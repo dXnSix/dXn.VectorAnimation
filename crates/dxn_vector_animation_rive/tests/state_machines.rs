@@ -17,8 +17,12 @@ const WHITE: [u8; 3] = [255, 255, 255];
 /// red one from x 10 to 90 in a second, looping; "moveB" (1) the blue one
 /// in two, looping; "backA" (2) the red one from 90 to 10 in a second, once.
 fn squares() -> Riv {
-    let mut riv = Riv::new()
-        .artboard(100.0, 50.0)
+    squares_after(Riv::new().artboard(100.0, 50.0))
+}
+
+/// The squares and their animations in the artboard `riv` has just opened.
+fn squares_after(riv: Riv) -> Riv {
+    let mut riv = riv
         .rect_shape(0, 10.0, 15.0, 10.0, 10.0, 0xFFFF_0000)
         .rect_shape(0, 10.0, 35.0, 10.0, 10.0, 0xFF00_00FF);
     for (name, object, from, to, frames, loop_value) in [
@@ -197,4 +201,87 @@ fn conditions_hold_for_the_inputs_values() {
     assert!(near(at(&on, 0.25, 70, 15), RED, 2));
     let off = scene(&with(false));
     assert!(near(at(&off, 0.25, 30, 15), RED, 2));
+}
+
+#[test]
+fn nested_state_machines_follow_the_inputs_their_parent_keys() {
+    // The parent shows the squares' artboard (its state machine going from
+    // "moveA" to "backA" when "go" is on) and turns "go" on at 0.5 s.
+    let parent = Riv::new()
+        .artboard(100.0, 50.0)
+        .obj(
+            ty::NESTED_ARTBOARD,
+            &[(key::PARENT_ID, V::U(0)), (key::ARTBOARD_ID, V::U(1))],
+        )
+        .obj(
+            ty::NESTED_STATE_MACHINE,
+            &[
+                (key::PARENT_ID, V::U(1)),
+                (key::NESTED_ANIMATION_ID, V::U(0)),
+            ],
+        )
+        .obj(
+            ty::NESTED_BOOL,
+            &[(key::PARENT_ID, V::U(2)), (key::NESTED_INPUT, V::U(0))],
+        )
+        .obj(
+            ty::LINEAR_ANIMATION,
+            &[
+                (key::ANIMATION_NAME, V::S("go")),
+                (key::FPS, V::U(10)),
+                (key::DURATION, V::U(20)),
+            ],
+        )
+        .obj(ty::KEYED_OBJECT, &[(key::OBJECT_ID, V::U(3))])
+        .obj(
+            ty::KEYED_PROPERTY,
+            &[(key::PROPERTY_KEY, V::U(u64::from(key::NESTED_BOOL_VALUE)))],
+        )
+        .obj(
+            ty::KEY_FRAME_BOOL,
+            &[(key::FRAME, V::U(0)), (key::BOOL_KEY_VALUE, V::B(false))],
+        )
+        .obj(
+            ty::KEY_FRAME_BOOL,
+            &[(key::FRAME, V::U(5)), (key::BOOL_KEY_VALUE, V::B(true))],
+        );
+    let parent = layer(machine(parent), &[(3, &[], &[])], &[], &[(0, &[])]);
+    let child = machine(squares_after(parent.obj(
+        ty::ARTBOARD,
+        &[
+            (key::NAME, V::S("Squares")),
+            (key::WIDTH, V::D(100.0)),
+            (key::HEIGHT, V::D(50.0)),
+            (key::ORIGIN_X, V::D(0.0)),
+            (key::ORIGIN_Y, V::D(0.0)),
+        ],
+    )))
+    .obj(
+        ty::STATE_MACHINE_BOOL,
+        &[
+            (key::INPUT_NAME, V::S("go")),
+            (key::BOOL_VALUE, V::B(false)),
+        ],
+    );
+    let riv = layer(
+        child,
+        &[(3, &[], &[])],
+        &[(
+            4,
+            &[],
+            &[(
+                ty::TRANSITION_BOOL_CONDITION,
+                &[
+                    (key::CONDITION_INPUT, V::U(0)),
+                    (key::CONDITION_OP, V::U(0)),
+                ],
+            )],
+        )],
+        &[(0, &[]), (2, &[])],
+    );
+    let s = scene(&riv);
+    // "moveA" until 0.5 s (the red square at 30 a quarter second in), then
+    // "backA" from 90.
+    assert!(near(at(&s, 0.25, 30, 15), RED, 2));
+    assert!(near(at(&s, 0.75, 70, 15), RED, 2));
 }
