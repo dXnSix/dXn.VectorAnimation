@@ -144,14 +144,29 @@ pub(crate) fn unpack(data: &[u8], limits: &Limits) -> Result<(Value, Vec<String>
             ids.len()
         ));
     }
+    // dotLottie 1 keeps animations under `animations/`, 2 under `a/`.
     let animation = ids
         .first()
-        .and_then(|id| find(&format!("animations/{id}.json")))
+        .and_then(|id| {
+            find(&format!("a/{id}.json")).or_else(|| find(&format!("animations/{id}.json")))
+        })
         .or_else(|| {
-            list.iter()
-                .find(|e| e.name.starts_with("animations/") && e.name.ends_with(".json"))
+            list.iter().find(|e| {
+                (e.name.starts_with("animations/") || e.name.starts_with("a/"))
+                    && e.name.ends_with(".json")
+            })
         })
         .ok_or_else(|| invalid("no animation"))?;
+    let machines = manifest
+        .as_ref()
+        .and_then(|m| m.get("stateMachines"))
+        .and_then(Value::as_array)
+        .map_or(0, Vec::len);
+    if machines > 0 {
+        warnings.push(format!(
+            "the archive holds {machines} state machines: they are left out"
+        ));
+    }
     let mut root: Value =
         serde_json::from_slice(&read(animation)?).map_err(|e| Error::Invalid(e.to_string()))?;
     // Images the animation refers to by path, embedded.

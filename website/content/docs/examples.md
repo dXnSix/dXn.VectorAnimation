@@ -73,9 +73,8 @@ height: 260
 caption: dotLottie files (`.lottie` archives), each in a tile.
 ```
 
-The three archives here are dotLottie 2 (`a/<id>.json`), a layout the importer does not read yet: it looks for
-dotLottie 1's `animations/<id>.json`, so the tiles stay empty until it does. Each holds the same animation as
-its Lottie JSON above.
+The archives are dotLottie 2 (`a/<id>.json`); two of them carry state machines, which the importer leaves out and
+says so. Each holds the same animation as its Lottie JSON above.
 
 ### Animated SVG
 

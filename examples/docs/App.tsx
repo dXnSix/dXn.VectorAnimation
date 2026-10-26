@@ -161,7 +161,7 @@ function Files(props: { group: "lottie" | "dotlottie" | "svg" }) {
         </View>
       ))}
       {list.length === 0 ? (
-        <Text style={{ opacity: 0.7 }}>These archives are dotLottie 2, which the importer does not read yet.</Text>
+        <Text style={{ opacity: 0.7 }}>No files in this group.</Text>
       ) : null}
     </View>
   );

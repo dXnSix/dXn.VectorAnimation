@@ -132,9 +132,10 @@ Effects come before layer styles. Disabled effects are skipped.
 
 ## dotLottie
 
-A dotLottie file is a ZIP of `manifest.json`, the animations (`animations/<id>.json`) and their images (`images/` in version 1, `i/` in version 2). The importer reads both versions:
+A dotLottie file is a ZIP of `manifest.json`, the animations (`animations/<id>.json` in version 1, `a/<id>.json` in version 2) and their images (`images/` in version 1, `i/` in version 2). The importer reads both versions:
 
 - The first animation in the manifest is read; when there are more, a warning says how many.
+- State machines (`s/` in version 2) are left out; a warning says how many.
 - Its images are embedded in the scene. An image missing from the archive is a warning.
 - Entries stored or deflated read; other compression methods and ZIP64 archives are `Error::Unsupported`. At most 10,000 entries, and the unpacked bytes stay within `max_bytes`.
 

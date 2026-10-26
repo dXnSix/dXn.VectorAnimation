@@ -13,7 +13,11 @@ importers' `gallery` tests.
 | `navigation-bar-selection.*` | `@lottiefiles/creator` 1.108.2 |
 | `boxer.json`, `boxer.svg` | LottieFiles After Effects extension 3.6.0 (Lottie 4.8) |
 
-A fourth download, "Rolling Cubes" (a 12.7 MB SVG and a 770 KB JSON with 145,000 keyframes), is left out: the
-examples' web build loads every scene, and this one is too large for that.
+The files were added on the repository owner's own responsibility; LottieFiles' terms for free animations are what they were
+downloaded under.
+
+A fifth download, "Rolling Cubes" (a 12.7 MB SVG and a 770 KB JSON with 145,000 keyframes; both read, the SVG with
+SMIL on `d`, `display` and `transform` left out), is not in the repository: it is too large for the examples' web
+build, which loads every scene, and its files were no longer on the desk when it was to be committed.
 
 The file names are the downloads' names in lowercase with dashes.

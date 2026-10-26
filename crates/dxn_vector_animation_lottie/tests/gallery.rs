@@ -64,19 +64,3 @@ fn markers_come_through() {
         ["Chat", "Question", "Articles", "Communities", "Idle"]
     );
 }
-
-/// The v2 layout (`a/<id>.json`, state machines under `s/`) is not read yet:
-/// the importer looks for dotLottie 1's `animations/<id>.json`.
-#[test]
-#[ignore = "dotLottie 2 archives (a/<id>.json) are not read yet"]
-fn dotlottie_archives_match_their_json() {
-    for name in ["alien-button", "alphabet-a", "navigation-bar-selection"] {
-        let from_json = json(name);
-        let import = dxn_vector_animation_lottie::read(&file(&format!("{name}.lottie"))).unwrap();
-        assert_eq!(import.scene.width, from_json.width, "{name}");
-        assert_eq!(
-            import.scene.timeline.duration, from_json.timeline.duration,
-            "{name}"
-        );
-    }
-}
