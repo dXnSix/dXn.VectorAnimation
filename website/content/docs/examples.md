@@ -1,54 +1,12 @@
 ---
 title: Examples
-description: Every check scene of the NSH player and a gallery of free animations, live in the browser, and how the examples app is built.
+description: A gallery of free animations and every check scene of the NSH player, live in the browser, and how the examples app is built.
 group: Examples
 order: 150
 ---
 
-These are the scenes the player is checked with on every platform, played by its web build. Each one
-exercises one part of [What it plays natively](./capabilities.md).
-
-```example
-demo: all
-height: 760
-caption: The check scenes, each in a tile.
-```
-
-## The scenes
-
-| Name | What it shows |
-|---|---|
-| `figma` | A Figma Motion SVG export (CSS `@keyframes`): `fixtures/figma-motion.svg` |
-| `lottie` | A Lottie file: `fixtures/lottie-motion.json` |
-| `ring` | A ring spinner as svg-spinners draws one: a dash growing while its offset runs on, SMIL throughout |
-| `drawn-on` | A path drawn on as Figma Motion exports it: a dash pattern `0 1` to `1 1` along a path of length 1 |
-| `trims` | Trims moving at both ends over a circle's start and a square's corner |
-| `loader` | A fixed arc carried round more than once by its offset |
-| `shine` | A light band running along a gradient, narrowing, on a fill and on its rim (Figma's coin) |
-| `sweep` | Gradients whose ends move: a linear one on a square, a radial one whose circle grows |
-| `fade` | Gradient colors that change, fading to transparent, on a fill and on a stroke whose gradient moves too |
-| `shadow` | Figma's drop shadows: a card's still one, and a disc's whose blur and opacity move |
-| `blur` | Layer blurs: a still glow (drawn once) and a disc coming into focus |
-| `soft-mask` | A luminance mask of gray and white, and an alpha mask of a half-transparent disc, over moving content |
-| `turning-clip` | A clip whose shape turns |
-| `turning-mask` | A half-transparent soft mask of one shape, turning |
-| `turning-masks` | A soft mask of two overlapping shapes turning apart |
-| `moving-shadows` | A shadow falling further as its card rises, one showing through a half-clear disc, one changing hue |
-| `card-shadows` | Figma's hard shadows of a card clipping its content, turning and shrinking, and of a half-clear one |
-| `mask-images` | Masks drawn as images: a gradient fading content out, six overlapping half-clear discs, a sliding mask |
-| `trims-moving` | A star turning and deepening, drawn on and off; a disc's fill trimmed as it runs round |
-| `stop-counts` | A gradient gaining and losing stops as they move |
-| `dash-slots` | A hundred dashes round a growing circle, their offset running on |
-| `switching-star` | A star of five points and six, forty times over, turning |
-| `live-text` | A centered title growing and changing color, a line sliding in, a stroked word |
-| `inner-shadows` | Figma's inner shadows: a card's, under a drop shadow, and a moving disc's |
-| `color-effects` | Shapes turning gray and back, a hue going round |
-| `patterns` | A tiling turned in a moving circle, and Figma's image fill |
-| `shadow-images` | Shadows of what the canvas cannot cast as shapes: clipped content, and a disc casting its own shadow |
-| `moving-layers` | A badge turning and growing along a path, a card fading: layers the platform moves |
-| `clear-stops` | A gradient whose middle stop fades in from clear as it moves, then out again |
-
-The two examples of [Playback](./playback.md), `playback` and `events`, belong to the examples app itself.
+Live examples of the player in the browser: free animations from LottieFiles, played from each of the formats the
+player reads, and below them the scenes the player is checked with on every platform.
 
 ## Animations from the wild
 
@@ -91,17 +49,50 @@ caption: Animated SVG files as Figma Motion and LottieFiles write them, each in 
 | `navigation-bar-selection` | JSON, dotLottie, SVG | A navigation bar's selection moving between four tabs, one marker each |
 | `boxer` | JSON, SVG | A character animation from After Effects (Lottie 4.8, 30 frames a second) |
 
-Two of the SVG files do not look like their JSON and dotLottie versions, and the fault is in the files: LottieFiles'
-SVG export writes them differently, and a browser draws them as the tiles do (read off Chromium's frames at many times
-over several loops; the importer, the reference renderer and the player match it).
+## The scenes
 
-- `alien-button`: the "o" of "Connect" is a dot, not a ring. The file writes the letter's inner contour as a path of
-  its own, filled white, where the JSON fills one compound path whose inner contour cuts the counter out. And the glow
-  under the button is missing: the file has none of the JSON's purple drop shadow and a much smaller blur on the
-  button's outline.
-- `navigation-bar-selection`: the colored backgrounds of the bars that animate sit half their width off their labels.
-  The file's rectangle starts at `x = 0` while its group moves from minus half its width to 0 as it grows, where the
-  JSON's rectangle grows from its left edge about a center that moves along.
+These are the scenes the player is checked with on every platform, played by its web build. Each one
+exercises one part of [What it plays natively](./capabilities.md).
+
+```example
+demo: all
+height: 760
+caption: The check scenes, each in a tile.
+```
+
+| Name | What it shows |
+|---|---|
+| `figma` | A Figma Motion SVG export (CSS `@keyframes`): `fixtures/figma-motion.svg` |
+| `lottie` | A Lottie file: `fixtures/lottie-motion.json` |
+| `ring` | A ring spinner as svg-spinners draws one: a dash growing while its offset runs on, SMIL throughout |
+| `drawn-on` | A path drawn on as Figma Motion exports it: a dash pattern `0 1` to `1 1` along a path of length 1 |
+| `trims` | Trims moving at both ends over a circle's start and a square's corner |
+| `loader` | A fixed arc carried round more than once by its offset |
+| `shine` | A light band running along a gradient, narrowing, on a fill and on its rim (Figma's coin) |
+| `sweep` | Gradients whose ends move: a linear one on a square, a radial one whose circle grows |
+| `fade` | Gradient colors that change, fading to transparent, on a fill and on a stroke whose gradient moves too |
+| `shadow` | Figma's drop shadows: a card's still one, and a disc's whose blur and opacity move |
+| `blur` | Layer blurs: a still glow (drawn once) and a disc coming into focus |
+| `soft-mask` | A luminance mask of gray and white, and an alpha mask of a half-transparent disc, over moving content |
+| `turning-clip` | A clip whose shape turns |
+| `turning-mask` | A half-transparent soft mask of one shape, turning |
+| `turning-masks` | A soft mask of two overlapping shapes turning apart |
+| `moving-shadows` | A shadow falling further as its card rises, one showing through a half-clear disc, one changing hue |
+| `card-shadows` | Figma's hard shadows of a card clipping its content, turning and shrinking, and of a half-clear one |
+| `mask-images` | Masks drawn as images: a gradient fading content out, six overlapping half-clear discs, a sliding mask |
+| `trims-moving` | A star turning and deepening, drawn on and off; a disc's fill trimmed as it runs round |
+| `stop-counts` | A gradient gaining and losing stops as they move |
+| `dash-slots` | A hundred dashes round a growing circle, their offset running on |
+| `switching-star` | A star of five points and six, forty times over, turning |
+| `live-text` | A centered title growing and changing color, a line sliding in, a stroked word |
+| `inner-shadows` | Figma's inner shadows: a card's, under a drop shadow, and a moving disc's |
+| `color-effects` | Shapes turning gray and back, a hue going round |
+| `patterns` | A tiling turned in a moving circle, and Figma's image fill |
+| `shadow-images` | Shadows of what the canvas cannot cast as shapes: clipped content, and a disc casting its own shadow |
+| `moving-layers` | A badge turning and growing along a path, a card fading: layers the platform moves |
+| `clear-stops` | A gradient whose middle stop fades in from clear as it moves, then out again |
+
+The two examples of [Playback](./playback.md), `playback` and `events`, belong to the examples app itself.
 
 ## How the examples are built
 
