@@ -6,14 +6,15 @@
 Documentation, with the player's examples live: https://dxnsix.github.io/dXn.VectorAnimation/
 
 **Animated vector graphics for Rust, independent of any renderer or UI framework.** `dxn_vector_animation`
-reads animated SVG and Lottie into one scene model: groups, shapes, paints and masks whose properties are
+reads animated SVG, Lottie and Rive into one scene model: groups, shapes, paints and masks whose properties are
 constants or keyframe tracks on a timeline. A renderer either samples the scene at a moment
 (`Scene::frame_at(t)` gives a flat display list) or maps the tracks onto an animation system of its own.
 `dxn_vector_animation_nsh` does the latter for NSH apps, natively on iOS, Android, macOS, Windows, Linux, GPUI
 and the web ([Playing in NSH apps](#playing-in-nsh-apps)).
 
 > **Status: phase 1.** The scene model, Figma Motion's animated SVG (CSS and SMIL), Lottie and dotLottie
-> (expressions, text animators and shape modifiers included), the reference renderer and the CLI; the NSH
+> (expressions, text animators and shape modifiers included), Rive's artboards and linear animations, the
+> reference renderer and the CLI; the NSH
 > player's component, playback, TSX and Rust APIs and example apps, checked headless (`nsh test`), against 53
 > real animation files, and frame by frame in the iOS simulator, Chrome, the Android emulator, GTK and GPUI on
 > Linux, AppKit and GPUI on macOS, and Windows (on CI); no real phone has run it yet. What is left is in the
@@ -32,7 +33,7 @@ Its first consumer is the NSH player in this repository ([Playing in NSH apps](#
 
 ```rust
 let data = std::fs::read("button.svg")?;
-let import = dxn_vector_animation_svg::read(&data)?; // or dxn_vector_animation_lottie::read
+let import = dxn_vector_animation_svg::read(&data)?; // or dxn_vector_animation_lottie::read, _rive::read
 for warning in &import.warnings {
     eprintln!("left out: {warning}");
 }
@@ -55,8 +56,9 @@ vector-animation render button.svg --fps 30 --width 600 --background white
 | `dxn_vector_animation` | The scene model, keyframe tracks and easings, the timeline, path geometry, interpolation, sampling (`Scene::frame_at`), the limits that bound untrusted files, and (feature `serde`) the compiled scene format |
 | `dxn_vector_animation_svg` | Reads SVG: the static document, CSS animations (the subset Figma Motion writes) and SMIL |
 | `dxn_vector_animation_lottie` | Reads Lottie JSON and dotLottie archives |
+| `dxn_vector_animation_rive` | Reads Rive files (`.riv`): an artboard, its linear animations as markers |
 | `dxn_vector_animation_render` | A reference CPU renderer on tiny-skia: golden tests, poster frames, the CLI's images |
-| `dxn_vector_animation_cli` | The `vector-animation` command: `inspect`, `validate`, `compile` (SVG or Lottie into a scene file), `render` (PNG frames) |
+| `dxn_vector_animation_cli` | The `vector-animation` command: `inspect`, `validate`, `compile` (SVG, Lottie or Rive into a scene file), `render` (PNG frames) |
 | `dxn_vector_animation_nsh` | The NSH player: a UI set with the `VectorAnimation` component ([Playing in NSH apps](#playing-in-nsh-apps)) |
 | `dxn_vector_animation_check` | The player's device check tool, `vector-animation-check`: the check set, comparisons with the reference renderer, profiles |
 
@@ -188,6 +190,37 @@ them alone.
   and paths of text without glyphs, other effects (strokes of masks, wipes, distortions) and layer styles
   (strokes, glows, bevels, satin, gradient overlays).
 
+**Rive** (`dxn_vector_animation_rive`)
+
+- Rive files (`.riv`, format 7) read with the types and properties of one tag of Rive's own runtime
+  (`RUNTIME_TAG`, the tables generated from its definitions), put together as that runtime puts them:
+  objects of types it does not know keep their places, properties it does not know are skipped by the file's
+  table of contents.
+- An artboard (the first, or one named): its drawables in Rive's draw order under their ancestors'
+  transforms; points paths (straight vertices rounding their corners, mirrored, asymmetric and detached cubic
+  vertices), rectangles, ellipses, polygons, stars and triangles; fills and strokes of solid colors and linear
+  and radial gradients, fill rules (clockwise too), blend modes, trim paths and dashes; feathered edges
+  (outer and inner, offset, blurred as Rive's renderer blurs them); strokes the transform does not scale; clipping shapes; solos and hidden
+  drawables; opacity multiplied down the tree into each paint; embedded images (PNG, JPEG, WebP).
+- Linear animations, one after another on the timeline, each under a marker of its name carrying its loop
+  (the one the default state machine enters first at 0), within their work areas and at their speeds; holds,
+  straight lines, cubic easings and value curves as easings; elastic easings, colors mixed straight and
+  values computed from several moving ones sampled at 60 frames a second.
+- Nested artboards, drawn at their transform about their origin and clipped to their artboard, playing
+  their nested animations on the parent's clock in layers (later ones override earlier ones, as Rive
+  applies them): simple animations while they play (`isPlaying` keyed too) at their speed and loop, state
+  machines' entry animations, remap animations at the time keyed; their setup pose without one.
+- Text shaped with the file's embedded fonts (their variation axes too) and laid out as Rive lays it out:
+  runs in their styles, paragraphs, wrapping, alignment, auto and fixed sizes, origins, line heights,
+  letter and paragraph spacing, hidden, clipped and fitted overflow; text keyed over time shown layout by
+  layout. Joysticks, applying their animations at their values or where their handle is. Bones, and
+  skins deforming outlines and image meshes by their bones' weights. Constraints (translation, rotation,
+  scale, transform, distance, IK, follow-path) applied as Rive's runtime applies them. Draw rules, keyed too.
+  Text modifiers moving, turning, scaling and fading glyphs by their ranges.
+- Left out with a warning, for the phases of [its design](docs/design/rive.md) to come: state machines (the
+  entry's animation plays), text variation and follow-path modifiers and ellipses, layout, data
+  binding, scripting and audio.
+
 ## Untrusted input
 
 A remote animation is a document from the network. Reading one is bounded by `Limits`: its size in bytes,
@@ -232,19 +265,20 @@ vector_animation().src(Some(Source::bytes(HERO))).on_end(|| …)
 ```
 
 SVG files are compiled ahead with the CLI (`vector-animation compile button.svg`) and
-imported as JSON; Lottie JSON imports as it is; URLs are fetched through NSH's network stack, under the app's
+imported as JSON; Lottie JSON imports as it is; a Rive file plays from its bytes or a URL, each animation a
+`segment` (`<VectorAnimation src={riv} segment="hover" />`), repeating as its loop says; URLs are fetched through NSH's network stack, under the app's
 network capabilities. `examples/gallery` is an app using each.
 
 ### The component
 
 | Prop / event | Meaning |
 |---|---|
-| `src` | A URL, the text of an SVG, Lottie or compiled scene, its bytes (`Uint8Array`), or a Lottie or compiled scene's JSON |
+| `src` | A URL, the text of an SVG, Lottie or compiled scene, its bytes (`Uint8Array`: a Rive file's too), or a Lottie or compiled scene's JSON |
 | `paused` | Stops playback where it is; `false` plays on from there |
 | `repeat` | `true` forever, a number of times in all, `false` once; the file's loop mode when left out. Runs after the first start at the timeline's loop start |
 | `direction` | `"normal"`, `"reverse"` or `"alternate"` |
 | `rate` | Playback speed, 1 by default |
-| `segment` | What plays: a marker's name or `[start, end]` in seconds |
+| `segment` | What plays: a marker's name (a Rive animation's) or `[start, end]` in seconds |
 | `resizeMode` | `"contain"` (default), `"cover"`, `"stretch"` or `"center"` |
 | `progress` | 0 to 1: the frame shown, set by the app (scrubbing); stops playback while set |
 | `posterFrame` | What shows when the user reduces motion: `"first"` (default), `"last"`, seconds or a marker |
@@ -523,6 +557,11 @@ The scene model and its inputs:
    modifiers, CSS selectors with combinators and more pseudo-classes, inner shadows, color effects,
    patterns, live text, SMIL end times, accumulation and events; Lottie expressions.
 2. Lottie expressions on paths and text documents, and layer space transforms (`toComp`, `fromComp`).
+3. **Done:** Rive, phase 1: artboards, their shapes, paints, clips, solos and images, linear animations as
+   markers with their loops; feathered edges; strokes that do not scale; nested artboards; text; joysticks;
+   bones, skins and image meshes; constraints; draw rules; text modifiers.
+4. Rive, as [its design](docs/design/rive.md) says: what the runtime evaluates (what is
+   left of text), then state machines in the core and the player, then data binding and layout.
 
 The NSH player:
 

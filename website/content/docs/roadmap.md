@@ -18,7 +18,10 @@ The scene model and its inputs:
 - effects, dotLottie archives, repeaters, Lottie text with glyphs, its animators and paths, Lottie shape
   modifiers, CSS selectors with combinators and pseudo-classes;
 - inner shadows, color effects, patterns, live text, SMIL end times, accumulation and events;
-- Lottie expressions, evaluated and baked into keyframes.
+- Lottie expressions, evaluated and baked into keyframes;
+- Rive files, phase 1: an artboard's shapes, paints, clips, solos and images, and its linear animations as
+  markers with their loops; feathered edges; strokes that do not scale; nested artboards; text;
+  joysticks; bones, skins and image meshes; constraints; draw rules; text modifiers.
 
 The NSH player:
 
@@ -32,6 +35,9 @@ The NSH player:
 ## Left
 
 - Lottie expressions on paths and text documents, and layer space transforms (`toComp`, `fromComp`).
+- Rive, as its [design](https://github.com/dXnSix/dXn.VectorAnimation/blob/main/docs/design/rive.md) says: what
+  the runtime evaluates (what is left of text), then
+  state machines in the core and the player, then data binding and layout.
 - Real phones and their frame times.
 - Why GTK in a slow virtual machine sometimes takes the check app's steps seconds late.
 
@@ -42,7 +48,7 @@ cargo fmt --check
 # The core (a plain `cargo test` builds it alone):
 cargo clippy --workspace --exclude dxn_vector_animation_nsh --exclude dxn_vector_animation_check --all-targets --all-features -- -D warnings
 cargo test --all-features
-cargo check -p dxn_vector_animation -p dxn_vector_animation_svg -p dxn_vector_animation_lottie --target wasm32-unknown-unknown
+cargo check -p dxn_vector_animation -p dxn_vector_animation_svg -p dxn_vector_animation_lottie -p dxn_vector_animation_rive --target wasm32-unknown-unknown
 # The NSH player:
 cargo clippy -p dxn_vector_animation_nsh -p dxn_vector_animation_check --all-targets -- -D warnings
 cargo test -p dxn_vector_animation_nsh -p dxn_vector_animation_check

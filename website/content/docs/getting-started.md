@@ -16,6 +16,7 @@ The crates are not on crates.io and have no release tags yet. Depend on the repo
 dxn_vector_animation = { git = "https://github.com/dXnSix/dXn.VectorAnimation", branch = "main" }
 dxn_vector_animation_svg = { git = "https://github.com/dXnSix/dXn.VectorAnimation", branch = "main" }
 dxn_vector_animation_lottie = { git = "https://github.com/dXnSix/dXn.VectorAnimation", branch = "main" }
+dxn_vector_animation_rive = { git = "https://github.com/dXnSix/dXn.VectorAnimation", branch = "main" }
 dxn_vector_animation_render = { git = "https://github.com/dXnSix/dXn.VectorAnimation", branch = "main" }
 ```
 
@@ -26,6 +27,7 @@ dxn_vector_animation_render = { git = "https://github.com/dXnSix/dXn.VectorAnima
 | `dxn_vector_animation` | The scene model, tracks and easings, the timeline, sampling (`Scene::frame_at`), `Limits`, and the compiled scene format (feature `serde`) |
 | `dxn_vector_animation_svg` | Reads SVG: the static document, CSS animations as Figma Motion writes them, SMIL |
 | `dxn_vector_animation_lottie` | Reads Lottie JSON and dotLottie archives |
+| `dxn_vector_animation_rive` | Reads Rive files (`.riv`): an artboard and its linear animations |
 | `dxn_vector_animation_render` | The reference renderer on tiny-skia: frames to pixmaps and PNGs |
 | `dxn_vector_animation_cli` | The `vector-animation` command: `inspect`, `validate`, `compile`, `render` |
 

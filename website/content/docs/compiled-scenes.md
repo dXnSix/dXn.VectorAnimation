@@ -184,4 +184,4 @@ Because the scene types implement `Serialize` and `Deserialize`, a `Scene` can l
 - **Warnings at build time.** `compile` prints what the file leaves out when the designer can still change it; `vector-animation validate --strict` can fail the build.
 - **Plain JSON.** A bundler imports it as any JSON file. The NSH player's TSX apps import SVG animations this way (`import button from "./button.vector-animation.json"`); see [The NSH player](./nsh-player.md).
 
-Next: the inputs, [SVG and Figma Motion](./svg.md) and [Lottie and dotLottie](./lottie.md).
+Next: the inputs, [SVG and Figma Motion](./svg.md), [Lottie and dotLottie](./lottie.md) and [Rive](./rive.md).
