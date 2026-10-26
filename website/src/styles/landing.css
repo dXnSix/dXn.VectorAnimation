@@ -133,7 +133,10 @@
   border: 0;
   background: transparent;
   color-scheme: light dark;
+  transition: opacity 0.5s ease;
 }
+.hero-example iframe.is-loading { opacity: 0; }
+@media (prefers-reduced-motion: reduce) { .hero-example iframe { transition: none; } }
 
 .hero-window { min-width: 0; }
 .hero-window .mac-window__body { background: var(--code-bg); }

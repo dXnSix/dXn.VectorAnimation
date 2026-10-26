@@ -1,7 +1,8 @@
 // The page's host (`nsh.json` `web.host`): tells the app which example the
 // page's address asks for, `?demo=<name>`, or none, and passes on the height
 // of its content to the page that frames it (the docs site sizes the frame to it,
-// and the page, not the frame, then takes the scrolling).
+// and the page, not the frame, then takes the scrolling), and, with `ready`, that
+// the player has a file (the home page shows its hero frame from then on).
 // The frame is as tall as the content, so the app has nothing to scroll: NSH's
 // scroll views contain their overscroll (`overscroll-behavior: contain`), which
 // would keep the wheel and touch scrolling over the frame from reaching the page.
@@ -24,6 +25,10 @@ export function createHost() {
   return {
     call(name, args) {
       if (name === "demo") return new URLSearchParams(location.search).get("demo") ?? "";
+      if (name === "ready") {
+        if (parent !== window) parent.postMessage({ type: "dxn-example-ready" }, location.origin);
+        return null;
+      }
       if (name === "height") {
         if (parent !== window) {
           parent.postMessage({ type: "dxn-example-height", height: args }, location.origin);

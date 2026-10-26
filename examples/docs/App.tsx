@@ -205,6 +205,9 @@ function Bare(props: { src: unknown; name: string }) {
         src={props.src as never}
         style={{ width: "100%", height: "100%" }}
         accessibilityLabel={props.name}
+        onLoad={() => {
+          host.call("ready").catch(() => {});
+        }}
       />
     </View>
   );
