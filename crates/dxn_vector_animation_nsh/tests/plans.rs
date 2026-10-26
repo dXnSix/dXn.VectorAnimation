@@ -271,6 +271,26 @@ fn motion_time_maps_and_trims() {
 }
 
 #[test]
+fn what_moves_only_in_a_marker_past_the_timeline_is_drawn() {
+    // Still over the timeline's second, shown in a marker's span past it (a
+    // Rive animation's): the plan is not one still frame.
+    let mut shown = Group::new();
+    shown.opacity = track(&[(0.0, 0.0, Easing::Hold), (2.0, 1.0, Easing::Hold)]);
+    shown.children.push(rect(
+        20.0,
+        20.0,
+        60.0,
+        60.0,
+        Color::rgba(1.0, 0.0, 0.0, 1.0),
+    ));
+    let mut s = scene(vec![Node::Group(shown)]);
+    s.timeline.duration = 1.0;
+    s.timeline.markers = vec![dxn_vector_animation::Marker::new("later", 2.0, 1.0)];
+    assert!(!dxn_vector_animation_nsh::plan::still(&s));
+    assert_plan_matches(&s, &[0.5, 2.5], 100, 100);
+}
+
+#[test]
 fn the_comparison_sees_a_wrong_frame() {
     let scene =
         dxn_vector_animation_lottie::read(include_bytes!("../../../fixtures/lottie-motion.json"))

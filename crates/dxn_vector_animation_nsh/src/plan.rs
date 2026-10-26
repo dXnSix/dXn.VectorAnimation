@@ -161,12 +161,26 @@ pub fn needs_raster(node: &Node) -> bool {
     has_effects(node) || has_soft_masks(node)
 }
 
-/// Whether `scene` draws the same at every time: sampled at its keyframes'
-/// span, every frame alike.
+/// The seconds a timeline's segments play over: its duration, or the end of
+/// its last marker past it (a Rive animation's, an event's).
+pub fn played(timeline: &dxn_vector_animation::Timeline) -> f64 {
+    timeline
+        .markers
+        .iter()
+        .map(|m| m.start + m.duration.max(0.0))
+        .fold(timeline.duration.max(0.0), f64::max)
+}
+
+/// Whether `scene` draws the same at every time: sampled over what its
+/// segments play (and in each marker's span), every frame alike.
 pub fn still(scene: &Scene) -> bool {
-    let d = scene.timeline.duration.max(0.0);
+    let d = played(&scene.timeline);
     let first = scene.frame_at(0.0);
-    (1..=16).all(|k| scene.frame_at(d * f64::from(k) / 16.0) == first)
+    let mut times: Vec<f64> = (1..=16).map(|k| d * f64::from(k) / 16.0).collect();
+    for m in scene.timeline.markers.iter().take(64) {
+        times.extend([m.start, m.start + m.duration / 2.0, m.start + m.duration]);
+    }
+    times.iter().all(|t| scene.frame_at(*t) == first)
 }
 
 /// How far `ops` scale lengths, at most over a playback of `duration`.
@@ -2538,7 +2552,7 @@ impl Compiler {
         keys.sort_by(f64::total_cmp);
         keys.dedup();
         if keys.len() < 2 {
-            keys = vec![0.0, self.stage.timeline.duration.max(1e-3)];
+            keys = vec![0.0, played(&self.stage.timeline).max(1e-3)];
         }
         let times = outline_times(&keys);
         let paths_at = |t: f64| -> Vec<Path> {
