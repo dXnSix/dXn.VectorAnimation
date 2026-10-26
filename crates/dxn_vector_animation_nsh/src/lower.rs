@@ -319,6 +319,7 @@ pub(crate) fn painter(ops: &[Op], nodes: &Nodes) -> Painter {
             Op::GlobalAlpha(a) => CanvasOp::GlobalAlpha(n(&mut p, *a)),
             Op::Blend(b) => CanvasOp::Composite(composite(*b)),
             Op::Atop => CanvasOp::Composite(Composite::SourceAtop),
+            Op::Copy => CanvasOp::Composite(Composite::Copy),
             Op::Shadow {
                 color,
                 blur,

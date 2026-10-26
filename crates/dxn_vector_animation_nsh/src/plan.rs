@@ -536,6 +536,9 @@ pub enum Op {
     /// `globalCompositeOperation = "source-atop"`: what follows colors
     /// what the canvas holds, keeping its coverage.
     Atop,
+    /// `globalCompositeOperation = "copy"`: what follows replaces what the
+    /// canvas holds, all of it (what is outside an image goes too).
+    Copy,
     /// `shadowColor`, `shadowBlur` and `shadowOffsetX` / `Y` (in the view's
     /// points, whatever the transform), still.
     Shadow {

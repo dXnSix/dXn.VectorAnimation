@@ -357,6 +357,8 @@ struct State {
     clip: Option<sk::Mask>,
     blend: BlendMode,
     atop: bool,
+    /// `copy`: an image replaces all the canvas holds.
+    copy: bool,
     /// `shadowColor` (`0xRRGGBBAA`), `shadowBlur`, `shadowOffset`.
     shadow: (u32, f64, (f64, f64)),
 }
@@ -395,6 +397,7 @@ impl<'g> Replay<'g> {
                 clip: None,
                 blend: BlendMode::Normal,
                 atop: false,
+                copy: false,
                 shadow: (0, 0.0, (0.0, 0.0)),
             },
             stack: Vec::new(),
@@ -521,8 +524,10 @@ impl<'g> Replay<'g> {
                 Op::Blend(b) => {
                     self.state.blend = *b;
                     self.state.atop = false;
+                    self.state.copy = false;
                 }
                 Op::Atop => self.state.atop = true,
+                Op::Copy => self.state.copy = true,
                 Op::Shadow {
                     color,
                     blur,
@@ -663,6 +668,9 @@ impl<'g> Replay<'g> {
                 None,
             );
             self.cast_shadow(&shape, out);
+        }
+        if self.state.copy {
+            out.fill(sk::Color::TRANSPARENT);
         }
         let paint = sk::PixmapPaint {
             opacity: self.state.alpha.clamp(0.0, 1.0) as f32,

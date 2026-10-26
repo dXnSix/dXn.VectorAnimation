@@ -501,21 +501,58 @@ fn rastered(
     let still = plan::still(scene);
     let empty = Graph::default();
     let made = RefCell::new(Rasters::default());
+    let held = RefCell::new(Held::default());
     canvas(move || {
         let t = if still { 0.0 } else { clock.get() };
         let ratio = f64::from(pixel_ratio()).max(1.0);
         let raster = made
             .borrow_mut()
             .get(t, ratio, |t| plan::raster(&view, t, ratio));
-        let ops = match raster {
-            Some((image, at)) => vec![plan::Op::Image(image, at)],
-            None => Vec::new(),
-        };
+        let ops = held.borrow_mut().ops(raster);
         lower::painter(&ops, &Nodes::new(&empty, time))
     })
     .absolute()
     .size_full()
     .into_element()
+}
+
+/// The images a rastered part draws, each frame's new: a platform that
+/// loads an image on the side (the web does) has nothing to draw of it for
+/// a moment, and a canvas drawing only the new frame is blank until the
+/// image comes, every frame, so that the part flickers. The frame before
+/// it is drawn too, and the new one replaces it where it is ready.
+#[derive(Default)]
+struct Held {
+    /// The raster drawn before the one drawn now.
+    before: Option<(Arc<ImageData>, Rect)>,
+    /// The raster drawn now.
+    now: Option<(Arc<ImageData>, Rect)>,
+}
+
+impl Held {
+    /// What to draw of `raster`, the part's frame now.
+    fn ops(&mut self, raster: Option<(Arc<ImageData>, Rect)>) -> Vec<plan::Op> {
+        let Some((image, at)) = raster else {
+            // Nothing to draw this frame: nothing of the one before either.
+            *self = Held::default();
+            return Vec::new();
+        };
+        if !self
+            .now
+            .as_ref()
+            .is_some_and(|(now, _)| Arc::ptr_eq(now, &image))
+        {
+            self.before = self.now.take();
+            self.now = Some((image.clone(), at));
+        }
+        let mut ops = Vec::new();
+        if let Some((before, from)) = &self.before {
+            ops.push(plan::Op::Image(before.clone(), *from));
+            ops.push(plan::Op::Copy);
+        }
+        ops.push(plan::Op::Image(image, at));
+        ops
+    }
 }
 
 /// How many bytes of images a part keeps of the rasters it made.
@@ -696,6 +733,25 @@ mod tests {
         // At another ratio, made again.
         rasters.get(0.0, 3.0, make);
         assert_eq!(made.get(), 31);
+    }
+
+    #[test]
+    fn a_raster_is_drawn_over_the_one_before_and_a_redraw_keeps_both() {
+        let (a, b) = (image(1).unwrap(), image(2).unwrap());
+        let mut held = Held::default();
+        // The first has nothing before it.
+        assert_eq!(held.ops(Some(a.clone())).len(), 1);
+        // The next: the one before, then `copy`, then it.
+        let ops = held.ops(Some(b.clone()));
+        assert!(
+            matches!(&ops[..], [plan::Op::Image(x, _), plan::Op::Copy, plan::Op::Image(y, _)]
+            if Arc::ptr_eq(x, &a.0) && Arc::ptr_eq(y, &b.0))
+        );
+        // The same again (a redraw): the same.
+        assert_eq!(held.ops(Some(b.clone())).len(), 3);
+        // Nothing to draw: nothing is kept.
+        assert!(held.ops(None).is_empty());
+        assert_eq!(held.ops(Some(a)).len(), 1);
     }
 
     #[test]

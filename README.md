@@ -463,7 +463,11 @@ worker rasterization every frame, and the workers fell behind. The fork's NSH ke
 (dXnSix/nsh#38, to go upstream as `pr/gpui/01-canvas-one-job`); with it, no tile shows another moment. On macOS
 (AppKit) every canvas shadow fell upward, its scenes up to 7.1% off: NSH negated the shadow's offset for a base
 space that a canvas's flipped layer does not have. The fork fixes it (dXnSix/nsh#52, to go upstream as
-`pr/macos/02-canvas-shadow-offset`). A hold (`progress`) stopped the time value but not the run playing, and a
+`pr/macos/02-canvas-shadow-offset`). On the web the blurs and color changes (parts drawn as an image each frame)
+blinked blank on a frame in four or five: a new image loads on the side, and a canvas drawn with only that image
+shows nothing until it has. Such a part now draws the frame before it too, and the new one replaces it (`copy`)
+where it is loaded; in a headless Chromium the docs' `blur` and `color-effects` tiles went from 58 and 96 blank
+frames in 400 to none. A hold (`progress`) stopped the time value but not the run playing, and a
 run that loops went on to its next leg: GTK in the VM showed a page of tiles playing on through its holds. The
 player now stops the run itself. GTK in the VM still misses a page now and then: its host takes the test's steps
 seconds late (once more than 30 s), and its photographs show a moment from before; its frames take under 0.25 s.
