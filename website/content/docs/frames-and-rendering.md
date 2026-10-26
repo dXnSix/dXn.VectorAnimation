@@ -65,7 +65,7 @@ A `Frame` is `width`, `height` (the scene's, in user units) and `items`, drawn f
 
 Paints are `FramePaint::Solid(Color)`, `Linear { start, end, stops, spread, transform }`, `Radial { center, radius, focal, stops, spread, transform }` and `Pattern { tile, transform, items }`, with the fill's or stroke's opacity already folded into their colors.
 
-A `Layer` carries what applies to everything drawn in it, in this order: its `effects` (`FrameEffect::DropShadow`, `InnerShadow`, `Blur`, `Color`, with offsets and blur deviations already in the frame's space), then its `clip` (`Vec<ClipPath>`, a union) and `mask` (`FrameMask`: `kind`, `inverted`, and `items` in scene coordinates), then `opacity` and `blend` as it composes. `Frame::bounds()` is where the items draw at most: strokes as far as they reach, layers grown by three deviations of their blurs and shadows, within their clips and masks.
+A `Layer` carries what applies to everything drawn in it, in this order: its `effects` (`FrameEffect::DropShadow`, `InnerShadow`, `Blur`, `Color`, with offsets and blur deviations already in the frame's space), then its `clip` (`Vec<ClipPath>`, a union; a `one_path` clip is one path already) and `mask` (`FrameMask`: `kind`, `inverted`, and `items` in scene coordinates), then `opacity` and `blend` as it composes. `Frame::bounds()` is where the items draw at most: strokes as far as they reach, layers grown by three deviations of their blurs and shadows, within their clips and masks.
 
 What `frame_at` does on the way:
 
@@ -76,7 +76,7 @@ What `frame_at` does on the way:
 
 ### Writing a renderer
 
-A renderer walks the list with a stack. On `PushLayer`, start an offscreen surface; on `PopLayer`, apply the layer's effects to what was drawn, clip and mask it, and compose it with its opacity and blend mode. Fills, strokes, images and text go to the surface on top of the stack. That maps directly onto Canvas 2D, Skia or any 2D API with offscreen layers. `dxn_vector_animation::filter::apply_steps` applies a `FrameEffect::Color`'s steps to a color, and the reference renderer's source is a complete example of the rest.
+A renderer walks the list with a stack. On `PushLayer`, start an offscreen surface (for a layer that only clips, `Layer::only_clips`, a copy of what is under it, so blend modes inside it mix with that, and on `PopLayer` put it back inside the clip); on `PopLayer`, apply the layer's effects to what was drawn, clip and mask it, and compose it with its opacity and blend mode. Fills, strokes, images and text go to the surface on top of the stack. That maps directly onto Canvas 2D, Skia or any 2D API with offscreen layers. `dxn_vector_animation::filter::apply_steps` applies a `FrameEffect::Color`'s steps to a color, and the reference renderer's source is a complete example of the rest.
 
 ## The reference renderer
 
@@ -99,6 +99,9 @@ A renderer walks the list with a stack. On `PushLayer`, start an offscreen surfa
 | `background: Option<Color>` | `None` (transparent) | Drawn under the frame |
 
 With both sizes the frame stretches to fill them; with one, the other keeps the aspect.
+
+Images are decoded from PNG, JPEG or WebP; one that embeds a color profile (a Display P3 photo) is drawn
+in sRGB, its colors converted as a browser converts them.
 
 ```rust
 use dxn_vector_animation::Rect;

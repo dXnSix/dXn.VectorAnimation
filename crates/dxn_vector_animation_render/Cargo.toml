@@ -15,6 +15,7 @@ categories = ["graphics", "rendering"]
 dxn_vector_animation.workspace = true
 fontdb.workspace = true
 image.workspace = true
+moxcms.workspace = true
 rustybuzz.workspace = true
 thiserror.workspace = true
 tiny-skia.workspace = true

@@ -396,7 +396,14 @@ impl Renderer {
                     }
                 }
                 Item::PushLayer(layer) => {
-                    stack.push((sk::Pixmap::new(self.width, self.height)?, Some(layer)))
+                    // A layer that only clips draws onto a copy of what is
+                    // under it, so the blend modes inside mix with that.
+                    let pixmap = if layer.only_clips() {
+                        stack.last()?.0.clone()
+                    } else {
+                        sk::Pixmap::new(self.width, self.height)?
+                    };
+                    stack.push((pixmap, Some(layer)))
                 }
                 Item::PopLayer => {
                     if stack.len() < 2 {
@@ -431,9 +438,8 @@ impl Renderer {
         for run in layer.effects.chunk_by(|a, b| shadow(a) && shadow(b)) {
             self.effects(pixmap, run);
         }
-        if let Some(clip) = &layer.clip
-            && let Some(mut mask) = sk::Mask::new(self.width, self.height)
-        {
+        let clip = layer.clip.as_ref().and_then(|clip| {
+            let mut mask = sk::Mask::new(self.width, self.height)?;
             for c in clip {
                 if let Some(path) = sk_path(&c.path) {
                     let rule = match c.rule {
@@ -443,7 +449,26 @@ impl Renderer {
                     mask.fill_path(&path, rule, true, sk_transform(self.base * c.transform));
                 }
             }
-            pixmap.apply_mask(&mask);
+            Some(mask)
+        });
+        if layer.only_clips() {
+            // The copy of what was under it, drawn on, replaces it inside
+            // the clip (its edges mixed by their coverage).
+            if let Some(mask) = &clip {
+                let coverage = mask.data();
+                let (to, from) = (target.pixels_mut(), pixmap.pixels());
+                for ((t, f), &m) in to.iter_mut().zip(from).zip(coverage) {
+                    *t = match m {
+                        0 => *t,
+                        255 => *f,
+                        m => mix(*t, *f, m),
+                    };
+                }
+            }
+            return;
+        }
+        if let Some(mask) = &clip {
+            pixmap.apply_mask(mask);
         }
         if let Some(m) = &layer.mask
             && let Some(mask) = self.mask(m)
@@ -662,14 +687,26 @@ impl Renderer {
     }
 }
 
-/// An encoded image as a premultiplied pixmap.
+/// An encoded image as a premultiplied pixmap, its colors in sRGB as a
+/// browser draws them when the file embeds another color profile.
 fn decode(data: &ImageData) -> Option<sk::Pixmap> {
-    let image = image::load_from_memory(&data.bytes).ok()?.to_rgba8();
+    let mut decoder = image::ImageReader::new(std::io::Cursor::new(&data.bytes))
+        .with_guessed_format()
+        .ok()?
+        .into_decoder()
+        .ok()?;
+    let profile = image::ImageDecoder::icc_profile(&mut decoder)
+        .ok()
+        .flatten();
+    let image = image::DynamicImage::from_decoder(decoder).ok()?.to_rgba8();
     let (w, h) = image.dimensions();
     if u64::from(w) * u64::from(h) > MAX_PIXELS {
         return None;
     }
     let mut bytes = image.into_raw();
+    if let Some(profile) = profile {
+        to_srgb(&profile, &mut bytes[..]);
+    }
     for px in bytes.as_chunks_mut::<4>().0 {
         let a = u16::from(px[3]);
         for c in &mut px[..3] {
@@ -677,6 +714,42 @@ fn decode(data: &ImageData) -> Option<sk::Pixmap> {
         }
     }
     sk::Pixmap::from_vec(bytes, sk::IntSize::from_wh(w, h)?)
+}
+
+/// Converts straight RGBA `pixels` from ICC `profile` to sRGB; leaves them
+/// as they are when the profile does not read.
+fn to_srgb(profile: &[u8], pixels: &mut [u8]) {
+    use moxcms::{ColorProfile, Layout, TransformOptions};
+    let Ok(from) = ColorProfile::new_from_slice(profile) else {
+        return;
+    };
+    let Ok(transform) = from.create_transform_8bit(
+        Layout::Rgba,
+        &ColorProfile::new_srgb(),
+        Layout::Rgba,
+        TransformOptions::default(),
+    ) else {
+        return;
+    };
+    let source = pixels.to_vec();
+    let _ = transform.transform(&source, pixels);
+}
+
+/// `a` and `b` (premultiplied) mixed, `b` by `m` of 255.
+fn mix(
+    a: sk::PremultipliedColorU8,
+    b: sk::PremultipliedColorU8,
+    m: u8,
+) -> sk::PremultipliedColorU8 {
+    let m = u16::from(m);
+    let lerp = |x: u8, y: u8| ((u16::from(x) * (255 - m) + u16::from(y) * m + 127) / 255) as u8;
+    sk::PremultipliedColorU8::from_rgba(
+        lerp(a.red(), b.red()),
+        lerp(a.green(), b.green()),
+        lerp(a.blue(), b.blue()),
+        lerp(a.alpha(), b.alpha()),
+    )
+    .unwrap_or(a)
 }
 
 fn sk_color(c: Color) -> sk::Color {
