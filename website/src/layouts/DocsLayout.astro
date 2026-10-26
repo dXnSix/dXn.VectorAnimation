@@ -87,6 +87,9 @@ const hasSidebar = sidebar.length > 0;
 </script>
 
 <script>
+  import { startExampleFrames } from '../lib/example-frames';
+  startExampleFrames();
+
   // A live example (`remark-examples`) that reports the height of its content,
   // `{ type: 'dxn-example-height', height }`, gets a frame that tall: the page
   // scrolls instead of a scroller inside the frame. Other examples keep their height.

@@ -52,9 +52,8 @@ const start = first ? docRoute(first) : base;
         {d.heroExample && (
           <div class="hero-example">
             <iframe
-              src={`${base.replace(/\/$/, '')}/examples/index.html?demo=${d.heroExample}`}
+              data-src={`${base.replace(/\/$/, '')}/examples/index.html?demo=${d.heroExample}`}
               title={d.heroExampleTitle ?? d.heroExample}
-              loading="eager"
               class="is-loading"
             ></iframe>
           </div>
@@ -144,6 +143,11 @@ const start = first ? docRoute(first) : base;
 
   <SiteFooter />
 </BaseLayout>
+
+<script>
+  import { startExampleFrames } from '../lib/example-frames';
+  startExampleFrames();
+</script>
 
 <script>
   // The hero example's page paints its own background until the player has the

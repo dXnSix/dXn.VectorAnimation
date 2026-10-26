@@ -26,6 +26,11 @@ const CLICKED = `<svg xmlns="http://www.w3.org/2000/svg" width="200" height="100
   </rect>
 </svg>`;
 
+// Tells the page that frames this one that the player has its file, which starts the next frame there.
+const ready = () => {
+  host.call("ready").catch(() => {});
+};
+
 const BAR = { flexDirection: "row", flexWrap: "wrap", gap: 6, justifyContent: "center" } as const;
 
 function Control(props: { title: string; onPress: () => void; selected?: boolean }) {
@@ -62,6 +67,7 @@ function Single(props: { src: unknown; name: string }) {
           paused={paused()}
           rate={rate()}
           accessibilityLabel={props.name}
+          onLoad={ready}
         />
       </View>
       <View style={BAR}>
@@ -91,6 +97,7 @@ function Playback() {
           direction={direction()}
           progress={progress()}
           accessibilityLabel="A button popping in"
+          onLoad={ready}
         />
       </View>
       <View style={BAR}>
@@ -123,7 +130,10 @@ function Events() {
           src={CLICKED}
           style={{ width: "100%", height: "100%" }}
           ref={(r: VectorAnimationRef) => (player = r)}
-          onLoad={(info) => events.set(info.events.join(", "))}
+          onLoad={(info) => {
+            events.set(info.events.join(", "));
+            ready();
+          }}
           accessibilityLabel="A button that slides over when clicked"
         />
       </View>
@@ -205,9 +215,7 @@ function Bare(props: { src: unknown; name: string }) {
         src={props.src as never}
         style={{ width: "100%", height: "100%" }}
         accessibilityLabel={props.name}
-        onLoad={() => {
-          host.call("ready").catch(() => {});
-        }}
+        onLoad={ready}
       />
     </View>
   );

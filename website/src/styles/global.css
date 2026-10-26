@@ -645,6 +645,15 @@ html.dark .astro-code span {
     border-radius: var(--radius-card);
     background: var(--card);
   }
+  /* Until the frame shows something (`lib/example-frames.ts`): a box that breathes, not an empty one. */
+  .doc-example iframe[data-pending] { animation: doc-example-wait 1.2s ease-in-out infinite alternate; }
+  @keyframes doc-example-wait {
+    from { background: var(--card); }
+    to { background: color-mix(in srgb, var(--muted-foreground) 14%, var(--card)); }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .doc-example iframe[data-pending] { animation: none; }
+  }
   .doc-example figcaption {
     margin-top: 0.5rem;
     color: var(--muted-foreground);
