@@ -19,23 +19,8 @@ facts:
   - { label: Player, value: "NSH, 7 platforms checked" }
   - { label: Unsafe, value: "forbidden" }
   - { label: License, value: "MIT OR Apache-2.0" }
-heroTitle: main.rs
-heroLang: rust
-heroCode: |
-  use dxn_vector_animation_render::{render_png, RenderOptions};
-
-  let data = std::fs::read("button.svg")?; // a Figma Motion export
-  let import = dxn_vector_animation_svg::read(&data)?;
-  for warning in &import.warnings {
-      eprintln!("left out: {warning}"); // nothing is dropped silently
-  }
-
-  let scene = import.scene;
-  println!("{} s at {}x{}", scene.timeline.duration, scene.width, scene.height);
-
-  let frame = scene.frame_at(0.5); // the display list half a second in
-  let png = render_png(&frame, &RenderOptions::default())?;
-  std::fs::write("button-0.5s.png", png)?;
+heroExample: file-dotlottie-alphabet-a
+heroExampleTitle: An animated letter A, playing from a dotLottie file
 features:
   - title: Figma Motion's SVG
     text: CSS @keyframes the way Figma Motion writes them, SMIL with begin and end times, events and accumulation, filters as effects, live text and patterns.

@@ -49,7 +49,17 @@ const start = first ? docRoute(first) : base;
           )}
         </div>
 
-        {d.heroCode && (
+        {d.heroExample && (
+          <div class="hero-example">
+            <iframe
+              src={`${base.replace(/\/$/, '')}/examples/index.html?demo=${d.heroExample}`}
+              title={d.heroExampleTitle ?? d.heroExample}
+              loading="eager"
+            ></iframe>
+          </div>
+        )}
+
+        {!d.heroExample && d.heroCode && (
           <div class="mac-window hero-window">
             <div class="mac-window__bar">
               <div class="mac-window__lights"><i></i><i></i><i></i></div>

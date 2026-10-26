@@ -15,6 +15,12 @@ function fitted() {
 }
 
 export function createHost() {
+  // One file alone (`?demo=file-...`) sits on the page's own background.
+  if ((new URLSearchParams(location.search).get("demo") ?? "").startsWith("file-")) {
+    const style = document.createElement("style");
+    style.textContent = "html, body { background: transparent !important; }";
+    document.head.append(style);
+  }
   return {
     call(name, args) {
       if (name === "demo") return new URLSearchParams(location.search).get("demo") ?? "";

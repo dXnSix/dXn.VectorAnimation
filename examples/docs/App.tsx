@@ -5,7 +5,8 @@
 // The scenes are the check set (`vector-animation-check scenes examples/docs
 // --gallery fixtures/gallery` writes animations/), and two of this app's own:
 // `playback` and `events`. The gallery's files, compiled ahead, show as grids:
-// `lottie-files`, `dotlottie-files` and `svg-files`.
+// `lottie-files`, `dotlottie-files` and `svg-files`; `file-<group>-<name>`
+// plays one of them alone on the page's background (the home page's hero).
 import { mount, Scroll, signal, Text, View } from "nsh";
 import { Button } from "nsh/base";
 import { host } from "nsh/host";
@@ -196,6 +197,25 @@ function All() {
   );
 }
 
+/** One gallery file alone, no background and no controls: the home page's hero. */
+function Bare(props: { src: unknown; name: string }) {
+  return (
+    <View style={{ flex: 1 }}>
+      <VectorAnimation
+        src={props.src as never}
+        style={{ width: "100%", height: "100%" }}
+        accessibilityLabel={props.name}
+      />
+    </View>
+  );
+}
+
+function bareFile(demo: string): [string, unknown] | undefined {
+  const m = /^file-(lottie|dotlottie|svg)-(.+)$/.exec(demo);
+  const found = m && gallery[m[1] as keyof typeof gallery].find(([name]) => name === m[2]);
+  return found ? [found[0], found[1]] : undefined;
+}
+
 function App() {
   const demo = signal<string | undefined>(undefined);
   host
@@ -203,10 +223,12 @@ function App() {
     .then((d) => demo.set(typeof d === "string" ? d : ""))
     .catch(() => demo.set(""));
   return (
-    <View style={{ flex: 1, backgroundColor: "#ffffff" }}>
+    <View style={{ flex: 1, backgroundColor: demo()?.startsWith("file-") ? "transparent" : "#ffffff" }}>
       {(() => {
         const d = demo();
         if (d === undefined) return null;
+        const file = bareFile(d);
+        if (file) return <Bare src={file[1]} name={file[0]} />;
         if (d === "playback") return <Playback />;
         if (d === "events") return <Events />;
         if (d in GALLERY) return <Files group={GALLERY[d as keyof typeof GALLERY]} />;
