@@ -20,6 +20,7 @@ mod events;
 pub mod filter;
 mod frame;
 mod geom;
+mod hit;
 mod limits;
 pub mod outline;
 mod scene;

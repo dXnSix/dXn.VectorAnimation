@@ -314,6 +314,14 @@ println!("{:.2} {:.2}", opacity(&scene, 1.65), opacity(&clicked, 1.65)); // 1.00
 
 Events the scene has nothing for change nothing.
 
+### Hit tests
+
+`Scene::hit(id, point, time)` says whether a point (in the scene's coordinates) falls in the outlines of the
+shapes in the group with that id at a time: the group nearest the root of those with it, under its
+transforms and group times, its shapes' paths filled under the non-zero rule (strokes, clips and opacity
+aside, painted or not). `Scene::hit_bounds(id, time)` is the box around those outlines. A player hit-tests
+what a pointer is over with them, as the Rive importer's [listeners](./rive.md#inputs-and-listeners) do.
+
 ## Group time
 
 Two fields give a group a time of its own, which is how nested compositions, layers' in and out points and time remapping are represented:
