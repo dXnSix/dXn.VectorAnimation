@@ -323,7 +323,10 @@ fn card(background: Paint, clip_by_transform: bool) -> Group {
         }
     };
     Group {
-        clip: Some(Clip { shapes: vec![clip] }),
+        clip: Some(Clip {
+            shapes: vec![clip],
+            one_path: false,
+        }),
         children: vec![
             filled(
                 ShapePath::new(rect_geometry(20.0, 15.0, 50.0, 40.0, 6.0)),
@@ -459,6 +462,7 @@ fn a_shadow_turning_inside_a_clip_is_clipped_where_it_falls() {
                         transform: Vec::new(),
                         rule: FillRule::NonZero,
                     }],
+                    one_path: false,
                 }),
                 children: vec![inner.children[1].clone()],
                 ..Group::new()
@@ -493,6 +497,7 @@ fn a_shadow_cast_from_past_the_view_inside_a_clip() {
                 transform: Vec::new(),
                 rule: FillRule::NonZero,
             }],
+            one_path: false,
         }),
         children: vec![shadowed],
         ..Group::new()

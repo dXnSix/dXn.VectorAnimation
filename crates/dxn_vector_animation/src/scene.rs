@@ -127,6 +127,25 @@ pub struct Marker {
     /// How long it lasts, in seconds (0 for a point in time).
     #[cfg_attr(feature = "serde", serde(default))]
     pub duration: f64,
+    /// How its span repeats when it plays on its own (a Rive animation's
+    /// loop); the timeline's loop mode when `None`.
+    #[cfg_attr(
+        feature = "serde",
+        serde(default, skip_serializing_if = "Option::is_none")
+    )]
+    pub loop_mode: Option<LoopMode>,
+}
+
+impl Marker {
+    /// A marker named `name` from `start` lasting `duration`.
+    pub fn new(name: impl Into<String>, start: f64, duration: f64) -> Self {
+        Marker {
+            name: name.into(),
+            start,
+            duration,
+            loop_mode: None,
+        }
+    }
 }
 
 /// A node of the scene tree.
@@ -714,13 +733,22 @@ impl BlendMode {
     }
 }
 
-/// Shapes outside which nothing shows: their union.
+/// Shapes outside which nothing shows: their union, or the area of their
+/// outlines as one path ([`Clip::one_path`]).
 #[derive(Debug, Clone, PartialEq, Default)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(feature = "serde", serde(rename_all = "camelCase"))]
 pub struct Clip {
     /// The shapes.
     pub shapes: Vec<ClipShape>,
+    /// Whether the shapes' outlines are one path, filled under the first
+    /// shape's rule (as Rive clips): two outlines even-odd make a ring, and
+    /// outlines turning opposite ways cancel under the non-zero rule.
+    #[cfg_attr(
+        feature = "serde",
+        serde(default, skip_serializing_if = "std::ops::Not::not")
+    )]
+    pub one_path: bool,
 }
 
 /// One shape of a [`Clip`].

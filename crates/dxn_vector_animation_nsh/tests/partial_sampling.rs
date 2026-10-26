@@ -261,6 +261,7 @@ fn drawing_resumes_within_the_groups_after_a_part() {
             transform: Vec::new(),
             rule: Default::default(),
         }],
+        one_path: false,
     });
     let s = scene(vec![Node::Group(moved)]);
     let plan = plan::compile(&s, Matrix::IDENTITY).unwrap();
@@ -286,6 +287,7 @@ fn a_group_set_up_with_what_the_graph_cannot_express_is_sampled_whole() {
             transform: Vec::new(),
             rule: Default::default(),
         }],
+        one_path: false,
     });
     let s = scene(vec![
         rect(0.0, 0.0, 30.0, 30.0, GREEN),

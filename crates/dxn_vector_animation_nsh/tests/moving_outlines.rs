@@ -177,6 +177,7 @@ fn a_clip_gaining_points_plays_on_the_graph() {
             transform: Vec::new(),
             rule: Default::default(),
         }],
+        one_path: false,
     });
     let mut sc = scene(Geometry::Star(star(StarKind::Star)));
     sc.root.children = vec![Node::Group(clipped)];

@@ -142,6 +142,10 @@ pub fn text_bounds(spans: &[FrameTextSpan]) -> Option<Rect> {
 }
 
 /// How a layer composes onto what is under it.
+///
+/// A layer that only clips (opaque, normal blending, no mask or effects)
+/// does not isolate what it draws: blend modes inside it mix with what is
+/// under it, as under a Canvas 2D `clip()` ([`Layer::only_clips`]).
 #[derive(Debug, Clone, PartialEq)]
 pub struct Layer {
     /// 0 to 1.
@@ -157,6 +161,18 @@ pub struct Layer {
     /// as it is before them, drop shadows under it and inner shadows over
     /// it (the first lowest).
     pub effects: Vec<FrameEffect>,
+}
+
+impl Layer {
+    /// Whether the layer does nothing but clip: what it draws is drawn
+    /// straight onto what is under it, inside its clip.
+    pub fn only_clips(&self) -> bool {
+        self.clip.is_some()
+            && self.opacity >= 1.0
+            && self.blend.is_normal()
+            && self.mask.is_none()
+            && self.effects.is_empty()
+    }
 }
 
 /// A layer's effect, in the frame's space.
@@ -456,14 +472,24 @@ fn sample_group(group: &Group, time: f64, parent: Matrix, out: &mut Vec<Item>, d
         return;
     }
     let clip = group.clip.as_ref().map(|clip| {
-        clip.shapes
-            .iter()
-            .map(|shape| ClipPath {
-                path: geometry_path(&shape.geometry, time),
-                transform: m * transform_at(&shape.transform, time),
-                rule: shape.rule,
-            })
-            .collect::<Vec<_>>()
+        let paths = clip.shapes.iter().map(|shape| ClipPath {
+            path: geometry_path(&shape.geometry, time),
+            transform: m * transform_at(&shape.transform, time),
+            rule: shape.rule,
+        });
+        if !clip.one_path {
+            return paths.collect::<Vec<_>>();
+        }
+        // One path of all the outlines, in the frame's space.
+        let mut path = Path::default();
+        for p in paths {
+            path.extend(&p.path.transformed(p.transform));
+        }
+        vec![ClipPath {
+            path,
+            transform: Matrix::IDENTITY,
+            rule: clip.shapes.first().map_or(FillRule::NonZero, |s| s.rule),
+        }]
     });
     let mask = group.mask.as_ref().map(|mask| {
         let mut items = Vec::new();

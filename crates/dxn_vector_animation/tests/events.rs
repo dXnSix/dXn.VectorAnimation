@@ -17,16 +17,8 @@ fn scene(opacity: Animated<f64>) -> Scene {
             loop_start: 0.0,
             loop_mode: LoopMode::Loop,
             markers: vec![
-                Marker {
-                    name: "intro".into(),
-                    start: 0.0,
-                    duration: 1.0,
-                },
-                Marker {
-                    name: "on:tap".into(),
-                    start: 1.0e6,
-                    duration: 1.0,
-                },
+                Marker::new("intro", 0.0, 1.0),
+                Marker::new("on:tap", 1.0e6, 1.0),
             ],
         },
         root: Group {

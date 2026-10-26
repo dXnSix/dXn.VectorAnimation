@@ -373,10 +373,8 @@ impl<'a, 'input> Converter<'a, 'input> {
                     .smil_timing
                     .cues
                     .iter()
-                    .map(|(name, start, duration)| Marker {
-                        name: format!("{EVENT_PREFIX}{name}"),
-                        start: *start,
-                        duration: *duration,
+                    .map(|(name, start, duration)| {
+                        Marker::new(format!("{EVENT_PREFIX}{name}"), *start, *duration)
                     })
                     .collect(),
             },
@@ -2417,7 +2415,10 @@ impl<'a, 'input> Converter<'a, 'input> {
                 rule: style.clip_rule,
             });
         }
-        Some(Clip { shapes })
+        Some(Clip {
+            shapes,
+            one_path: false,
+        })
     }
 
     /// The mask `mask: url(#id)` names.
@@ -2496,6 +2497,7 @@ impl<'a, 'input> Converter<'a, 'input> {
                     transform: Vec::new(),
                     rule: FillRule::NonZero,
                 }],
+                one_path: false,
             });
         }
         Ok(Some(Mask {

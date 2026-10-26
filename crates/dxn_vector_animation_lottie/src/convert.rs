@@ -124,11 +124,11 @@ impl<'a> Converter<'a> {
             .into_iter()
             .flatten()
             .filter_map(|m| {
-                Some(Marker {
-                    name: m.get("cm").and_then(Value::as_str).unwrap_or("").to_owned(),
-                    start: (m.get("tm").and_then(num)? - ip) / fr,
-                    duration: m.get("dr").and_then(num).unwrap_or(0.0) / fr,
-                })
+                Some(Marker::new(
+                    m.get("cm").and_then(Value::as_str).unwrap_or(""),
+                    (m.get("tm").and_then(num)? - ip) / fr,
+                    m.get("dr").and_then(num).unwrap_or(0.0) / fr,
+                ))
             })
             .collect();
         let scene = Scene {
@@ -372,6 +372,7 @@ impl<'a> Converter<'a> {
                     transform: Vec::new(),
                     rule: FillRule::NonZero,
                 }],
+                one_path: false,
             }),
             _ => None,
         };

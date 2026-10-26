@@ -141,6 +141,7 @@ fn a_blur_clipped_after_keeps_the_displays_pixels() {
             transform: Vec::new(),
             rule: FillRule::NonZero,
         }],
+        one_path: false,
     };
     let s = scene(vec![blur(6.0)], Some(clip));
     assert!(pixels_a_point(&s) > 2.9);
@@ -171,6 +172,7 @@ fn a_blurred_shadow_of_sharp_content_keeps_the_displays_pixels() {
                     transform: Vec::new(),
                     rule: FillRule::NonZero,
                 }],
+                one_path: false,
             }),
             children: vec![Node::Group(Group {
                 transform: vec![dxn_vector_animation::TransformOp::Translate {
