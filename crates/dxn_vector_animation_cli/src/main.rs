@@ -250,6 +250,13 @@ fn run(command: Command) -> Result<ExitCode, String> {
                     .map_err(|e| format!("{}: {e}", output.display()))?;
             }
             for (i, t) in times.iter().enumerate() {
+                if let Some(shown) = past_the_loop(&scene, *t) {
+                    eprintln!(
+                        "warning: t={t:.3}s is past the {:.3} s timeline, which loops, and is rendered as \
+                         given, not wrapped: the player shows {shown:.3} s there",
+                        scene.timeline.duration
+                    );
+                }
                 let png = render_png(&scene.frame_at(*t), &options).map_err(|e| e.to_string())?;
                 let path = if to_file {
                     output.clone()
@@ -262,6 +269,13 @@ fn run(command: Command) -> Result<ExitCode, String> {
             Ok(ExitCode::SUCCESS)
         }
     }
+}
+
+/// Where the player shows `t` seconds of a timeline that repeats, when `t`
+/// is past its end (where the scene's tracks hold or run on, not loop).
+fn past_the_loop(scene: &Scene, t: f64) -> Option<f64> {
+    let timeline = &scene.timeline;
+    (t > timeline.duration && timeline.loop_mode != LoopMode::Once).then(|| timeline.time_at(t))
 }
 
 /// Every frame time of the timeline at `fps`.

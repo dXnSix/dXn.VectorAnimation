@@ -137,7 +137,7 @@ shots/lottie-motion-0001.png  t=1.000s
 
 Without `-o`, one frame goes to `<stem>.png` next to the file and several to a `<stem>-frames/` directory there. An `-o` ending in `.png` is the file for a single frame; any other `-o` is a directory, created when missing. Frames in a directory are named `<stem>-0000.png`, `<stem>-0001.png` and so on. Each line printed is a file and the time it shows.
 
-Times are rendered as given, not wrapped into the loop: `--fps` renders one play-through, what comes before the loop start once and the loop once. `--event` moves what the file plays on an event to that time, as [`Scene::with_events`](./scene-model.md#events) does:
+Times are rendered as given, not wrapped into the loop: `--fps` renders one play-through, what comes before the loop start once and the loop once. A `--time` past the end of a timeline that loops is rendered all the same (an animated SVG's tracks run on for a second loop and then hold their last values, a Lottie layer ends at its out point) and the command warns on stderr, naming the time the player shows there: `vector-animation render alien-button.svg -t 12.5` warns that the player shows 0.500 s, and `-t 0.5` is the frame to render. `--event` moves what the file plays on an event to that time, as [`Scene::with_events`](./scene-model.md#events) does:
 
 ```bash
 vector-animation render press.svg --event btn.click=0.5 -t 0.6 -o pressed.png
