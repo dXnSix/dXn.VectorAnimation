@@ -8,7 +8,7 @@ use std::{
 };
 
 use clap::{Parser, Subcommand};
-use dxn_vector_animation::{Color, Error, Import, Limits, LoopMode, Scene, compiled};
+use dxn_vector_animation::{Color, Error, Import, Limits, LoopMode, Point, Scene, compiled};
 use dxn_vector_animation_render::{RenderOptions, render_png};
 
 #[derive(Parser)]
@@ -90,6 +90,17 @@ enum Command {
         /// file plays on it plays from then (`inspect` lists them).
         #[arg(long = "event")]
         events: Vec<String>,
+        /// A change to a Rive state machine's input, `name=value@seconds`
+        /// (`true`, `false` or a number), or `name@seconds` to fire a
+        /// trigger (repeatable; `inspect` lists the inputs).
+        #[arg(long = "input")]
+        inputs: Vec<String>,
+        /// A pointer over a Rive file, `down:x,y@seconds` (or `up:`,
+        /// `move:`, `exit:` for leaving, `lift:` for a finger lifted; the
+        /// scene's units, repeatable): the state machine's listeners act on
+        /// it as Rive's runtime has them act.
+        #[arg(long = "pointer")]
+        pointers: Vec<String>,
     },
 }
 
@@ -124,13 +135,18 @@ fn main() -> ExitCode {
     }
 }
 
-fn read(file: &Path, artboard: Option<&str>) -> Result<(Format, Import), String> {
+fn read(
+    file: &Path,
+    artboard: Option<&str>,
+    inputs: &[dxn_vector_animation_rive::InputChange],
+) -> Result<(Format, Import), String> {
     let data = std::fs::read(file).map_err(|e| format!("{}: {e}", file.display()))?;
     let limits = Limits::default();
     let fail = |e: Error| format!("{}: {e}", file.display());
     if dxn_vector_animation_rive::sniff(&data) {
         let options = dxn_vector_animation_rive::Options {
             artboard: artboard.map(str::to_owned),
+            inputs: inputs.to_vec(),
             ..Default::default()
         };
         return dxn_vector_animation_rive::read_options(&data, &limits, &options)
@@ -170,12 +186,15 @@ fn read(file: &Path, artboard: Option<&str>) -> Result<(Format, Import), String>
 fn run(command: Command, artboard: Option<&str>) -> Result<ExitCode, String> {
     match command {
         Command::Inspect { file } => {
-            let (format, import) = read(&file, artboard)?;
+            let (format, import) = read(&file, artboard, &[])?;
             print!("{}", describe(&file, format, &import));
+            if format == Format::Rive {
+                print!("{}", describe_machine(&file, artboard, &import.scene)?);
+            }
             Ok(ExitCode::SUCCESS)
         }
         Command::Validate { file, strict } => {
-            let (format, import) = read(&file, artboard)?;
+            let (format, import) = read(&file, artboard, &[])?;
             for w in &import.warnings {
                 println!("warning: {w}");
             }
@@ -191,7 +210,7 @@ fn run(command: Command, artboard: Option<&str>) -> Result<ExitCode, String> {
             output,
             pretty,
         } => {
-            let (_, import) = read(&file, artboard)?;
+            let (_, import) = read(&file, artboard, &[])?;
             for w in &import.warnings {
                 eprintln!("warning: {w}");
             }
@@ -217,8 +236,18 @@ fn run(command: Command, artboard: Option<&str>) -> Result<ExitCode, String> {
             scale,
             background,
             events,
+            inputs,
+            pointers,
         } => {
-            let (_, import) = read(&file, artboard)?;
+            let inputs = inputs
+                .iter()
+                .map(|i| parse_input(i))
+                .collect::<Result<Vec<_>, _>>()?;
+            let (_, import) = if pointers.is_empty() {
+                read(&file, artboard, &inputs)?
+            } else {
+                point(&file, artboard, &inputs, &pointers)?
+            };
             let mut happened: Vec<(&str, f64)> = Vec::new();
             for e in &events {
                 let parsed = e
@@ -313,6 +342,77 @@ fn past_the_loop(scene: &Scene, t: f64) -> Option<f64> {
     (t > timeline.duration && timeline.loop_mode != LoopMode::Once).then(|| timeline.time_at(t))
 }
 
+/// Rive file `file` played with `inputs` changed and the pointer events
+/// `pointers` (`kind:x,y@seconds`) over its listeners.
+fn point(
+    file: &Path,
+    artboard: Option<&str>,
+    inputs: &[dxn_vector_animation_rive::InputChange],
+    pointers: &[String],
+) -> Result<(Format, Import), String> {
+    use dxn_vector_animation_rive::{Interaction, Options, Pointer};
+    let mut events = Vec::new();
+    for text in pointers {
+        let bad = || {
+            format!(
+                "--pointer `{text}` is not `down:x,y@seconds` (or `up:`, `move:`, `exit:`, `lift:`)"
+            )
+        };
+        let (kind, rest) = text.split_once(':').ok_or_else(bad)?;
+        let (xy, time) = rest.rsplit_once('@').ok_or_else(bad)?;
+        let (x, y) = xy.split_once(',').ok_or_else(bad)?;
+        let kind = match kind {
+            "down" => Pointer::Down,
+            "up" => Pointer::Up,
+            "move" => Pointer::Move,
+            "exit" => Pointer::Exit,
+            "lift" => Pointer::Lift,
+            _ => return Err(bad()),
+        };
+        let num = |v: &str| v.trim().parse::<f64>().map_err(|_| bad());
+        events.push((num(time)?, kind, Point::new(num(x)?, num(y)?)));
+    }
+    events.sort_by(|a, b| a.0.total_cmp(&b.0));
+    let data = std::fs::read(file).map_err(|e| format!("{}: {e}", file.display()))?;
+    if !dxn_vector_animation_rive::sniff(&data) {
+        return Err(format!("{}: --pointer needs a Rive file", file.display()));
+    }
+    let fail = |e: Error| format!("{}: {e}", file.display());
+    let options = Options {
+        artboard: artboard.map(str::to_owned),
+        inputs: inputs.to_vec(),
+        ..Options::default()
+    };
+    let mut play = Interaction::new(data, Limits::default(), options).map_err(fail)?;
+    for (time, kind, at) in events {
+        play.pointer(time, kind, at).map_err(fail)?;
+    }
+    Ok((Format::Rive, play.import().clone()))
+}
+
+/// A state machine input's change: `name=value@seconds`, or `name@seconds`
+/// firing a trigger.
+fn parse_input(text: &str) -> Result<dxn_vector_animation_rive::InputChange, String> {
+    use dxn_vector_animation_rive::{InputChange, InputValue};
+    let bad = || format!("--input `{text}` is not `name=value@seconds` or `name@seconds`");
+    let (what, time) = text.rsplit_once('@').ok_or_else(bad)?;
+    let time = time.trim().parse::<f64>().map_err(|_| bad())?;
+    let (input, value) = match what.split_once('=') {
+        None => (what, InputValue::Fire),
+        Some((name, "true")) => (name, InputValue::Bool(true)),
+        Some((name, "false")) => (name, InputValue::Bool(false)),
+        Some((name, v)) => (
+            name,
+            InputValue::Number(v.trim().parse().map_err(|_| bad())?),
+        ),
+    };
+    Ok(InputChange {
+        time,
+        input: input.to_owned(),
+        value,
+    })
+}
+
 /// Every frame time at `fps` of the span from `start` lasting `duration`.
 fn frame_times((start, duration): (f64, f64), fps: f64) -> Vec<f64> {
     let count = (duration * fps).floor() as usize;
@@ -390,6 +490,98 @@ fn describe(file: &Path, format: Format, import: &Import) -> String {
         line(format!("  left out     {w}"));
     }
     out
+}
+
+/// The inputs and listeners of a Rive file's default state machine.
+fn describe_machine(file: &Path, artboard: Option<&str>, scene: &Scene) -> Result<String, String> {
+    use dxn_vector_animation_rive::{Action, Change, InputKind, InputValue, Options, PointerEvent};
+    let data = std::fs::read(file).map_err(|e| format!("{}: {e}", file.display()))?;
+    let options = Options {
+        artboard: artboard.map(str::to_owned),
+        ..Options::default()
+    };
+    let Some(machine) = dxn_vector_animation_rive::machine(&data, &options)
+        .map_err(|e| format!("{}: {e}", file.display()))?
+    else {
+        return Ok(String::new());
+    };
+    let mut out = format!("  machine      {}\n", machine.name);
+    for i in &machine.inputs {
+        let kind = match i.kind {
+            InputKind::Bool(v) => format!("bool, {v}"),
+            InputKind::Number(v) => format!("number, {v}"),
+            InputKind::Trigger => "trigger".to_owned(),
+        };
+        out.push_str(&format!("  input        {}: {kind}\n", i.name));
+    }
+    if !machine.inputs.is_empty() {
+        out.push_str(
+            "               (render --input '<name>=<value>@<seconds>', '<trigger>@<seconds>')\n",
+        );
+    }
+    for l in &machine.listeners {
+        let on: Vec<&str> =
+            l.on.iter()
+                .map(|e| match e {
+                    PointerEvent::Enter => "enter",
+                    PointerEvent::Exit => "exit",
+                    PointerEvent::Down => "down",
+                    PointerEvent::Up => "up",
+                    PointerEvent::Move => "move",
+                    PointerEvent::Click => "click",
+                })
+                .collect();
+        let actions: Vec<String> = l
+            .actions
+            .iter()
+            .map(|a| match a {
+                Action::Input { input, change } => match change {
+                    Change::Set(InputValue::Bool(v)) => format!("{input} = {v}"),
+                    Change::Set(InputValue::Number(v)) => format!("{input} = {v}"),
+                    Change::Set(InputValue::Fire) => format!("fires {input}"),
+                    Change::Toggle => format!("toggles {input}"),
+                },
+                Action::Align { node, keep_offset } => format!(
+                    "moves node {node} to the pointer{}",
+                    if *keep_offset {
+                        ", keeping its offset"
+                    } else {
+                        ""
+                    }
+                ),
+            })
+            .collect();
+        let at = l
+            .targets
+            .iter()
+            .filter_map(|id| scene.hit_bounds(id, 0.0))
+            .reduce(|a, b| a.union(b))
+            .map(|b| {
+                format!(
+                    " ({:.0},{:.0} to {:.0},{:.0})",
+                    b.x,
+                    b.y,
+                    b.x + b.width,
+                    b.y + b.height
+                )
+            })
+            .unwrap_or_default();
+        out.push_str(&format!(
+            "  listener     {} on {}{at}: {}\n",
+            on.join(", "),
+            match l.targets.as_slice() {
+                [one] => format!("shape {one}"),
+                more => format!("{} shapes", more.len()),
+            },
+            actions.join(", ")
+        ));
+    }
+    if !machine.listeners.is_empty() {
+        out.push_str(
+            "               (render --pointer <down|up|move|exit|lift>:<x>,<y>@<seconds>)\n",
+        );
+    }
+    Ok(out)
 }
 
 fn parse_color(s: &str) -> Option<Color> {
