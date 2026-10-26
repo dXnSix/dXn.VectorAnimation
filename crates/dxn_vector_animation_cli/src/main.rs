@@ -1,5 +1,5 @@
 //! `vector-animation`: inspect, validate, compile and render animated SVG,
-//! Lottie and compiled scenes.
+//! Lottie, Rive and compiled scenes.
 
 use std::{
     io::Write as _,
@@ -15,23 +15,28 @@ use dxn_vector_animation_render::{RenderOptions, render_png};
 #[command(
     name = "vector-animation",
     version,
-    about = "Inspect, validate, compile and render animated SVG and Lottie"
+    about = "Inspect, validate, compile and render animated SVG, Lottie and Rive"
 )]
 struct Cli {
     #[command(subcommand)]
     command: Command,
+    /// The artboard of a Rive file to read, by name; its first by default.
+    #[arg(long, global = true)]
+    artboard: Option<String>,
 }
 
 #[derive(Subcommand)]
 enum Command {
     /// Prints a file's size, timeline, contents and what it leaves out.
     Inspect {
-        /// An animated SVG, a Lottie JSON, a dotLottie or a compiled scene.
+        /// An animated SVG, a Lottie JSON, a dotLottie, a Rive file or a
+        /// compiled scene.
         file: PathBuf,
     },
     /// Reads a file and reports whether it plays; fails on errors.
     Validate {
-        /// An animated SVG, a Lottie JSON, a dotLottie or a compiled scene.
+        /// An animated SVG, a Lottie JSON, a dotLottie, a Rive file or a
+        /// compiled scene.
         file: PathBuf,
         /// Fails on warnings too.
         #[arg(long)]
@@ -39,7 +44,8 @@ enum Command {
     },
     /// Compiles a file into a scene (`.vector-animation.json`).
     Compile {
-        /// An animated SVG, a Lottie JSON, a dotLottie or a compiled scene.
+        /// An animated SVG, a Lottie JSON, a dotLottie, a Rive file or a
+        /// compiled scene.
         file: PathBuf,
         /// Where to write (`-` for stdout); next to the file by default.
         #[arg(short, long)]
@@ -50,7 +56,8 @@ enum Command {
     },
     /// Renders frames as PNG images.
     Render {
-        /// An animated SVG, a Lottie JSON, a dotLottie or a compiled scene.
+        /// An animated SVG, a Lottie JSON, a dotLottie, a Rive file or a
+        /// compiled scene.
         file: PathBuf,
         /// A PNG file for one frame, or a directory for several; next to
         /// the file by default.
@@ -62,6 +69,10 @@ enum Command {
         /// Renders the whole timeline at this many frames a second.
         #[arg(long, conflicts_with = "times")]
         fps: Option<f64>,
+        /// Renders a marker's span (a Rive animation's) instead: `--fps`
+        /// renders all of it, `--time` seconds into it.
+        #[arg(long)]
+        marker: Option<String>,
         /// Pixels wide (the height keeps the aspect unless given).
         #[arg(long)]
         width: Option<u32>,
@@ -87,6 +98,7 @@ enum Command {
 enum Format {
     Svg,
     Lottie,
+    Rive,
     Compiled,
 }
 
@@ -95,6 +107,7 @@ impl Format {
         match self {
             Format::Svg => "animated SVG",
             Format::Lottie => "Lottie",
+            Format::Rive => "Rive",
             Format::Compiled => "compiled scene",
         }
     }
@@ -102,7 +115,7 @@ impl Format {
 
 fn main() -> ExitCode {
     let cli = Cli::parse();
-    match run(cli.command) {
+    match run(cli.command, cli.artboard.as_deref()) {
         Ok(code) => code,
         Err(message) => {
             eprintln!("error: {message}");
@@ -111,10 +124,18 @@ fn main() -> ExitCode {
     }
 }
 
-fn read(file: &Path) -> Result<(Format, Import), String> {
+fn read(file: &Path, artboard: Option<&str>) -> Result<(Format, Import), String> {
     let data = std::fs::read(file).map_err(|e| format!("{}: {e}", file.display()))?;
     let limits = Limits::default();
     let fail = |e: Error| format!("{}: {e}", file.display());
+    if dxn_vector_animation_rive::sniff(&data) {
+        let options = dxn_vector_animation_rive::Options {
+            artboard: artboard.map(str::to_owned),
+        };
+        return dxn_vector_animation_rive::read_options(&data, &limits, &options)
+            .map(|i| (Format::Rive, i))
+            .map_err(fail);
+    }
     if compiled::sniff(&data) {
         let scene = compiled::from_json(&data, &limits).map_err(fail)?;
         return Ok((
@@ -140,20 +161,20 @@ fn read(file: &Path) -> Result<(Format, Import), String> {
             .map_err(fail);
     }
     Err(format!(
-        "{}: neither SVG, Lottie nor a compiled scene",
+        "{}: neither SVG, Lottie, Rive nor a compiled scene",
         file.display()
     ))
 }
 
-fn run(command: Command) -> Result<ExitCode, String> {
+fn run(command: Command, artboard: Option<&str>) -> Result<ExitCode, String> {
     match command {
         Command::Inspect { file } => {
-            let (format, import) = read(&file)?;
+            let (format, import) = read(&file, artboard)?;
             print!("{}", describe(&file, format, &import));
             Ok(ExitCode::SUCCESS)
         }
         Command::Validate { file, strict } => {
-            let (format, import) = read(&file)?;
+            let (format, import) = read(&file, artboard)?;
             for w in &import.warnings {
                 println!("warning: {w}");
             }
@@ -169,7 +190,7 @@ fn run(command: Command) -> Result<ExitCode, String> {
             output,
             pretty,
         } => {
-            let (_, import) = read(&file)?;
+            let (_, import) = read(&file, artboard)?;
             for w in &import.warnings {
                 eprintln!("warning: {w}");
             }
@@ -189,13 +210,14 @@ fn run(command: Command) -> Result<ExitCode, String> {
             output,
             times,
             fps,
+            marker,
             width,
             height,
             scale,
             background,
             events,
         } => {
-            let (_, import) = read(&file)?;
+            let (_, import) = read(&file, artboard)?;
             let mut happened: Vec<(&str, f64)> = Vec::new();
             for e in &events {
                 let parsed = e
@@ -220,11 +242,23 @@ fn run(command: Command) -> Result<ExitCode, String> {
                 scale,
                 background,
             };
+            let span = match &marker {
+                Some(name) => {
+                    let m = scene
+                        .timeline
+                        .markers
+                        .iter()
+                        .find(|m| &m.name == name)
+                        .ok_or_else(|| format!("no marker `{name}` (`inspect` lists them)"))?;
+                    (m.start, m.duration.max(0.0))
+                }
+                None => (0.0, scene.timeline.duration),
+            };
             let times = match fps {
-                Some(fps) if fps > 0.0 => frame_times(&scene, fps),
+                Some(fps) if fps > 0.0 => frame_times(span, fps),
                 Some(_) => return Err("--fps must be positive".into()),
-                None if times.is_empty() => vec![0.0],
-                None => times,
+                None if times.is_empty() => vec![span.0],
+                None => times.iter().map(|t| span.0 + t).collect(),
             };
             let stem = file
                 .file_stem()
@@ -250,7 +284,7 @@ fn run(command: Command) -> Result<ExitCode, String> {
                     .map_err(|e| format!("{}: {e}", output.display()))?;
             }
             for (i, t) in times.iter().enumerate() {
-                if let Some(shown) = past_the_loop(&scene, *t) {
+                if let Some(shown) = past_the_loop(&scene, *t).filter(|_| marker.is_none()) {
                     eprintln!(
                         "warning: t={t:.3}s is past the {:.3} s timeline, which loops, and is rendered as \
                          given, not wrapped: the player shows {shown:.3} s there",
@@ -278,10 +312,12 @@ fn past_the_loop(scene: &Scene, t: f64) -> Option<f64> {
     (t > timeline.duration && timeline.loop_mode != LoopMode::Once).then(|| timeline.time_at(t))
 }
 
-/// Every frame time of the timeline at `fps`.
-fn frame_times(scene: &Scene, fps: f64) -> Vec<f64> {
-    let count = (scene.timeline.duration * fps).floor() as usize;
-    (0..=count.min(100_000)).map(|i| i as f64 / fps).collect()
+/// Every frame time at `fps` of the span from `start` lasting `duration`.
+fn frame_times((start, duration): (f64, f64), fps: f64) -> Vec<f64> {
+    let count = (duration * fps).floor() as usize;
+    (0..=count.min(100_000))
+        .map(|i| start + i as f64 / fps)
+        .collect()
 }
 
 fn describe(file: &Path, format: Format, import: &Import) -> String {
@@ -324,8 +360,16 @@ fn describe(file: &Path, format: Format, import: &Import) -> String {
                 m.duration
             )),
             None => line(format!(
-                "  marker       {} at {:.3} s for {:.3} s",
-                m.name, m.start, m.duration
+                "  marker       {} at {:.3} s for {:.3} s{}",
+                m.name,
+                m.start,
+                m.duration,
+                match m.loop_mode {
+                    Some(LoopMode::Loop) => ", loops",
+                    Some(LoopMode::PingPong) => ", ping-pong",
+                    Some(LoopMode::Once) => ", once",
+                    None => "",
+                }
             )),
         }
     }

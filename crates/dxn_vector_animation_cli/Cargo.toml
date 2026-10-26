@@ -20,6 +20,7 @@ clap.workspace = true
 dxn_vector_animation = { workspace = true, features = ["serde"] }
 dxn_vector_animation_lottie.workspace = true
 dxn_vector_animation_render.workspace = true
+dxn_vector_animation_rive.workspace = true
 dxn_vector_animation_svg.workspace = true
 serde_json.workspace = true
 

@@ -1,6 +1,6 @@
 ---
 title: The vector-animation CLI
-description: The vector-animation command - inspect, validate, compile and render animated SVG, Lottie, dotLottie and compiled scenes - with every flag, its output and exit codes.
+description: The vector-animation command - inspect, validate, compile and render animated SVG, Lottie, dotLottie, Rive and compiled scenes - with every flag, its output and exit codes.
 group: Tools
 order: 140
 ---
@@ -21,7 +21,7 @@ From a checkout, `cargo run -p dxn_vector_animation_cli -- <command>` runs it wi
 | `compile [-o <OUTPUT>] [--pretty] <FILE>` | Writes the scene as a compiled `.vector-animation.json` |
 | `render [OPTIONS] <FILE>` | Renders frames as PNG images |
 
-Every command takes an animated SVG, a Lottie JSON, a dotLottie archive or a compiled scene, and tells them apart by their content, not their extension: a compiled scene first, then Lottie (a ZIP archive, or JSON that is not SVG), then SVG. Files are read with the default [limits](./limits.md).
+Every command takes an animated SVG, a Lottie JSON, a dotLottie archive, a Rive file or a compiled scene, and tells them apart by their content, not their extension: a Rive file first (by its `RIVE` fingerprint), then a compiled scene, then Lottie (a ZIP archive, or JSON that is not SVG), then SVG. `--artboard <NAME>` reads another artboard of a Rive file than its first. Files are read with the default [limits](./limits.md).
 
 ## inspect
 
@@ -128,6 +128,7 @@ shots/lottie-motion-0001.png  t=1.000s
 |---|---|---|
 | `-t`, `--time <TIMES>` | `0` | A time to render, in seconds; repeat it for several |
 | `--fps <FPS>` | | Renders the timeline from 0 to its end every 1/FPS seconds (at most 100,001 frames); cannot be combined with `--time` |
+| `--marker <MARKER>` | | Renders a marker's span instead of the timeline (a Rive animation's): `--fps` all of it, `--time` seconds into it |
 | `--width <WIDTH>` | | Pixels wide; the height keeps the aspect unless given |
 | `--height <HEIGHT>` | | Pixels high |
 | `--scale <SCALE>` | `1` | Pixels per user unit when no size is given |

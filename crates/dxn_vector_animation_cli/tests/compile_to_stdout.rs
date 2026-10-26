@@ -55,7 +55,7 @@ fn a_dash_writes_the_scene_to_stdout() {
 fn compile_help_names_every_input_and_stdout() {
     let text = help("compile");
     assert!(
-        text.contains("a Lottie JSON, a dotLottie or a compiled scene"),
+        text.contains("a Lottie JSON, a dotLottie, a Rive file or a compiled scene"),
         "{text}"
     );
     assert!(text.contains("`-` for stdout"), "{text}");
