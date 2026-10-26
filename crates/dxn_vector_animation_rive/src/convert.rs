@@ -3622,11 +3622,10 @@ impl<'a> Converter<'a> {
                 };
                 let mut times: Vec<f64> = time.keys.iter().map(|k| k.t).collect();
                 times.insert(0, 0.0);
+                // To the end of what plays: the last keyframe's value holds.
+                times.push(spans.iter().map(|(s, d)| s + d).fold(1.0, f64::max));
                 times.sort_by(f64::total_cmp);
                 times.dedup();
-                if times.len() == 1 {
-                    times.push(spans.iter().map(|(s, d)| s + d).fold(1.0, f64::max));
-                }
                 for w in times.windows(2) {
                     let (t0, t1) = (w[0], w[1]);
                     // Straight between remapped keyframes, frames between

@@ -85,6 +85,7 @@ pub mod ty {
     pub const LISTENER_SINGLE: u16 = 114;
     pub const LISTENER_BOOL_CHANGE: u16 = 117;
     pub const LISTENER_ALIGN_TARGET: u16 = 126;
+    pub const JOYSTICK: u16 = 148;
     pub const TRANSITION_TRIGGER_CONDITION: u16 = 68;
     pub const KEY_FRAME_BOOL: u16 = 84;
 }
@@ -250,6 +251,12 @@ pub mod key {
     pub const LISTENER_TYPE: u16 = 225;
     pub const ALIGN_TARGET: u16 = 240;
     pub const ALIGN_PRESERVE_OFFSET: u16 = 541;
+    pub const JOYSTICK_X_ID: u16 = 301;
+    pub const JOYSTICK_POS_X: u16 = 303;
+    pub const JOYSTICK_POS_Y: u16 = 304;
+    pub const JOYSTICK_WIDTH: u16 = 305;
+    pub const JOYSTICK_HEIGHT: u16 = 306;
+    pub const JOYSTICK_HANDLE: u16 = 313;
     pub const ACTION_INPUT: u16 = 227;
     pub const ACTION_BOOL_VALUE: u16 = 228;
 }
@@ -270,6 +277,7 @@ pub enum V {
 /// gives a slot).
 const COMPONENTS: &[u16] = &[
     ty::NODE,
+    ty::JOYSTICK,
     ty::SHAPE,
     ty::ELLIPSE,
     ty::STRAIGHT_VERTEX,

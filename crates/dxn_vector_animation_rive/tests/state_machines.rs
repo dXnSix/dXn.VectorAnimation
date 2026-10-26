@@ -681,3 +681,90 @@ fn click_listeners_toggle_bool_inputs() {
     assert_eq!(at(s, 0.8, 85, 25), WHITE);
     assert_eq!(at(s, 0.8, 35, 25), RED);
 }
+
+/// A red square (shape 1) at x 10 that a joystick's x animation ("jx", 10
+/// to 90) moves as its handle (node 9, in the middle) goes across the
+/// artboard, a blue hit area over all of it (shape 5) whose listener
+/// moves the handle to the pointer, and a state machine looping "idle".
+fn joystick() -> Riv {
+    let mut riv = Riv::new()
+        .artboard(100.0, 50.0)
+        .rect_shape(0, 10.0, 15.0, 10.0, 10.0, 0xFFFF_0000)
+        .rect_shape(0, 50.0, 25.0, 100.0, 50.0, 0xFF00_00FF)
+        .obj(
+            ty::NODE,
+            &[
+                (key::PARENT_ID, V::U(0)),
+                (key::X, V::D(50.0)),
+                (key::Y, V::D(25.0)),
+            ],
+        )
+        .obj(
+            ty::JOYSTICK,
+            &[
+                (key::PARENT_ID, V::U(0)),
+                (key::JOYSTICK_X_ID, V::U(0)),
+                (key::JOYSTICK_POS_X, V::D(50.0)),
+                (key::JOYSTICK_POS_Y, V::D(25.0)),
+                (key::JOYSTICK_WIDTH, V::D(100.0)),
+                (key::JOYSTICK_HEIGHT, V::D(50.0)),
+                (key::JOYSTICK_HANDLE, V::U(9)),
+            ],
+        );
+    for (name, object, keys, loop_value) in [
+        ("jx", 1, [(0, 10.0), (10, 90.0)], 0),
+        ("idle", 5, [(0, 50.0), (10, 50.0)], 1),
+    ] {
+        riv = riv
+            .obj(
+                ty::LINEAR_ANIMATION,
+                &[
+                    (key::ANIMATION_NAME, V::S(name)),
+                    (key::FPS, V::U(10)),
+                    (key::DURATION, V::U(10)),
+                    (key::LOOP, V::U(loop_value)),
+                ],
+            )
+            .obj(ty::KEYED_OBJECT, &[(key::OBJECT_ID, V::U(object))])
+            .obj(
+                ty::KEYED_PROPERTY,
+                &[(key::PROPERTY_KEY, V::U(u64::from(key::X)))],
+            );
+        for (frame, value) in keys {
+            riv = riv.obj(
+                ty::KEY_FRAME_DOUBLE,
+                &[
+                    (key::FRAME, V::U(frame)),
+                    (key::VALUE, V::D(value)),
+                    (key::INTERPOLATION, V::U(1)),
+                ],
+            );
+        }
+    }
+    layer(machine(riv), &[(3, &[], &[])], &[], &[(1, &[])])
+        .obj(
+            ty::LISTENER_SINGLE,
+            &[
+                (key::LISTENER_TARGET, V::U(5)),
+                (key::LISTENER_TYPE, V::U(4)),
+            ],
+        )
+        .obj(ty::LISTENER_ALIGN_TARGET, &[(key::ALIGN_TARGET, V::U(9))])
+}
+
+#[test]
+fn a_joystick_follows_its_handle_moved_to_the_pointer() {
+    let riv = joystick();
+    let _ = scene(&riv);
+    let mut play = Interaction::new(riv.bytes(), Limits::default(), Options::default()).unwrap();
+    // The handle in the middle: the square halfway, at 50; moved to the
+    // right edge at 0.5 s (the pointer on the hit area's edge, which Rive
+    // hits within 2 units), the square goes to 90 and stays there.
+    play.pointer(0.5, Pointer::Move, Point::new(100.0, 25.0))
+        .unwrap();
+    let s = &play.import().scene;
+    assert_eq!(at(s, 0.2, 50, 15), RED);
+    assert_eq!(at(s, 0.6, 90, 15), RED);
+    assert_eq!(at(s, 0.95, 90, 15), RED);
+    assert_eq!(at(s, 0.95, 50, 15), BLUE);
+}
