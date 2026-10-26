@@ -3,6 +3,7 @@
 //! `posterFrame`).
 
 use dxn_vector_animation::{Limits, Scene, compiled};
+use dxn_vector_animation_rive::Interaction;
 use nsh_core::ui::{JsHost, JsIn, JsKind, JsOwned, JsValue, PropError, TsTypes};
 
 /// What a `VectorAnimation` plays.
@@ -80,6 +81,10 @@ pub struct Loaded {
     pub scene: Scene,
     /// What the file holds that the scene leaves out.
     pub warnings: Vec<String>,
+    /// A Rive file's default state machine as the user plays it: its
+    /// inputs set and its listeners' pointer events, each read into the
+    /// scene again.
+    pub interaction: Option<Interaction>,
 }
 
 /// Reads `bytes` (an SVG, a Lottie JSON, a dotLottie archive, a Rive file
@@ -87,18 +92,21 @@ pub struct Loaded {
 pub fn read(bytes: &[u8]) -> Result<Loaded, String> {
     let limits = Limits::default();
     if dxn_vector_animation_rive::sniff(bytes) {
-        return dxn_vector_animation_rive::read_with(bytes, &limits)
-            .map(|i| Loaded {
-                scene: i.scene,
-                warnings: i.warnings,
-            })
-            .map_err(|e| e.to_string());
+        let play = Interaction::new(bytes.to_vec(), limits, Default::default())
+            .map_err(|e| e.to_string())?;
+        let import = play.import();
+        return Ok(Loaded {
+            scene: import.scene.clone(),
+            warnings: import.warnings.clone(),
+            interaction: Some(play),
+        });
     }
     if compiled::sniff(bytes) {
         return compiled::from_json(bytes, &limits)
             .map(|scene| Loaded {
                 scene,
                 warnings: Vec::new(),
+                interaction: None,
             })
             .map_err(|e| e.to_string());
     }
@@ -115,6 +123,7 @@ pub fn read(bytes: &[u8]) -> Result<Loaded, String> {
         .map(|i| Loaded {
             scene: i.scene,
             warnings: i.warnings,
+            interaction: None,
         })
         .map_err(|e| e.to_string())
 }
@@ -123,6 +132,39 @@ pub fn read(bytes: &[u8]) -> Result<Loaded, String> {
 pub fn read_json(value: &serde_json::Value) -> Result<Loaded, String> {
     let bytes = serde_json::to_vec(value).map_err(|e| e.to_string())?;
     read(&bytes)
+}
+
+/// What a state machine's input is set to (`setInput`): a bool or a number.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum InputSetting {
+    /// A bool input.
+    Bool(bool),
+    /// A number input.
+    Number(f64),
+}
+
+impl JsValue for InputSetting {
+    fn ts_type(_types: &mut TsTypes) -> String {
+        "boolean | number".into()
+    }
+
+    fn from_js(value: JsIn<'_>) -> Result<Self, PropError> {
+        if let Some(b) = value.as_bool() {
+            return Ok(InputSetting::Bool(b));
+        }
+        match value.as_number() {
+            Some(n) => Ok(InputSetting::Number(n)),
+            None => Err(value.expected("a boolean or a number")),
+        }
+    }
+
+    fn to_js<'a>(&self, host: &'a dyn JsHost) -> Result<JsOwned<'a>, PropError> {
+        let raw = match self {
+            InputSetting::Bool(b) => host.new_bool(*b),
+            InputSetting::Number(n) => host.new_number(*n),
+        };
+        Ok(JsOwned::new(host, raw))
+    }
 }
 
 /// How many times an animation plays (`repeat`): `true` forever, a count.

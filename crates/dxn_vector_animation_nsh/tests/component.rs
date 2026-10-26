@@ -106,6 +106,48 @@ fn OnceMarker() -> impl IntoElement {
         .child(text(move || status.get()))
 }
 
+const TOGGLE: &[u8] = include_bytes!("../../../fixtures/rive-toggle.riv");
+
+/// A Rive file whose bool input "on" a click on its middle toggles, what it
+/// reports shown as text; `set` sets the input once it is loaded.
+fn toggle(set: bool) -> impl IntoElement {
+    use dxn_vector_animation_nsh::{AnimationInput, InputSetting};
+
+    let status = signal(String::from("loading"));
+    let player = component_ref::<dxn_vector_animation_nsh::VectorAnimation>();
+    view()
+        .child(
+            vector_animation()
+                .component_ref(&player)
+                .src(Some(Source::Bytes(TOGGLE.to_vec())))
+                .on_load(move |info: &AnimationInfo| {
+                    let inputs: Vec<String> = info
+                        .inputs
+                        .iter()
+                        .map(|i| format!("{}:{}", i.name, i.kind))
+                        .collect();
+                    status.set(format!("Inputs {}", inputs.join(",")));
+                    if set && let Some(api) = player.api::<VectorAnimationApi>() {
+                        api.set_input("on".into(), InputSetting::Bool(true));
+                    }
+                })
+                .on_input(move |i: &AnimationInput| {
+                    status.set(format!("Input {} {}", i.name, i.value));
+                }),
+        )
+        .child(text(move || status.get()))
+}
+
+#[component]
+fn ToggleSet() -> impl IntoElement {
+    toggle(true)
+}
+
+#[component]
+fn ToggleClicked() -> impl IntoElement {
+    toggle(false)
+}
+
 /// A player of something that is not an animation.
 #[component]
 fn Broken() -> impl IntoElement {
@@ -209,4 +251,21 @@ fn reports_what_it_cannot_read() {
     let mut app = start::<Broken>();
     app.wait_for("Error neither SVG, Lottie, Rive nor a compiled scene")
         .unwrap();
+}
+
+#[test]
+fn sets_a_rive_files_inputs() {
+    let mut app = start::<ToggleSet>();
+    app.wait_for("Input on 1").unwrap();
+}
+
+#[test]
+fn a_rive_files_listeners_hear_the_pointer() {
+    let mut app = start::<ToggleClicked>();
+    app.wait_for("Inputs on:bool").unwrap();
+    // A finger down on its middle and lifted there: a click.
+    let pointer = format!("id:{}", dxn_vector_animation_nsh::POINTER_TEST_ID);
+    app.drag(&pointer, nsh_core::geometry::point(px(1.0), px(0.0)))
+        .unwrap();
+    app.wait_for("Input on 1").unwrap();
 }

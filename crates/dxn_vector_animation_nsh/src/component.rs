@@ -7,8 +7,10 @@ use std::{
     sync::Arc,
 };
 
-use dxn_vector_animation::{Frame, ImageData, Matrix, Rect, Scene};
+use dxn_vector_animation::{Frame, ImageData, Matrix, Point, Rect, Scene};
+use dxn_vector_animation_rive::{InputKind, InputValue, Interaction, Pointer};
 use nsh_core::{
+    HoverEvent, TouchEvent, TouchPhase,
     geometry::{Bounds, Points, Size, px},
     ui::{SignalEquals, prelude::*, signal_with},
 };
@@ -18,7 +20,7 @@ use crate::{
     lower::{self, Nodes},
     plan,
     playback::{Direction, Playback},
-    source::{self, At, Loaded, PosterFrame, Repeat, Segment, Source},
+    source::{self, At, InputSetting, Loaded, PosterFrame, Repeat, Segment, Source},
 };
 
 /// How the animation fits its view (`resizeMode`).
@@ -93,6 +95,17 @@ pub struct AnimationMarker {
     pub duration: f64,
 }
 
+/// An input of a Rive file's state machine.
+#[derive(Debug, Clone, Default, PartialEq, JsObject)]
+pub struct AnimationInput {
+    /// Its name.
+    pub name: String,
+    /// What it holds: `"bool"`, `"number"` or `"trigger"`.
+    pub kind: String,
+    /// Its value at first (a bool's 0 or 1; a trigger's 0).
+    pub value: f64,
+}
+
 /// What a loaded animation is.
 #[derive(Debug, Clone, Default, PartialEq, JsObject)]
 pub struct AnimationInfo {
@@ -105,6 +118,10 @@ pub struct AnimationInfo {
     /// The events it has something to play on (`btn.click`): what
     /// [`VectorAnimationApi::trigger`] takes.
     pub events: Vec<String>,
+    /// A Rive file's state machine's inputs: what
+    /// [`VectorAnimationApi::set_input`] and [`VectorAnimationApi::fire`]
+    /// take.
+    pub inputs: Vec<AnimationInput>,
     /// What the file holds that is left out (text, filters, effects, ...).
     pub warnings: Vec<String>,
 }
@@ -116,6 +133,10 @@ pub enum VectorAnimationEvent {
     Load(AnimationInfo),
     /// Playback reached its end (never while repeating forever).
     End,
+    /// An input of a Rive file's state machine changed: a listener set it
+    /// as the pointer acted, or `setInput` or `fire` did (a trigger fired
+    /// is 1).
+    Input(AnimationInput),
     /// The animation could not be loaded or read.
     Error(String),
 }
@@ -124,6 +145,7 @@ pub enum VectorAnimationEvent {
 pub struct VectorAnimationApi {
     seek_to: Signal<Option<(f64, u64)>>,
     event: Signal<Option<(String, u64)>>,
+    act: Rc<dyn Fn(Act)>,
 }
 
 #[methods]
@@ -144,6 +166,83 @@ impl VectorAnimationApi {
         let generation = self.event.get_untracked().map_or(0, |(_, g)| g + 1);
         self.event.set(Some((event, generation)));
     }
+
+    /// Sets a Rive file's state machine input `name` to `value` (a bool or
+    /// a number, as the load info's `inputs` has it) now: the machine plays
+    /// on from here as Rive plays it with the change.
+    pub fn set_input(&self, name: String, value: InputSetting) {
+        (self.act)(Act::Set(
+            name,
+            match value {
+                InputSetting::Bool(b) => InputValue::Bool(b),
+                InputSetting::Number(n) => InputValue::Number(n),
+            },
+        ));
+    }
+
+    /// Fires a Rive file's state machine trigger `name` now.
+    pub fn fire(&self, name: String) {
+        (self.act)(Act::Set(name, InputValue::Fire));
+    }
+}
+
+/// The test id of the view over a Rive file whose state machine has
+/// listeners: the pointer over it acts on them.
+pub const POINTER_TEST_ID: &str = "vector-animation-pointer";
+
+/// A change to a Rive file's state machine.
+enum Act {
+    /// A pointer over the scene (in its coordinates).
+    Pointer(Pointer, Point),
+    /// An input set.
+    Set(String, InputValue),
+}
+
+/// A Rive file's state machine as the user plays it: the changes still to
+/// make, made a batch at a time off the engine thread, and the file read
+/// with them.
+#[derive(Default)]
+struct Interacting {
+    /// The file's (none while a batch is made, or for other files).
+    play: Option<Interaction>,
+    /// The changes to make, each at the time it came.
+    queue: Vec<(f64, Act)>,
+    /// A batch is being made.
+    busy: bool,
+    /// Counts the sources read: a batch of one before is dropped.
+    generation: u64,
+    /// Where the pointer last was, in the scene's coordinates.
+    last: Option<Point>,
+}
+
+/// Makes `batch` on `play`: whether it changed the scene.
+fn make(play: &mut Interaction, batch: Vec<(f64, Act)>) -> bool {
+    let mut changed = false;
+    for (t, act) in batch {
+        let made = match act {
+            Act::Pointer(kind, at) => play.pointer(t, kind, at),
+            Act::Set(name, value) => play.set(t, &name, value).map(|()| true),
+        };
+        match made {
+            Ok(c) => changed |= c,
+            Err(e) => log::warn!("VectorAnimation: {e}"),
+        }
+    }
+    changed
+}
+
+/// `batch` with each run of moves but its last left out.
+fn coalesced(batch: Vec<(f64, Act)>) -> Vec<(f64, Act)> {
+    let mut out: Vec<(f64, Act)> = Vec::with_capacity(batch.len());
+    for (t, act) in batch {
+        if matches!(act, Act::Pointer(Pointer::Move, _))
+            && matches!(out.last(), Some((_, Act::Pointer(Pointer::Move, _))))
+        {
+            out.pop();
+        }
+        out.push((t, act));
+    }
+    out
 }
 
 /// A scene ready to play: whether the native graph plays it.
@@ -152,6 +251,32 @@ struct Ready {
     native: bool,
     /// Parts of it are sampled frame by frame, on the engine's clock.
     mixed: bool,
+    /// A Rive file whose state machine has listeners: pointers act on it.
+    listens: bool,
+}
+
+impl Ready {
+    /// `loaded` compiled for the native graph where it can be.
+    fn of(loaded: Loaded, listens: bool) -> Ready {
+        let (native, mixed) = match plan::compile(&loaded.scene, Matrix::IDENTITY) {
+            Ok(plan) => {
+                for why in &plan.sampled {
+                    log::info!("VectorAnimation: a part sampled frame by frame ({why})");
+                }
+                (true, !plan.sampled.is_empty())
+            }
+            Err(plan::Unsupported(why)) => {
+                log::info!("VectorAnimation: sampled frame by frame ({why})");
+                (false, false)
+            }
+        };
+        Ready {
+            loaded,
+            native,
+            mixed,
+            listens,
+        }
+    }
 }
 
 /// Plays an animated SVG (CSS animations, as Figma Motion exports them) or a
@@ -169,7 +294,98 @@ pub fn VectorAnimation(
     let clock = signal(0.0f64);
     let seek_to = signal(None::<(f64, u64)>);
     let event = signal(None::<(String, u64)>);
-    cx.methods(VectorAnimationApi { seek_to, event });
+    let interacting = stored(Interacting::default());
+    // A change to a Rive file's state machine, made at the time playback
+    // is at: queued, and made with those queued after it off the engine
+    // thread, the scene swapped for what they make (playback goes on from
+    // where it is).
+    let act = move |what: Act| {
+        spawn(async move {
+            let native = ready.get_untracked().is_some_and(|r| r.native);
+            let now = if native {
+                f64::from(time.value().await)
+            } else {
+                clock.get_untracked()
+            };
+            let go = interacting.with(|i| {
+                i.queue.push((now, what));
+                let go = !i.busy && i.play.is_some();
+                i.busy |= go;
+                go
+            });
+            if !go {
+                return;
+            }
+            loop {
+                let (play, batch, generation) = interacting
+                    .with(|i| (i.play.take(), std::mem::take(&mut i.queue), i.generation));
+                let Some(mut play) = play else { break };
+                if batch.is_empty() {
+                    interacting.with(|i| {
+                        i.play = Some(play);
+                        i.busy = false;
+                    });
+                    break;
+                }
+                let batch = coalesced(batch);
+                let listens = ready.get_untracked().is_some_and(|r| r.listens);
+                let made = move || {
+                    let before = play.changes().len();
+                    let changed = make(&mut play, batch);
+                    let inputs: Vec<AnimationInput> = play.changes()
+                        [before.min(play.changes().len())..]
+                        .iter()
+                        .map(|c| {
+                            let (kind, value) = match c.value {
+                                InputValue::Bool(b) => ("bool", f64::from(u8::from(b))),
+                                InputValue::Number(n) => ("number", n),
+                                InputValue::Fire => ("trigger", 1.0),
+                            };
+                            AnimationInput {
+                                name: c.input.clone(),
+                                kind: kind.into(),
+                                value,
+                            }
+                        })
+                        .collect();
+                    let swapped = changed.then(|| {
+                        let import = play.import();
+                        Ready::of(
+                            Loaded {
+                                scene: import.scene.clone(),
+                                warnings: import.warnings.clone(),
+                                interaction: None,
+                            },
+                            listens,
+                        )
+                    });
+                    (play, swapped, inputs)
+                };
+                #[cfg(not(target_arch = "wasm32"))]
+                let Ok((play, swapped, inputs)) = blocking(made).await else {
+                    break;
+                };
+                #[cfg(target_arch = "wasm32")]
+                let (play, swapped, inputs) = made();
+                if interacting.with(|i| i.generation) != generation {
+                    // Another source is read meanwhile.
+                    break;
+                }
+                if let Some(r) = swapped {
+                    ready.set(Some(Rc::new(r)));
+                }
+                for input in inputs {
+                    cx.emit(VectorAnimationEvent::Input(input));
+                }
+                interacting.with(|i| i.play = Some(play));
+            }
+        });
+    };
+    cx.methods(VectorAnimationApi {
+        seek_to,
+        event,
+        act: Rc::new(act),
+    });
     // The scene played: the file's, or what it plays on the event last
     // triggered, moved to its start.
     let played: Signal<Option<(Rc<Scene>, Option<f64>)>> = signal_with(None, SignalEquals::Never);
@@ -225,33 +441,26 @@ pub fn VectorAnimation(
         }
         ready.set(None);
         event.set(None);
+        let generation = interacting.with(|i| i.generation) + 1;
+        interacting.replace(Interacting {
+            generation,
+            ..Interacting::default()
+        });
         let Some(src) = src else { return };
         loading.replace(Some(spawn(async move {
             match load(src).await {
-                Ok(loaded) => {
+                Ok(mut loaded) => {
                     for w in &loaded.warnings {
                         log::warn!("VectorAnimation: left out: {w}");
                     }
-                    let (native, mixed) = match plan::compile(&loaded.scene, Matrix::IDENTITY) {
-                        Ok(plan) => {
-                            for why in &plan.sampled {
-                                log::info!(
-                                    "VectorAnimation: a part sampled frame by frame ({why})"
-                                );
-                            }
-                            (true, !plan.sampled.is_empty())
-                        }
-                        Err(plan::Unsupported(why)) => {
-                            log::info!("VectorAnimation: sampled frame by frame ({why})");
-                            (false, false)
-                        }
-                    };
                     let info = info(&loaded);
-                    ready.set(Some(Rc::new(Ready {
-                        loaded,
-                        native,
-                        mixed,
-                    })));
+                    let play = loaded.interaction.take();
+                    let listens = play
+                        .as_ref()
+                        .and_then(Interaction::machine)
+                        .is_some_and(|m| !m.listeners.is_empty());
+                    interacting.with(|i| i.play = play);
+                    ready.set(Some(Rc::new(Ready::of(loaded, listens))));
                     cx.emit(VectorAnimationEvent::Load(info));
                 }
                 Err(e) => cx.emit(VectorAnimationEvent::Error(e)),
@@ -438,6 +647,66 @@ pub fn VectorAnimation(
         .absolute()
         .size_full()
         .on_layout(move |frame: &Bounds<Points>| size.set(frame.size));
+    // Where a point of the view is in the scene.
+    let in_scene = move |at: nsh_core::geometry::Point<Points>| {
+        let scene = &ready.get_untracked()?.loaded.scene;
+        let size = size.get_untracked();
+        let base = fit(
+            scene,
+            f64::from(size.width.0),
+            f64::from(size.height.0),
+            props.resize_mode.get_untracked(),
+        );
+        Some(
+            base.invert()?
+                .apply(Point::new(f64::from(at.x.0), f64::from(at.y.0))),
+        )
+    };
+    // A Rive file's listeners hear the pointer over it, as Rive's web
+    // runtime has them: a finger (or a button) going down presses, moving
+    // moves, lifting releases and leaves; the mouse moves over it, and
+    // leaves.
+    let listener = dynamic(move || {
+        if !ready.get().is_some_and(|r| r.listens) {
+            return Vec::new();
+        }
+        let touch = move |e: &TouchEvent| {
+            let Some(p) = e.points.iter().find(|p| p.changed).or(e.points.first()) else {
+                return;
+            };
+            let Some(at) = in_scene(p.location) else {
+                return;
+            };
+            interacting.with(|i| i.last = Some(at));
+            let kind = match e.phase {
+                TouchPhase::Start => Pointer::Down,
+                TouchPhase::Move => Pointer::Move,
+                TouchPhase::End | TouchPhase::Cancel => Pointer::Lift,
+            };
+            act(Act::Pointer(kind, at));
+        };
+        let hover = move |e: &HoverEvent| {
+            if let Some(at) = in_scene(e.position) {
+                interacting.with(|i| i.last = Some(at));
+                act(Act::Pointer(Pointer::Move, at));
+            }
+        };
+        let left = move || {
+            if let Some(at) = interacting.with(|i| i.last) {
+                act(Act::Pointer(Pointer::Exit, at));
+            }
+        };
+        vec![
+            view()
+                .absolute()
+                .size_full()
+                .test_id(POINTER_TEST_ID)
+                .on_touch(touch)
+                .on_hover_move(hover)
+                .on_hover_out(left)
+                .into_element(),
+        ]
+    });
     root.child(stage.child(dynamic(move || {
         let Some(r) = ready.get() else {
             return Vec::new();
@@ -472,6 +741,7 @@ pub fn VectorAnimation(
         }
         vec![sampled(move |t| scene.frame_at(t), base, clock, time)]
     })))
+    .child(listener)
 }
 
 /// A canvas drawing the frame `frame_at` the clock's time, drawn again as
@@ -659,6 +929,28 @@ fn info(loaded: &Loaded) -> AnimationInfo {
             })
             .collect(),
         events: s.events().into_iter().map(str::to_owned).collect(),
+        inputs: loaded
+            .interaction
+            .as_ref()
+            .and_then(Interaction::machine)
+            .map(|m| {
+                m.inputs
+                    .iter()
+                    .map(|i| {
+                        let (kind, value) = match i.kind {
+                            InputKind::Bool(b) => ("bool", f64::from(u8::from(b))),
+                            InputKind::Number(n) => ("number", n),
+                            InputKind::Trigger => ("trigger", 0.0),
+                        };
+                        AnimationInput {
+                            name: i.name.clone(),
+                            kind: kind.into(),
+                            value,
+                        }
+                    })
+                    .collect()
+            })
+            .unwrap_or_default(),
         warnings: loaded.warnings.clone(),
     }
 }

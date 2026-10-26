@@ -20,12 +20,12 @@ use nsh_core::ui::prelude::*;
 
 pub use crate::{
     component::{
-        AnimationInfo, AnimationMarker, AnimationSize, ResizeMode, VectorAnimation,
-        VectorAnimationApi, VectorAnimationElement, VectorAnimationEvent, VectorAnimationProps,
-        fit, vector_animation,
+        AnimationInfo, AnimationInput, AnimationMarker, AnimationSize, POINTER_TEST_ID, ResizeMode,
+        VectorAnimation, VectorAnimationApi, VectorAnimationElement, VectorAnimationEvent,
+        VectorAnimationProps, fit, vector_animation,
     },
     playback::Direction,
-    source::{At, PosterFrame, Repeat, Segment, Source},
+    source::{At, InputSetting, PosterFrame, Repeat, Segment, Source},
 };
 
 /// The crate's UI set: what TSX imports from `dxn-vector-animation`.
