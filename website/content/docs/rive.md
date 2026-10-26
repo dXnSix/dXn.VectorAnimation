@@ -51,12 +51,13 @@ for marker in &import.scene.timeline.markers {
 ## Animations
 
 The artboard's default state machine comes first, at 0, under a marker of its name: it plays as Rive's
-runtime plays it when nothing changes its inputs. Each layer enters its first state; transitions whose
-conditions hold for the inputs' values are taken (a trigger never fires), at their exit times, mixing from
-one state into the next over their durations and easings; later layers override earlier ones where they
-key the same property, and a property no state applies keeps its last value. The timeline's span is the
-machine's until it settles and then what repeats (`loop_start` where it settles), so a player with no
-`segment` plays what the file plays when it opens.
+runtime plays it, with its inputs as they are unless they are changed (below). Each layer enters its first
+state; transitions whose conditions hold for the inputs' values are taken, at their exit times, mixing
+from one state into the next over their durations and easings; a state of negative speed plays its
+animation backwards from its end; later layers override earlier ones where they key the same property,
+and a property no state applies keeps its last value. The timeline's span is the machine's until it
+settles and then what repeats (`loop_start` where it settles), so a player with no `segment` plays what
+the file plays when it opens.
 
 Each linear animation of the artboard is a span of the timeline under a [marker](./scene-model.md#the-timeline) of its
 name, one after another with a second between them, after the state machine. The marker carries the
@@ -74,6 +75,50 @@ import { VectorAnimation } from "dxn-vector-animation";
 <VectorAnimation src="https://example.com/icons.riv" segment="hover" />
 ```
 
+## Inputs and listeners
+
+`Options::inputs` changes the default state machine's inputs over time (`InputChange { time, input, value }`:
+a bool, a number, or a trigger fired): the machine plays as Rive's runtime plays it with each change made at
+the first frame at or after its time, and its span runs on until it settles after the last change.
+`machine(data, &options)` lists the machine's inputs, with their values at first, and its listeners: the
+shapes they listen on (a node's are the shapes under it; their ids are the scene's group ids), the pointer
+events they act on (enter, exit, down, up, move, click) and what they do (set, toggle or fire an input,
+move a node to the pointer).
+
+`Interaction` plays a file as a user does. `set(time, input, value)` changes an input; `pointer(time, kind,
+point)` hit-tests the listeners' shapes at a point of the scene ([`Scene::hit`](./scene-model.md): their
+outlines under the non-zero rule, painted or not, as Rive hits them) and makes what they do. Each change
+reads the file again (`import()`). A press, a release and a finger lifted act at once, as Rive's web runtime
+advances the machine by nothing after them; a move, a leaving and an input set by hand act from the next
+frame. A node moved to the pointer holds there, or moves as far as the pointer did when it keeps its
+offset, until a key moves it again.
+
+```rust
+use dxn_vector_animation::{Limits, Point};
+use dxn_vector_animation_rive::{Interaction, Options, Pointer};
+
+let mut play = Interaction::new(data, Limits::default(), Options::default())?;
+play.pointer(1.0, Pointer::Down, Point::new(215.0, 212.0))?;
+play.pointer(1.05, Pointer::Lift, Point::new(215.0, 212.0))?; // a click
+let scene = &play.import().scene;
+```
+
+The player does the same: the pointer over a Rive file (a finger or a button going down, moving and
+lifting; the mouse moving over it and leaving) acts on its listeners, the ref's `setInput(name, value)` and
+`fire(name)` change its inputs, `onInput` reports each change and `onLoad`'s `inputs` lists them. Each
+change is made off the engine thread, and playback goes on in the new scene from where it is.
+
+```tsx
+let player: VectorAnimationRef | undefined;
+
+<VectorAnimation src={menu} ref={(r) => (player = r)} onInput={(i) => console.log(i.name, i.value)} />
+<Button onPress={() => player?.setInput("open", true)}><Text>Open</Text></Button>
+```
+
+The CLI renders with changes (`--input open=true@0.5`, `--input bounce@1` fires a trigger) and pointers
+(`--pointer down:215,212@1 --pointer lift:215,212@1.05`), and `inspect` lists the inputs and the listeners
+with where their shapes are.
+
 ```sh
 vector-animation inspect icons.riv                      # artboard size, one marker per animation
 vector-animation render icons.riv --marker hover --fps 30
@@ -84,13 +129,13 @@ vector-animation render menu.riv --artboard Menu -t 0.5
 
 What a file holds beyond that is left out with a warning (`Import::warnings`, `inspect`, `onLoad`):
 
-- state machines' listeners and input changes, triggers, blend states, conditions on view models, other
-  state machines than the default, events and data binding;
+- blend states, conditions on view models, other state machines than the default, listeners on nested
+  artboards, drags and events, listeners changing view models, Rive events and data binding;
 - text variation and follow-path modifiers and text ellipses, layout, draggable and scroll constraints,
   scripting and audio.
 
 These come in the phases of the [design](https://github.com/dXnSix/dXn.VectorAnimation/blob/main/docs/design/rive.md):
-what the runtime evaluates (what is left of text), then interactive state machines in
-the core and the player, then data binding and layout.
+what the runtime evaluates (what is left of text), what is left of state machines, then data binding and
+layout.
 
 Next: [Limits](./limits.md), which bound a Rive file as they bound the others.

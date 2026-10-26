@@ -195,11 +195,15 @@ The core gains what Rive needs, each with the reference renderer's drawing and t
    card within 0.3% of pixels. **Done: nested state machines** the same way, in each of the parent's spans,
    their inputs (`NestedBool`, `NestedNumber`) read from the parent's keys frame by frame; spans holding the
    same inputs share one run behind a time remap, and an artboard laid out over many spans plays its machine
-   in the parent's state machine alone (Studiorun stays at 686k keyframes). **Still to come**: the
-   interactive machine, `Scene::state_machines` (inputs, layers, states playing markers, blend
-   states, transitions with conditions, exit times and mixes, listeners on nodes' outlines, events), an
-   evaluator in the core turning inputs over time into weighted times on the timeline for each layer, and
-   `Scene::frame_blend` sampling the scene at several times and interpolating.
+   in the parent's state machine alone (Studiorun stays at 686k keyframes). **Done: the interactive
+   machine**, kept in the importer, which bakes at Rive's raw properties: `Options::inputs` changes inputs
+   over time and the machine is played again with them (each at the first frame at or after its time);
+   `Interaction` hit-tests the listeners' shapes (`Scene::hit` in the core, outlines painted or not) and
+   turns pointer events into input changes and nodes moved to the pointer (`Options::aligned`), reading
+   the file again. Presses and releases act a frame sooner, as Rive's web runtime advances by nothing
+   after them. Checked against Rive's runtime driven by mouse events: the test files draw the same, the
+   weather card, tabbar and posture samples within their plain playback's differences. **Still to
+   come**: blend states, Rive events, listeners on nested artboards and drags.
 9. **View models and data binding** (phase 4): view models, instances and bindings to properties and
    conditions, with converters; layout components laid out at import for the artboard's size.
 10. **Out of scope for now:** Luau scripting, audio, open-URL events (reported to the app as events), text
@@ -209,10 +213,11 @@ The core gains what Rive needs, each with the reference renderer's drawing and t
 
 - Sniffing: data starting with `RIVE` is a Rive file (the CLI's commands, the player's `src`).
 - Phase 1: `segment="idle"` plays an animation; `onLoad`'s markers list them.
-- Phase 3: props `stateMachine` and `inputs`, ref `fire(trigger)`, events `onStateChange` and `onEvent`;
-  pointer listeners hit-test the nodes' outlines. A layer playing one animation plays on the native graph (a
-  time value for its segment); mixes, blend states and overlapping layers are sampled frame by frame on the
-  engine thread until the graph sums weighted values. The CLI renders with inputs (`--input hover=true@0.5`).
+- Phase 3 (done): the ref's `setInput(name, value)` and `fire(name)`, the event `onInput`, `onLoad`'s
+  `inputs`; the pointer over the view (touches, presses, the mouse hovering) acts on the listeners through
+  `Interaction`, each change read off the engine thread and swapped in where playback is. The CLI renders
+  with inputs and pointers (`--input hover=true@0.5`, `--pointer down:10,20@1`) and `inspect` lists them.
+  Still to come: `onStateChange` and `onEvent`.
 
 ## Testing
 
@@ -231,6 +236,6 @@ The core gains what Rive needs, each with the reference renderer's drawing and t
 2. **What the runtime evaluates:** feather, strokes that do not scale, nested artboards, text, bones and
    meshes, constraints, draw rules, text modifiers (done; variation and follow-path modifiers and
    ellipses left), elastic easing.
-3. **State machines**: done as they play untouched; their inputs, listeners and events in the core, the CLI
-   and the player to come.
+3. **State machines**: done as they play untouched, with their inputs changed and their listeners acting on
+   a pointer in the core, the CLI and the player; blend states and events to come.
 4. **Data binding and layout.**

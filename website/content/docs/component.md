@@ -44,6 +44,7 @@ says.
 |---|---|---|
 | `onLoad` | `AnimationInfo` | The file was read |
 | `onEnd` | none | Playback reached its end; never while repeating forever |
+| `onInput` | `{ name, kind, value }` | An input of a Rive file's state machine changed: a listener under the pointer, `setInput` or `fire` changed it (a bool's value is 0 or 1, a trigger fired 1) |
 | `onError` | `string` | The file could not be loaded or read |
 
 `AnimationInfo`:
@@ -54,6 +55,7 @@ says.
 | `size` | `{ width, height }` | The animation's own size, in points |
 | `markers` | `{ name, start, duration }[]` | Its markers: Lottie's, a Rive file's animations, and the segments it plays on events (`on:btn.click`) |
 | `events` | `string[]` | The events it has something to play on, such as `btn.click` |
+| `inputs` | `{ name, kind, value }[]` | A Rive file's state machine's inputs: `kind` is `"bool"`, `"number"` or `"trigger"`, `value` the value at first |
 | `warnings` | `string[]` | What the file holds that the scene leaves out |
 
 ## Ref methods
@@ -62,6 +64,14 @@ says.
 |---|---|
 | `seek(seconds)` | Moves to a time on the timeline; playback goes on from there unless paused |
 | `trigger(event)` | Plays what the file has for an event once from its start and holds its end |
+| `setInput(name, value)` | Sets a Rive file's state machine input (a boolean or a number) now; the machine plays on from here as Rive plays it with the change |
+| `fire(name)` | Fires a Rive file's state machine trigger now |
+
+A Rive file whose state machine has listeners hears the pointer over it as Rive's web runtime does: a finger
+or a button going down presses, moving moves, lifting releases and leaves; the mouse moving over it moves,
+leaving it leaves. The view over it that hears the pointer has the test id `vector-animation-pointer`
+(`POINTER_TEST_ID`). Each change reads the file again off the engine thread; playback goes on in the new
+scene from where it is. See [Rive](./rive.md#inputs-and-listeners).
 
 ```tsx
 import { VectorAnimation, type VectorAnimationRef } from "dxn-vector-animation";
