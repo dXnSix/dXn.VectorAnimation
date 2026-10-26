@@ -1,7 +1,7 @@
 //! Whether a point falls on what a group draws: the outlines of the shapes
 //! in it, as a player hit-tests what a pointer is over.
 
-use kurbo::Shape as _;
+use kurbo::{Line, ParamCurve as _, Shape as _};
 
 use crate::{
     Group, Matrix, Node, Path, Point, Rect, Scene, outline::geometry_path, transform::transform_at,
@@ -21,6 +21,20 @@ impl Scene {
         if let Some((group, m, time)) = self.target(id, time) {
             outlines(group, m, time, 0, &mut |path| {
                 hit = hit || path.to_kurbo().winding(p) != 0;
+            });
+        }
+        hit
+    }
+
+    /// Whether the outlines [`Scene::hit`] tests for the group with id `id`
+    /// at `time` overlap `rect` (in the scene's coordinates): a point of it
+    /// inside them, or their edges in it. A pointer hits a little around
+    /// itself so (Rive's runtime tests the box 2 units around it).
+    pub fn hit_rect(&self, id: &str, rect: Rect, time: f64) -> bool {
+        let mut hit = false;
+        if let Some((group, m, time)) = self.target(id, time) {
+            outlines(group, m, time, 0, &mut |path| {
+                hit = hit || overlaps(&path.to_kurbo(), rect);
             });
         }
         hit
@@ -97,4 +111,33 @@ fn outlines(group: &Group, m: Matrix, time: f64, depth: usize, f: &mut dyn FnMut
             _ => {}
         }
     }
+}
+
+/// Whether `path`, filled under the non-zero rule, overlaps `rect`.
+fn overlaps(path: &kurbo::BezPath, rect: Rect) -> bool {
+    let r = kurbo::Rect::new(rect.x, rect.y, rect.x + rect.width, rect.y + rect.height);
+    let corners = [
+        kurbo::Point::new(r.x0, r.y0),
+        kurbo::Point::new(r.x1, r.y0),
+        kurbo::Point::new(r.x1, r.y1),
+        kurbo::Point::new(r.x0, r.y1),
+    ];
+    // A corner or the middle inside the fill.
+    if corners
+        .iter()
+        .chain([&r.center()])
+        .any(|&p| path.winding(p) != 0)
+    {
+        return true;
+    }
+    // An edge of the fill in the rectangle, or crossing its sides.
+    let sides: Vec<Line> = (0..4)
+        .map(|k| Line::new(corners[k], corners[(k + 1) % 4]))
+        .collect();
+    path.segments().any(|seg| {
+        r.contains(seg.start())
+            || sides
+                .iter()
+                .any(|&side| !seg.intersect_line(side).is_empty())
+    })
 }

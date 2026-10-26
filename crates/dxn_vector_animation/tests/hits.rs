@@ -79,3 +79,17 @@ fn a_groups_hit_bounds_are_where_its_outlines_are_then() {
     );
     assert_eq!(s.hit_bounds("nothing", 0.0), None);
 }
+
+#[test]
+fn a_rectangle_hits_where_it_overlaps_a_groups_outlines() {
+    let s = scene();
+    // The button's square spans 15 to 25 across, 45 to 55 down, at 0 s.
+    let around = |x: f64, y: f64| Rect::new(x - 2.0, y - 2.0, 4.0, 4.0);
+    assert!(s.hit_rect("button", around(20.0, 50.0), 0.0));
+    // Past its edge, by less than 2 and by more.
+    assert!(s.hit_rect("button", around(26.5, 50.0), 0.0));
+    assert!(!s.hit_rect("button", around(28.0, 50.0), 0.0));
+    // A rectangle around all of it.
+    assert!(s.hit_rect("button", Rect::new(0.0, 30.0, 50.0, 40.0), 0.0));
+    assert!(!s.hit_rect("nothing", around(20.0, 50.0), 0.0));
+}
