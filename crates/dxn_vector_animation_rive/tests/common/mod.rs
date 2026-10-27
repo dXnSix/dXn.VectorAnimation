@@ -87,6 +87,14 @@ pub mod ty {
     pub const LISTENER_ALIGN_TARGET: u16 = 126;
     pub const JOYSTICK: u16 = 148;
     pub const BLEND_STATE_DIRECT: u16 = 73;
+    pub const CUSTOM_NUMBER: u16 = 127;
+    pub const EVENT: u16 = 128;
+    pub const CUSTOM_BOOL: u16 = 129;
+    pub const CUSTOM_STRING: u16 = 130;
+    pub const OPEN_URL_EVENT: u16 = 131;
+    pub const LISTENER_FIRE_EVENT: u16 = 168;
+    pub const FIRE_EVENT: u16 = 169;
+    pub const KEY_FRAME_CALLBACK: u16 = 171;
     pub const BLEND_ANIMATION_1D: u16 = 75;
     pub const BLEND_STATE_1D_INPUT: u16 = 76;
     pub const BLEND_ANIMATION_DIRECT: u16 = 77;
@@ -268,6 +276,15 @@ pub mod key {
     pub const MIX_VALUE: u16 = 297;
     pub const BLEND_SOURCE: u16 = 298;
     pub const STATE_FLAGS: u16 = 536;
+    pub const CUSTOM_NUMBER_VALUE: u16 = 243;
+    pub const CUSTOM_BOOL_VALUE: u16 = 245;
+    pub const CUSTOM_STRING_VALUE: u16 = 246;
+    pub const URL: u16 = 248;
+    pub const URL_TARGET: u16 = 249;
+    pub const FIRE_LISTENER_EVENT: u16 = 389;
+    pub const FIRE_EVENT_ID: u16 = 392;
+    pub const FIRE_OCCURS: u16 = 393;
+    pub const EVENT_TRIGGER: u16 = 395;
     pub const ACTION_INPUT: u16 = 227;
     pub const ACTION_BOOL_VALUE: u16 = 228;
 }
@@ -289,6 +306,11 @@ pub enum V {
 const COMPONENTS: &[u16] = &[
     ty::NODE,
     ty::JOYSTICK,
+    ty::EVENT,
+    ty::OPEN_URL_EVENT,
+    ty::CUSTOM_NUMBER,
+    ty::CUSTOM_BOOL,
+    ty::CUSTOM_STRING,
     ty::SHAPE,
     ty::ELLIPSE,
     ty::STRAIGHT_VERTEX,

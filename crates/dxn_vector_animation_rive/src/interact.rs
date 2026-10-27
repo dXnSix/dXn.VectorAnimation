@@ -3,7 +3,7 @@
 //! changes of its inputs as Rive's runtime turns them; each change read
 //! into the scene again.
 
-use dxn_vector_animation::{Error, Import, Limits, Point, Rect};
+use dxn_vector_animation::{Cue, Error, Import, Limits, Point, Rect};
 
 use crate::{
     Aligned, InputChange, InputValue, Options,
@@ -84,6 +84,11 @@ pub enum Action {
         /// What it sets it to.
         change: Change,
     },
+    /// Fires an event (reported as a cue).
+    Fire {
+        /// The event, by its index in the artboard.
+        event: usize,
+    },
     /// Moves a node to the pointer.
     Align {
         /// The node, by its index in the artboard.
@@ -122,16 +127,8 @@ pub enum Pointer {
 /// file `data`, if it has one.
 pub fn machine(data: &[u8], options: &Options) -> Result<Option<Machine>, Error> {
     let file = file::read(data)?;
-    let artboard = match &options.artboard {
-        Some(name) => file
-            .artboards
-            .iter()
-            .find(|a| a.name() == *name)
-            .ok_or_else(|| Error::Invalid(format!("no artboard named {name:?}")))?,
-        None => match file.artboards.first() {
-            Some(a) => a,
-            None => return Ok(None),
-        },
+    let Some(artboard) = chosen(&file, options)? else {
+        return Ok(None);
     };
     let machines = &artboard.state_machines;
     let Some(sm) = artboard
@@ -218,6 +215,12 @@ pub fn machine(data: &[u8], options: &Options) -> Result<Option<Machine>, Error>
                 on.extend(event(a.uint(p::LISTENER_INPUT_TYPE_LISTENER_TYPE_VALUE)));
                 continue;
             }
+            if a.is(t::LISTENER_FIRE_EVENT) {
+                if let Some(event) = a.id(p::LISTENER_FIRE_EVENT_EVENT_ID) {
+                    actions.push(Action::Fire { event });
+                }
+                continue;
+            }
             if a.is(t::LISTENER_ALIGN_TARGET) {
                 if let Some(node) = a.id(p::LISTENER_ALIGN_TARGET_TARGET_ID).filter(|&n| {
                     objects
@@ -263,6 +266,30 @@ pub fn machine(data: &[u8], options: &Options) -> Result<Option<Machine>, Error>
     }))
 }
 
+/// The artboard `options` names in `file` (its first by default).
+fn chosen<'a>(
+    file: &'a file::File,
+    options: &Options,
+) -> Result<Option<&'a file::Artboard>, Error> {
+    match &options.artboard {
+        Some(name) => file
+            .artboards
+            .iter()
+            .find(|a| a.name() == *name)
+            .map(Some)
+            .ok_or_else(|| Error::Invalid(format!("no artboard named {name:?}"))),
+        None => Ok(file.artboards.first()),
+    }
+}
+
+/// The objects of the artboard `options` names in the Rive file `data`.
+fn artboard_objects(data: &[u8], options: &Options) -> Result<Vec<Option<Object>>, Error> {
+    let file = file::read(data)?;
+    Ok(chosen(&file, options)?
+        .map(|a| a.objects.clone())
+        .unwrap_or_default())
+}
+
 /// A Rive file being played: its scene with the changes made so far to its
 /// default state machine's inputs, by hand or by pointer events over its
 /// listeners. Each change is made at a time of the scene's timeline at or
@@ -279,6 +306,10 @@ pub struct Interaction {
     over: Vec<bool>,
     pressed: Vec<bool>,
     previous: Vec<Point>,
+    /// The events listeners fired, not yet taken.
+    fired: Vec<Cue>,
+    /// The artboard's objects, for the events' names and properties.
+    objects: Vec<Option<file::Object>>,
 }
 
 impl Interaction {
@@ -287,6 +318,7 @@ impl Interaction {
         let import = read_options(&data, &limits, &options)?;
         let machine = machine(&data, &options)?;
         let n = machine.as_ref().map_or(0, |m| m.listeners.len());
+        let objects = artboard_objects(&data, &options)?;
         Ok(Interaction {
             data,
             limits,
@@ -296,7 +328,15 @@ impl Interaction {
             over: vec![false; n],
             pressed: vec![false; n],
             previous: vec![Point::new(0.0, 0.0); n],
+            fired: Vec::new(),
+            objects,
         })
+    }
+
+    /// The events the listeners fired since they were last taken, each a
+    /// cue at the time it was fired.
+    pub fn take_fired(&mut self) -> Vec<Cue> {
+        std::mem::take(&mut self.fired)
     }
 
     /// The scene as the changes so far make it.
@@ -421,6 +461,10 @@ impl Interaction {
                                 input: input.clone(),
                                 value,
                             });
+                        }
+                        &Action::Fire { event } => {
+                            self.fired
+                                .extend(crate::cues::cue(&self.objects, event, time));
                         }
                         &Action::Align { node, keep_offset } => aligned.push(Aligned {
                             time,

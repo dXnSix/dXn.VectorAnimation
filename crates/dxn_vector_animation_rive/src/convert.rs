@@ -184,6 +184,9 @@ pub(crate) struct Converter<'a> {
     /// plays in each span.
     machine_layer: Option<usize>,
     nested_plans: Vec<Rc<Plan>>,
+    /// The events the timeline reports: what the state machine fires and
+    /// what the animations played key, as cues.
+    cues: Vec<dxn_vector_animation::Cue>,
     /// What the default state machine's listeners listen on: their shapes
     /// are kept (unpainted when they paint nothing) for a player's pointer
     /// to hit.
@@ -286,7 +289,6 @@ const LATER: &[(u16, &str)] = &[
         "list follow-path constraints",
     ),
     (t::LAYOUT_COMPONENT, "layout (drawn where the file puts it)"),
-    (t::EVENT, "events"),
 ];
 
 impl<'a> Converter<'a> {
@@ -376,6 +378,7 @@ impl<'a> Converter<'a> {
             machine_layer: None,
             nested_plans: Vec::new(),
             hit_targets: Vec::new(),
+            cues: Vec::new(),
         };
         c.index_keys();
         match clock {
@@ -512,7 +515,7 @@ impl<'a> Converter<'a> {
                 })
                 .chain(markers)
                 .collect(),
-                cues: Vec::new(),
+                cues: self.cues.clone(),
             };
         }
         Timeline {
@@ -521,7 +524,7 @@ impl<'a> Converter<'a> {
             loop_start: 0.0,
             loop_mode: first.map_or(LoopMode::Once, |s| s.loop_mode),
             markers: markers.collect(),
-            cues: Vec::new(),
+            cues: self.cues.clone(),
         }
     }
 
@@ -618,17 +621,23 @@ impl<'a> Converter<'a> {
             }
             v
         };
-        let play = |frames: usize| -> Vec<Vec<machine::Applied>> {
-            layers
+        let play = |frames: usize| -> (Vec<Vec<machine::Applied>>, Vec<machine::Fired>) {
+            let mut fired = Vec::new();
+            let applied = layers
                 .iter()
-                .map(|states| machine::play(states, &anims, &inputs_at, frames, DT))
-                .collect()
+                .map(|states| {
+                    let played = machine::play(states, &anims, &inputs_at, frames, DT);
+                    fired.extend(played.fired);
+                    played.applied
+                })
+                .collect();
+            (applied, fired)
         };
         // Where each layer settles: after its last change of state or mix,
         // half a minute past the last change of an input at most.
         let last_change = changes.last().map_or(0, |c| c.0);
         let horizon = last_change + 30 * 60;
-        let mut played = play(horizon.min(MAX_FRAMES));
+        let (mut played, mut fired) = play(horizon.min(MAX_FRAMES));
         let mut settled = 0;
         let mut steady = true;
         let mut periods = Vec::new();
@@ -641,7 +650,7 @@ impl<'a> Converter<'a> {
                 steady = false;
             }
             let period = |a: usize, rate: f64| {
-                let an = anims[a];
+                let an = &anims[a];
                 let d = (an.end - an.start).abs() / (an.speed * rate).abs();
                 match an.loop_mode {
                     LoopMode::Loop if d > 0.0 => Some(d),
@@ -698,11 +707,30 @@ impl<'a> Converter<'a> {
         };
         let frames = (span / DT).round() as usize + 1;
         if frames > played.first().map_or(0, Vec::len) {
-            played = play(frames);
+            (played, fired) = play(frames);
         }
         for l in &mut played {
             l.truncate(frames);
         }
+        // What it fires, as cues where they happened.
+        let objects = &self.ab.objects;
+        let mut cues: Vec<dxn_vector_animation::Cue> = fired
+            .iter()
+            .filter(|f| f.frame < frames)
+            .filter_map(|f| {
+                let time = (f.frame as f64 * DT - f64::from(f.delay).max(0.0)).max(0.0);
+                crate::cues::cue(objects, f.event, time)
+            })
+            .collect();
+        cues.sort_by(|a, b| a.time.total_cmp(&b.time));
+        let most = self.limits.max_keyframes / 4;
+        if cues.len() > most {
+            self.warn(format!(
+                "state machines: the events past the first {most} fired (the limit's)"
+            ));
+            cues.truncate(most);
+        }
+        self.cues = cues;
         Some(Plan {
             name,
             bounds: bounds(&played),
@@ -725,11 +753,30 @@ impl<'a> Converter<'a> {
         let specs: Vec<Spec> = ab.animations.iter().map(|a| Spec::of(&a.object)).collect();
         let anims: Vec<machine::Anim> = specs
             .iter()
-            .map(|s| machine::Anim {
+            .zip(&ab.animations)
+            .map(|(s, a)| machine::Anim {
                 start: s.from,
                 end: s.to,
                 speed: s.speed,
                 loop_mode: s.loop_mode,
+                callbacks: a
+                    .keyed
+                    .iter()
+                    .filter_map(|k| {
+                        let event = k.object?;
+                        let p = k
+                            .properties
+                            .iter()
+                            .find(|p| p.key == crate::cues::EVENT_TRIGGER)?;
+                        let mut times: Vec<f32> = p
+                            .keyframes
+                            .iter()
+                            .map(|k| (k.num(p::KEY_FRAME_FRAME) / s.fps) as f32)
+                            .collect();
+                        times.sort_by(f32::total_cmp);
+                        Some((event, times))
+                    })
+                    .collect(),
             })
             .collect();
         let inputs: Vec<Option<f64>> = sm
@@ -814,6 +861,7 @@ impl<'a> Converter<'a> {
                         exit_part: (o.ty == t::BLEND_STATE_TRANSITION)
                             .then(|| o.id(p::BLEND_STATE_TRANSITION_EXIT_BLEND_ANIMATION_ID))
                             .map(|id| id.unwrap_or(usize::MAX)),
+                        events: fires(&tr.events),
                     });
                 }
                 let speed = st
@@ -875,6 +923,7 @@ impl<'a> Converter<'a> {
                     transitions,
                     speed,
                     blend,
+                    events: fires(&st.events),
                 });
             }
             layers.push(states);
@@ -939,7 +988,9 @@ impl<'a> Converter<'a> {
             };
             let played: Vec<Vec<machine::Applied>> = layers
                 .iter()
-                .map(|states| machine::play(states, &anims, &inputs_at, frames, DT * m.speed))
+                .map(|states| {
+                    machine::play(states, &anims, &inputs_at, frames, DT * m.speed).applied
+                })
                 .collect();
             plans.push(Rc::new(Plan {
                 name: name.clone(),
@@ -1100,9 +1151,9 @@ impl<'a> Converter<'a> {
                 keyed(ap.current).map(|(a, t)| (a, t, ap.direction))
             };
             if let Some((a, t0, direction)) = single {
-                let anim = plan.anims[a];
+                let anim = &plan.anims[a];
                 for seg in steady_pieces(
-                    &anim,
+                    anim,
                     a,
                     plan.fps.get(a).copied().unwrap_or(60.0),
                     t0,
@@ -4045,6 +4096,11 @@ impl<'a> Converter<'a> {
         for what in later {
             self.warn(format!("left out: {what}"));
         }
+        // A nested artboard's state machine reports its events to Rive's
+        // nested listeners, not to the app.
+        if self.depth > 0 && self.ab.objects.iter().flatten().any(|o| o.is(t::EVENT)) {
+            self.warn("left out: events (a nested artboard's)");
+        }
         let machines = self.ab.state_machines.len();
         if self.plan.is_some() {
             self.warn(
@@ -4369,6 +4425,20 @@ fn interpolator(i: &Object) -> Interp {
         },
         _ => Interp::Linear,
     }
+}
+
+/// The events `objects` (a state's or a transition's fire actions) fire.
+fn fires(objects: &[Object]) -> Vec<machine::Fire> {
+    objects
+        .iter()
+        .filter(|o| o.is(t::STATE_MACHINE_FIRE_EVENT))
+        .filter_map(|o| {
+            Some(machine::Fire {
+                event: o.id(p::STATE_MACHINE_FIRE_EVENT_EVENT_ID)?,
+                at_end: o.uint(p::STATE_MACHINE_FIRE_ACTION_OCCURS_VALUE) == 1,
+            })
+        })
+        .collect()
 }
 
 /// The value `c` holds all through from `start` to `end`, if it does.

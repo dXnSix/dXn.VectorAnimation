@@ -14,13 +14,15 @@ use dxn_vector_animation::LoopMode;
 use crate::curve::Interp;
 
 /// An animation as a state plays it: its work area in seconds, its speed
-/// and its loop.
-#[derive(Debug, Clone, Copy)]
+/// and its loop, and the events it keys (each event and the seconds of its
+/// keyframes, in order).
+#[derive(Debug, Clone)]
 pub(crate) struct Anim {
     pub start: f64,
     pub end: f64,
     pub speed: f64,
     pub loop_mode: LoopMode,
+    pub callbacks: Rc<[(usize, Vec<f32>)]>,
 }
 
 impl Anim {
@@ -54,6 +56,31 @@ pub(crate) struct Trans {
     /// From a blend state: the one of its animations whose time the exit
     /// time is of (an index into its parts).
     pub exit_part: Option<usize>,
+    /// The events it fires as it starts and ends.
+    pub events: Vec<Fire>,
+}
+
+/// An event a state or a transition fires (`StateMachineFireEvent`): the
+/// artboard object, and whether at the end (else at the start).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) struct Fire {
+    pub event: usize,
+    pub at_end: bool,
+}
+
+/// An event fired at a frame, and the seconds since it happened then.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) struct Fired {
+    pub frame: usize,
+    pub event: usize,
+    pub delay: f32,
+}
+
+/// What a layer did: what it applied at each frame, and the events it
+/// fired.
+pub(crate) struct Played {
+    pub applied: Vec<Applied>,
+    pub fired: Vec<Fired>,
 }
 
 const DISABLED: u64 = 1;
@@ -86,6 +113,8 @@ pub(crate) struct State {
     pub speed: f64,
     /// A blend state's animations and how it weighs them.
     pub blend: Option<Blend>,
+    /// The events it fires as it is entered and left.
+    pub events: Vec<Fire>,
 }
 
 /// A blend state (`BlendState1DInstance`, `BlendStateDirectInstance`).
@@ -208,8 +237,9 @@ impl Playing {
             || (directed < 0.0 && self.time > a.start as f32)
     }
 
-    /// `seconds` on (`AnimationStateInstance::advance`).
-    fn advance(&mut self, seconds: f32, a: &Anim) {
+    /// `seconds` on (`AnimationStateInstance::advance`), the events its
+    /// keyframes fire as they are passed added to `fired`.
+    fn advance(&mut self, seconds: f32, a: &Anim, fired: &mut Vec<(usize, f32)>) {
         let elapsed = seconds * self.speed;
         let delta = elapsed * a.speed as f32 * self.direction;
         self.spilled = 0.0;
@@ -219,7 +249,10 @@ impl Playing {
         self.last_total = self.total;
         self.total += delta.abs();
         let kill_spilled = !self.keep_going(a, elapsed);
+        let speed_direction = if self.speed >= 0.0 { 1.0 } else { -1.0 };
+        let last_time = self.time;
         self.time += delta;
+        report(a, last_time, self.time, speed_direction, false, fired);
         let (start, end) = (a.start as f32, a.end as f32);
         let range = end - start;
         let forward = delta > 0.0;
@@ -238,26 +271,33 @@ impl Playing {
                     let remainder = (self.time - start) % range;
                     self.spilled = remainder / delta * elapsed;
                     self.time = start + remainder;
+                    report(a, 0.0, self.time, speed_direction, false, fired);
                 } else if !forward && self.time <= start {
                     let remainder = ((start - self.time) % range).abs();
                     self.spilled = (remainder / delta).abs() * elapsed;
                     self.time = end - remainder;
+                    report(a, end, self.time, speed_direction, false, fired);
                 }
             }
             LoopMode::PingPong if range > 0.0 => {
                 let mut forward = forward;
+                let mut from_pong = true;
                 for _ in 0..64 {
-                    if forward && self.time >= end {
+                    let turned_at = if forward && self.time >= end {
                         self.spilled = self.time - end;
                         self.time = end + (end - self.time);
+                        end
                     } else if !forward && self.time < start {
                         self.spilled = start - self.time;
                         self.time = start + (start - self.time);
+                        start
                     } else {
                         break;
-                    }
+                    };
                     self.direction = -self.direction;
                     forward = !forward;
+                    report(a, turned_at, self.time, speed_direction, from_pong, fired);
+                    from_pong = !from_pong;
                 }
             }
             _ => {}
@@ -266,6 +306,74 @@ impl Playing {
             self.spilled = 0.0;
         }
     }
+}
+
+/// The events `a`'s keyframes fire from its second `from` to `to`, each
+/// with the seconds since it was passed (`LinearAnimation::
+/// reportKeyedCallbacks`, `KeyedProperty::reportKeyedCallbacks`).
+fn report(
+    a: &Anim,
+    from: f32,
+    to: f32,
+    speed_direction: f32,
+    from_pong: bool,
+    fired: &mut Vec<(usize, f32)>,
+) {
+    if a.callbacks.is_empty() || from == to {
+        return;
+    }
+    let starting = if speed_direction >= 0.0 {
+        a.start
+    } else {
+        a.end
+    } as f32;
+    let at_start = starting == from;
+    if at_start && from_pong {
+        return;
+    }
+    let forward = from <= to;
+    let (from_exact, to_exact) = match (forward, at_start) {
+        (true, false) => (1, 1),
+        (true, true) => (0, 1),
+        (false, true) => (1, 0),
+        (false, false) => (0, 0),
+    };
+    for (event, times) in a.callbacks.iter() {
+        let (mut i, mut j) = (
+            closest(times, from, from_exact),
+            closest(times, to, to_exact),
+        );
+        if j < i {
+            std::mem::swap(&mut i, &mut j);
+        }
+        for &t in &times[i.min(times.len())..j.min(times.len())] {
+            fired.push((*event, to - t));
+        }
+    }
+}
+
+/// The index of the keyframe at `seconds` (plus `exact`), else of the
+/// first after it (`KeyedProperty::closestFrameIndex`).
+fn closest(times: &[f32], seconds: f32, exact: usize) -> usize {
+    let Some(&last) = times.last() else {
+        return 0;
+    };
+    if seconds > last {
+        return times.len();
+    }
+    let (mut start, mut end) = (0i64, times.len() as i64 - 1);
+    while start <= end {
+        let mid = (start + end) >> 1;
+        let t = times[mid as usize];
+        if t < seconds {
+            start = mid + 1;
+        } else if t > seconds {
+            end = mid - 1;
+        } else {
+            return mid as usize + exact;
+        }
+    }
+    start as usize
 }
 
 /// A state entered.
@@ -313,6 +421,11 @@ struct Layer<'a> {
     hold_from: bool,
     serial: u32,
     began: usize,
+    /// The transition taken has ended (its end events fired).
+    completed: bool,
+    /// The frame being played, and the events fired so far.
+    frame: usize,
+    fired: Vec<Fired>,
 }
 
 impl Layer<'_> {
@@ -347,13 +460,44 @@ impl Layer<'_> {
             parts,
         });
         self.serial += 1;
+        self.fire_state(state, false);
     }
 
-    fn advance_state(&self, e: &mut Entered, seconds: f32) {
+    /// The events state `state` fires as it is entered (or left).
+    fn fire_state(&mut self, state: usize, at_end: bool) {
+        let events = self.states.get(state).map(|s| s.events.clone());
+        self.fire(&events.unwrap_or_default(), at_end);
+    }
+
+    fn fire(&mut self, events: &[Fire], at_end: bool) {
+        for e in events {
+            if e.at_end == at_end {
+                self.fired.push(Fired {
+                    frame: self.frame,
+                    event: e.event,
+                    delay: 0.0,
+                });
+            }
+        }
+    }
+
+    fn advance_state(&mut self, e: &mut Entered, seconds: f32) {
+        let mut fired = Vec::new();
+        self.advance_entered(e, seconds, &mut fired);
+        let frame = self.frame;
+        self.fired
+            .extend(fired.into_iter().map(|(event, delay)| Fired {
+                frame,
+                event,
+                delay,
+            }));
+    }
+
+    fn advance_entered(&self, e: &mut Entered, seconds: f32, fired: &mut Vec<(usize, f32)>) {
         if let Some(p) = &mut e.playing
             && let Some(a) = self.anims.get(p.anim)
         {
-            p.advance(seconds, a);
+            p.advance(seconds, a, fired);
         }
         let Some(blend) = self.states.get(e.state).and_then(|s| s.blend.as_ref()) else {
             return;
@@ -365,7 +509,7 @@ impl Layer<'_> {
                 && let Some(a) = self.anims.get(p.anim)
                 && p.keep_going(a, 1.0)
             {
-                p.advance(seconds, a);
+                p.advance(seconds, a, fired);
             }
         }
         let input = |i: Option<usize>| {
@@ -434,6 +578,11 @@ impl Layer<'_> {
                 } else {
                     (self.mix + seconds / mix_time).clamp(0.0, 1.0)
                 };
+                if self.mix == 1.0 && !self.completed {
+                    self.completed = true;
+                    let events = t.events.clone();
+                    self.fire(&events, true);
+                }
             }
             _ => self.mix = 1.0,
         }
@@ -510,7 +659,18 @@ impl Layer<'_> {
             return false;
         };
         let out = self.current.take();
+        if let Some(o) = &out {
+            self.fire_state(o.state, true);
+        }
         self.enter(t.to);
+        // The transition's start events, and its end ones when it does not
+        // mix.
+        let events = t.events.clone();
+        self.fire(&events, false);
+        self.completed = t.duration == 0.0;
+        if self.completed {
+            self.fire(&events, true);
+        }
         let mut out = out;
         // Paused at the exit time when the transition says.
         if let Some(o) = &mut out
@@ -634,7 +794,7 @@ pub(crate) fn play(
     inputs: &dyn Fn(usize) -> Vec<Option<f64>>,
     frames: usize,
     dt: f64,
-) -> Vec<Applied> {
+) -> Played {
     let mut layer = Layer {
         states,
         anims,
@@ -648,16 +808,24 @@ pub(crate) fn play(
         hold_from: false,
         serial: 0,
         began: 0,
+        completed: true,
+        frame: 0,
+        fired: Vec::new(),
     };
     if let Some(entry) = states.iter().position(|s| s.kind == Kind::Entry) {
         layer.enter(entry);
     }
-    (0..frames)
+    let applied = (0..frames)
         .map(|k| {
             layer.inputs = inputs(k);
+            layer.frame = k;
             layer.advance(if k == 0 { 0.0 } else { dt as f32 }, k)
         })
-        .collect()
+        .collect();
+    Played {
+        applied,
+        fired: layer.fired,
+    }
 }
 
 /// The index of the first of a 1D blend's `values` at or past `value`

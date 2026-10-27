@@ -215,6 +215,8 @@ pub(crate) struct State {
     pub object: Option<Object>,
     pub transitions: Vec<Transition>,
     pub parts: Vec<Object>,
+    /// The events it fires as it is entered and left.
+    pub events: Vec<Object>,
 }
 
 /// A transition and its conditions.
@@ -222,6 +224,8 @@ pub(crate) struct State {
 pub(crate) struct Transition {
     pub object: Object,
     pub conditions: Vec<Object>,
+    /// The events it fires as it starts and ends.
+    pub events: Vec<Object>,
 }
 
 /// A listener and its actions.
@@ -297,6 +301,7 @@ pub(crate) fn read(data: &[u8]) -> Result<File, Error> {
                             object: None,
                             transitions: Vec::new(),
                             parts: Vec::new(),
+                            events: Vec::new(),
                         });
                     }
                 }
@@ -409,6 +414,7 @@ fn place(
                     object: Some(object),
                     transitions: Vec::new(),
                     parts: Vec::new(),
+                    events: Vec::new(),
                 });
             }
         } else if is_a(ty, types::STATE_TRANSITION) {
@@ -416,6 +422,7 @@ fn place(
                 state.transitions.push(Transition {
                     object,
                     conditions: Vec::new(),
+                    events: Vec::new(),
                 });
             }
         } else if is_a(ty, types::TRANSITION_CONDITION) || is_a(ty, types::TRANSITION_COMPARATOR) {
@@ -440,6 +447,15 @@ fn place(
             && let Some(state) = sm.layers.last_mut().and_then(|l| l.states.last_mut())
         {
             state.parts.push(object);
+        } else if is_a(ty, types::STATE_MACHINE_FIRE_ACTION)
+            && let Some(state) = sm.layers.last_mut().and_then(|l| l.states.last_mut())
+        {
+            // The last state or transition read (`StateMachineFireAction::
+            // import`).
+            match state.transitions.last_mut() {
+                Some(t) => t.events.push(object),
+                None => state.events.push(object),
+            }
         }
     }
 }

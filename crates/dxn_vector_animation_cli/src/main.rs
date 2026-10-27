@@ -541,6 +541,7 @@ fn describe_machine(file: &Path, artboard: Option<&str>, scene: &Scene) -> Resul
                     Change::Set(InputValue::Fire) => format!("fires {input}"),
                     Change::Toggle => format!("toggles {input}"),
                 },
+                Action::Fire { event } => format!("fires event {event}"),
                 Action::Align { node, keep_offset } => format!(
                     "moves node {node} to the pointer{}",
                     if *keep_offset {
