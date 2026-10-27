@@ -1153,6 +1153,7 @@ impl<'a> Converter<'a> {
             anims,
             fps,
             inputs,
+            changes: bound,
             ..
         }) = self.machine(m.machine)
         else {
@@ -1188,7 +1189,14 @@ impl<'a> Converter<'a> {
                 };
                 Some((c.time, input, value))
             })
+            .chain(
+                bound
+                    .iter()
+                    .map(|&(f, input, value)| (f as f64 * DT, input, value)),
+            )
             .collect();
+        let mut changes = changes;
+        changes.sort_by(|a, b| a.0.total_cmp(&b.0));
         for (s, &(start, duration)) in spans.iter().enumerate() {
             let frames = ((duration / DT).ceil() as usize + 1).min(self.limits.max_keyframes);
             let source = m.sources.get(s).copied().unwrap_or(Some(start));
@@ -1666,22 +1674,13 @@ impl<'a> Converter<'a> {
     }
 
     /// The frame of the last change the view model instance bound makes to
-    /// what this artboard binds.
+    /// what it binds (in this artboard and those it shows).
     fn last_bound_frame(&self) -> usize {
-        let Some(a) = self.ab_index() else {
-            return 0;
-        };
         let b = &self.file.bound;
         b.objects
-            .iter()
-            .filter(|((x, _, _), _)| *x == a)
-            .flat_map(|(_, l)| l.iter().map(|c| c.0))
-            .chain(
-                b.bindables
-                    .iter()
-                    .filter(|((x, _, _), _)| *x == a)
-                    .flat_map(|(_, l)| l.iter().map(|c| c.0)),
-            )
+            .values()
+            .flat_map(|l| l.iter().map(|c| c.0))
+            .chain(b.bindables.values().flat_map(|l| l.iter().map(|c| c.0)))
             .map(|t| ((t.max(0.0) / DT - 1e-6).ceil() as usize).min(MAX_FRAMES))
             .max()
             .unwrap_or(0)
@@ -3859,7 +3858,13 @@ impl<'a> Converter<'a> {
                 .collect(),
             values: Vec::new(),
         };
-        let changed = !options.inputs.is_empty() || !options.aligned.is_empty();
+        // Bound values changing in it change it too.
+        let bound = &self.file.bound;
+        let target_at = o.id(p::NESTED_ARTBOARD_ARTBOARD_ID);
+        let changed = !options.inputs.is_empty()
+            || !options.aligned.is_empty()
+            || bound.objects.keys().any(|k| Some(k.0) == target_at)
+            || bound.bindables.keys().any(|k| Some(k.0) == target_at);
         let alike = !changed
             && !self.spans.is_empty()
             && plays

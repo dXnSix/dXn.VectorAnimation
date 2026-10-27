@@ -55,6 +55,7 @@ mod dt {
     pub const TRIGGER_CONVERTER: u16 = 504;
     pub const BIND_FLAGS: u16 = 587;
     pub const LISTENER_VIEW_MODEL_CHANGE: u16 = 487;
+    pub const NESTED_DATA_BIND_PATH: u16 = 582;
 }
 
 /// A view model with a number "level" (property 0) and a color "tint"
@@ -745,4 +746,102 @@ fn listeners_change_view_model_values() {
     assert_eq!(color_at(s, 0.5, 80, 40), BLUE);
     assert_eq!(color_at(s, 0.7, 50, 40), BLUE);
     assert_eq!(color_at(s, 0.7, 80, 40), WHITE);
+}
+
+/// "Game" (view model 0) with a number "level" of 20 and a "player"
+/// (view model 1, "Player", its instance 1 of x 60); the main artboard
+/// shows "Child" (a red square at "level" across, 15 down) as its host's
+/// instance has it, and "Badge" (a blue one at x across, 40 down) bound to
+/// the player.
+fn nested_contexts() -> Riv {
+    let riv = Riv::new()
+        .obj(ty::VIEW_MODEL, &[(key::VM_NAME, V::S("Game"))])
+        .obj(ty::VM_NUMBER, &[(key::VM_NAME, V::S("level"))])
+        .obj(
+            dt::VM_VIEW_MODEL,
+            &[
+                (key::VM_NAME, V::S("player")),
+                (dt::VM_VIEW_MODEL_REFERENCE, V::U(1)),
+            ],
+        )
+        .obj(ty::VM_INSTANCE, &[(key::VM_INSTANCE_VM, V::U(0))])
+        .obj(
+            ty::VM_INSTANCE_NUMBER,
+            &[
+                (key::VM_VALUE_PROPERTY, V::U(0)),
+                (key::VM_NUMBER_VALUE, V::D(20.0)),
+            ],
+        )
+        .obj(
+            dt::VM_INSTANCE_VIEW_MODEL,
+            &[
+                (key::VM_VALUE_PROPERTY, V::U(1)),
+                (dt::VM_INSTANCE_VIEW_MODEL_VALUE, V::U(1)),
+            ],
+        )
+        .obj(ty::VIEW_MODEL, &[(key::VM_NAME, V::S("Player"))])
+        .obj(ty::VM_NUMBER, &[(key::VM_NAME, V::S("x"))]);
+    let mut riv = riv;
+    for x in [30.0, 60.0] {
+        riv = riv
+            .obj(ty::VM_INSTANCE, &[(key::VM_INSTANCE_VM, V::U(1))])
+            .obj(
+                ty::VM_INSTANCE_NUMBER,
+                &[
+                    (key::VM_VALUE_PROPERTY, V::U(0)),
+                    (key::VM_NUMBER_VALUE, V::D(x)),
+                ],
+            );
+    }
+    let riv = bound_artboard(riv)
+        .obj(
+            ty::NESTED_ARTBOARD,
+            &[(key::PARENT_ID, V::U(0)), (key::ARTBOARD_ID, V::U(1))],
+        )
+        .obj(
+            ty::NESTED_ARTBOARD,
+            &[
+                (key::PARENT_ID, V::U(0)),
+                (key::ARTBOARD_ID, V::U(2)),
+                (dt::NESTED_DATA_BIND_PATH, V::Bytes(vec![0, 1])),
+            ],
+        )
+        .obj(
+            ty::STATE_MACHINE,
+            &[(key::ANIMATION_NAME, V::S("State Machine 1"))],
+        )
+        .obj(ty::STATE_MACHINE_LAYER, &[])
+        .obj(ty::ENTRY_STATE, &[])
+        .obj(ty::ANY_STATE, &[])
+        .obj(ty::EXIT_STATE, &[]);
+    let riv = riv.artboard(100.0, 60.0);
+    let riv = square(
+        riv,
+        0,
+        (0.0, 15.0),
+        0xFFFF_0000,
+        Some((&[0, 0], None)),
+        None,
+    );
+    let riv = riv.artboard(100.0, 60.0);
+    square(
+        riv,
+        0,
+        (0.0, 40.0),
+        0xFF00_00FF,
+        Some((&[1, 0], None)),
+        None,
+    )
+}
+
+#[test]
+fn nested_artboards_bind_their_hosts_instance_or_the_one_their_path_names() {
+    let riv = nested_contexts();
+    // "level" 50 from 1 s moves the red square.
+    let s = changed(&riv, &[(1.0, "level", PropertyValue::Number(50.0))]);
+    assert_eq!(color_at(&s, 0.5, 20, 15), RED);
+    assert_eq!(color_at(&s, 0.5, 60, 40), BLUE);
+    assert_eq!(color_at(&s, 0.5, 30, 40), WHITE);
+    assert_eq!(color_at(&s, 1.5, 50, 15), RED);
+    assert_eq!(color_at(&s, 1.5, 20, 15), WHITE);
 }

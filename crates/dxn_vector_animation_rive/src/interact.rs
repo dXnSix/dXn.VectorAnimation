@@ -26,6 +26,8 @@ pub struct Machine {
     pub inputs: Vec<Input>,
     /// Its listeners.
     pub listeners: Vec<Listener>,
+    /// Its artboard's index in the file, and its own in the artboard.
+    at: (usize, usize),
     /// The state machines its nested artboards play (each the first they
     /// play).
     pub nested: Vec<Machine>,
@@ -391,6 +393,13 @@ fn read_machine(
     Machine {
         name: sm.object.string(p::ANIMATION_NAME),
         path: path.to_owned(),
+        at: (
+            file.artboards
+                .iter()
+                .position(|x| std::ptr::eq(x, artboard))
+                .unwrap_or(usize::MAX),
+            index,
+        ),
         inputs,
         listeners,
         nested,
@@ -835,10 +844,16 @@ impl Interaction {
                     path: path.to_owned(),
                     event,
                 }),
-                // The artboard's own machine's (its nested artboards bind
-                // no view model here).
                 &Action::Value { bindable, .. } => {
-                    let Some((artboard, machine)) = self.root.filter(|_| path.is_empty()) else {
+                    let Some((root, _)) = self.root else {
+                        continue;
+                    };
+                    let Some((artboard, machine)) = self
+                        .machine
+                        .as_ref()
+                        .and_then(|m| m.all().into_iter().find(|m| m.path == path))
+                        .map(|m| m.at)
+                    else {
                         continue;
                     };
                     let Ok(mut file) = file::read(&self.data) else {
@@ -853,6 +868,7 @@ impl Interaction {
                         .collect();
                     values.extend(crate::data::listener_change(
                         &mut file,
+                        root,
                         (artboard, machine, bindable),
                         &before,
                         acts,
