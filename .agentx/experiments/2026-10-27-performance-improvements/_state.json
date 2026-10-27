@@ -11,13 +11,13 @@
   "status": "",
   "createdAt": "2026-10-27T20:14:29Z",
   "finishedAt": null,
-  "lastStableCommit": "8b6f7a2145e17f6ab09635b8e272d240156f718e",
+  "lastStableCommit": "100fa1665a284c95e4b3435c55c50d019f76e70c",
   "repositories": [
     {
       "name": "main",
       "path": ".",
       "role": "main",
-      "lastStableCommit": "8b6f7a2145e17f6ab09635b8e272d240156f718e"
+      "lastStableCommit": "100fa1665a284c95e4b3435c55c50d019f76e70c"
     }
   ],
   "atomicDiscipline": {
@@ -28,8 +28,8 @@
     "successfulAttemptRequiresCommitBeforeNextExperiment": true,
     "rule": "Run exactly the printed hypothesis. If the attempted change fails, degrades, or suggests a different fix, revert to the checkpoint and finish this experiment as failure. Start a new experiment for the next idea."
   },
-  "currentExperimentId": "79380e69-705e-4935-a0aa-1f248175cac2",
-  "nextExperimentIndex": 41,
+  "currentExperimentId": "bf7511e3-3004-478d-a1b6-388b89e43ce4",
+  "nextExperimentIndex": 43,
   "experiments": [
     {
       "id": "f0287285-7a36-4cb5-8eef-94cdd163e5a7",
@@ -503,6 +503,29 @@
       "name": "Graph nodes hashed without SipHash",
       "path": "2026-10-27-40-graph-nodes-hashed-without-sip-hash.json",
       "startedAt": "2026-10-27T21:49:20Z",
+      "finishedAt": "2026-10-27T21:50:32Z",
+      "state": "done",
+      "status": "success",
+      "resultCommit": "100fa1665a284c95e4b3435c55c50d019f76e70c"
+    },
+    {
+      "id": "168c6604-ac17-44df-9ad2-21531308c023",
+      "index": 41,
+      "type": "hypothesis",
+      "name": "Expression walk appends pointers directly",
+      "path": "2026-10-27-41-expression-walk-appends-pointers-directly.json",
+      "startedAt": "2026-10-27T21:50:56Z",
+      "finishedAt": "2026-10-27T21:51:23Z",
+      "state": "done",
+      "status": "failure"
+    },
+    {
+      "id": "bf7511e3-3004-478d-a1b6-388b89e43ce4",
+      "index": 42,
+      "type": "hypothesis",
+      "name": "Still scenes known without sampled frames",
+      "path": "2026-10-27-42-still-scenes-known-without-sampled-frames.json",
+      "startedAt": "2026-10-27T21:52:28Z",
       "finishedAt": null,
       "state": "running",
       "status": ""

@@ -164,9 +164,39 @@ pub fn needs_raster(node: &Node) -> bool {
 /// Whether `scene` draws the same at every time: sampled at its keyframes'
 /// span, every frame alike.
 pub fn still(scene: &Scene) -> bool {
+    // Nothing that changes over time, nothing shown only for a time: the
+    // same at every time.
+    if scene.stats().animated_properties == 0 && !shown_for_a_time(&scene.root) {
+        return true;
+    }
     let d = scene.timeline.duration.max(0.0);
     let first = scene.frame_at(0.0);
     (1..=16).all(|k| scene.frame_at(d * f64::from(k) / 16.0) == first)
+}
+
+/// Whether `g` or a group in it (its masks' and patterns' too) shows only
+/// for a time.
+fn shown_for_a_time(g: &Group) -> bool {
+    let pattern = |paint: &ScenePaint| match paint {
+        ScenePaint::Pattern(p) => shown_for_a_time(&p.content),
+        _ => false,
+    };
+    g.active.is_some()
+        || g.mask
+            .as_ref()
+            .is_some_and(|m| shown_for_a_time(&m.content))
+        || g.children.iter().any(|child| match child {
+            Node::Group(g) => shown_for_a_time(g),
+            Node::Shape(s) => {
+                s.fill.as_ref().is_some_and(|f| pattern(&f.paint))
+                    || s.stroke.as_ref().is_some_and(|s| pattern(&s.paint))
+            }
+            Node::Text(t) => t.spans.iter().any(|span| {
+                span.fill.as_ref().is_some_and(|f| pattern(&f.paint))
+                    || span.stroke.as_ref().is_some_and(|s| pattern(&s.paint))
+            }),
+            Node::Image(_) => false,
+        })
 }
 
 /// How far `ops` scale lengths, at most over a playback of `duration`.
