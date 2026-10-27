@@ -8,7 +8,9 @@ use std::{
 };
 
 use dxn_vector_animation::{Frame, ImageData, Matrix, Point, Rect, Scene};
-use dxn_vector_animation_rive::{InputKind, InputValue, Interaction, Pointer};
+use dxn_vector_animation_rive::{
+    InputKind, InputValue, Interaction, Pointer, PropertyValue, ValueChange,
+};
 use nsh_core::{
     HoverEvent, TouchEvent, TouchPhase,
     geometry::{Bounds, Points, Size, px},
@@ -20,7 +22,7 @@ use crate::{
     lower::{self, Nodes},
     plan,
     playback::{Direction, Playback},
-    source::{self, At, InputSetting, Loaded, PosterFrame, Repeat, Segment, Source},
+    source::{self, At, InputSetting, Loaded, PosterFrame, Repeat, Segment, Source, ValueSetting},
 };
 
 /// How the animation fits its view (`resizeMode`).
@@ -158,6 +160,46 @@ fn passed(
     cues.iter().filter(move |c| within(c.time))
 }
 
+/// A property of the view model bound to a Rive file's artboard, and its
+/// value.
+#[derive(Debug, Clone, Default, PartialEq, JsObject)]
+pub struct AnimationValue {
+    /// Its name (nested view models' names first, `/` between): what
+    /// `setValue` and `fireValue` take.
+    pub path: String,
+    /// What it holds: `"number"`, `"boolean"`, `"color"`, `"string"`,
+    /// `"enum"`, `"trigger"` or `"other"` (a list, a nested view model).
+    pub kind: String,
+    /// Its value (a color's ARGB; an enum's index; `null` for a trigger,
+    /// fired as a change).
+    pub value: serde_json::Value,
+}
+
+impl AnimationValue {
+    fn of(c: &ValueChange) -> AnimationValue {
+        let (kind, value) = json_of(&c.value);
+        AnimationValue {
+            path: c.path.clone(),
+            kind: kind.into(),
+            value,
+        }
+    }
+}
+
+/// A view model property's value, by kind.
+fn json_of(v: &PropertyValue) -> (&'static str, serde_json::Value) {
+    use serde_json::{Value, json};
+    match v {
+        PropertyValue::Number(n) => ("number", json!(n)),
+        PropertyValue::Bool(b) => ("boolean", json!(b)),
+        PropertyValue::Color(c) => ("color", json!(c)),
+        PropertyValue::Text(s) => ("string", json!(s)),
+        PropertyValue::Enum(i) => ("enum", i.map_or(Value::Null, |i| json!(i))),
+        PropertyValue::Trigger => ("trigger", Value::Null),
+        PropertyValue::Other => ("other", Value::Null),
+    }
+}
+
 /// An input of a Rive file's state machine.
 #[derive(Debug, Clone, Default, PartialEq, JsObject)]
 pub struct AnimationInput {
@@ -189,6 +231,10 @@ pub struct AnimationInfo {
     /// [`VectorAnimationApi::set_input`] and [`VectorAnimationApi::fire`]
     /// take.
     pub inputs: Vec<AnimationInput>,
+    /// The properties of the view model bound to a Rive file's artboard,
+    /// with its instance's values: what [`VectorAnimationApi::set_value`]
+    /// and [`VectorAnimationApi::fire_value`] take.
+    pub values: Vec<AnimationValue>,
     /// What the file holds that is left out (text, filters, effects, ...).
     pub warnings: Vec<String>,
 }
@@ -207,6 +253,10 @@ pub enum VectorAnimationEvent {
     /// as the pointer acted, or `setInput` or `fire` did (a trigger fired
     /// is 1).
     Input(AnimationInput),
+    /// A property of the view model bound to a Rive file's artboard
+    /// changed: a listener set it as the pointer acted, or `setValue` or
+    /// `fireValue` did.
+    Value(AnimationValue),
     /// The animation could not be loaded or read.
     Error(String),
 }
@@ -268,6 +318,27 @@ impl VectorAnimationApi {
     pub fn fire_at(&self, path: String, name: String) {
         (self.act)(Act::Set(path, name, InputValue::Fire));
     }
+
+    /// Sets property `path` of the view model bound to a Rive file's
+    /// artboard (its name, nested view models' names first, `/` between,
+    /// as the load info's `values` has it) to `value` now: what is bound to
+    /// it, and the state machine's conditions on it, follow as in Rive.
+    pub fn set_value(&self, path: String, value: ValueSetting) {
+        (self.act)(Act::Value(
+            path,
+            match value {
+                ValueSetting::Bool(b) => PropertyValue::Bool(b),
+                ValueSetting::Number(n) => PropertyValue::Number(n),
+                ValueSetting::Text(s) => PropertyValue::Text(s),
+            },
+        ));
+    }
+
+    /// Fires trigger `path` of the view model bound to a Rive file's
+    /// artboard now.
+    pub fn fire_value(&self, path: String) {
+        (self.act)(Act::Value(path, PropertyValue::Trigger));
+    }
 }
 
 /// The test id of the view over a Rive file whose state machine has
@@ -280,6 +351,8 @@ enum Act {
     Pointer(Pointer, Point),
     /// An input set: the path of its machine, its name.
     Set(String, String, InputValue),
+    /// A view model property set: its path.
+    Value(String, PropertyValue),
 }
 
 /// A Rive file's state machine as the user plays it: the changes still to
@@ -306,6 +379,7 @@ fn make(play: &mut Interaction, batch: Vec<(f64, Act)>) -> bool {
         let made = match act {
             Act::Pointer(kind, at) => play.pointer(t, kind, at),
             Act::Set(path, name, value) => play.set_at(t, &path, &name, value).map(|()| true),
+            Act::Value(path, value) => play.set_value(t, &path, value).map(|()| true),
         };
         match made {
             Ok(c) => changed |= c,
@@ -416,7 +490,13 @@ pub fn VectorAnimation(
                 let changed_at = batch.first().map_or(0.0, |(t, _)| *t);
                 let made = move || {
                     let before = play.changes().len();
+                    let values_before = play.values().len();
                     let changed = make(&mut play, batch);
+                    let values: Vec<AnimationValue> = play.values()
+                        [values_before.min(play.values().len())..]
+                        .iter()
+                        .map(AnimationValue::of)
+                        .collect();
                     let inputs: Vec<AnimationInput> = play.changes()
                         [before.min(play.changes().len())..]
                         .iter()
@@ -446,14 +526,14 @@ pub fn VectorAnimation(
                         )
                     });
                     let fired = play.take_fired();
-                    (play, swapped, inputs, fired)
+                    (play, swapped, inputs, values, fired)
                 };
                 #[cfg(not(target_arch = "wasm32"))]
-                let Ok((play, swapped, inputs, fired)) = blocking(made).await else {
+                let Ok((play, swapped, inputs, values, fired)) = blocking(made).await else {
                     break;
                 };
                 #[cfg(target_arch = "wasm32")]
-                let (play, swapped, inputs, fired) = made();
+                let (play, swapped, inputs, values, fired) = made();
                 if interacting.with(|i| i.generation) != generation {
                     // Another source is read meanwhile.
                     break;
@@ -476,6 +556,9 @@ pub fn VectorAnimation(
                 }
                 for input in inputs {
                     cx.emit(VectorAnimationEvent::Input(input));
+                }
+                for value in values {
+                    cx.emit(VectorAnimationEvent::Value(value));
                 }
                 interacting.with(|i| i.play = Some(play));
             }
@@ -1077,6 +1160,24 @@ fn info(loaded: &Loaded) -> AnimationInfo {
                                 value,
                             }
                         })
+                    })
+                    .collect()
+            })
+            .unwrap_or_default(),
+        values: loaded
+            .interaction
+            .as_ref()
+            .and_then(Interaction::view_model)
+            .map(|vm| {
+                vm.properties
+                    .iter()
+                    .map(|p| {
+                        let (kind, value) = json_of(&p.value);
+                        AnimationValue {
+                            path: p.name.clone(),
+                            kind: kind.into(),
+                            value,
+                        }
                     })
                     .collect()
             })

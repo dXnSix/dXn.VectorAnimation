@@ -167,6 +167,47 @@ impl JsValue for InputSetting {
     }
 }
 
+/// What a view model property is set to (`setValue`): a bool, a number
+/// (a number's, an enum's index or a color's ARGB) or a string (a
+/// string's, an enum's value or a color's `#rrggbb` or `#aarrggbb`).
+#[derive(Debug, Clone, PartialEq)]
+pub enum ValueSetting {
+    /// A bool.
+    Bool(bool),
+    /// A number.
+    Number(f64),
+    /// A string.
+    Text(String),
+}
+
+impl JsValue for ValueSetting {
+    fn ts_type(_types: &mut TsTypes) -> String {
+        "boolean | number | string".into()
+    }
+
+    fn from_js(value: JsIn<'_>) -> Result<Self, PropError> {
+        if let Some(b) = value.as_bool() {
+            return Ok(ValueSetting::Bool(b));
+        }
+        if let Some(n) = value.as_number() {
+            return Ok(ValueSetting::Number(n));
+        }
+        match value.as_string() {
+            Some(s) => Ok(ValueSetting::Text(s)),
+            None => Err(value.expected("a boolean, a number or a string")),
+        }
+    }
+
+    fn to_js<'a>(&self, host: &'a dyn JsHost) -> Result<JsOwned<'a>, PropError> {
+        let raw = match self {
+            ValueSetting::Bool(b) => host.new_bool(*b),
+            ValueSetting::Number(n) => host.new_number(*n),
+            ValueSetting::Text(s) => host.new_string(s)?,
+        };
+        Ok(JsOwned::new(host, raw))
+    }
+}
+
 /// How many times an animation plays (`repeat`): `true` forever, a count.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Repeat {

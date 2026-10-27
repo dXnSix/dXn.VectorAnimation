@@ -149,6 +149,40 @@ fn ToggleClicked() -> impl IntoElement {
     toggle(false)
 }
 
+const VIEW_MODEL: &[u8] = include_bytes!("../../../fixtures/rive-view-model.riv");
+
+/// A Rive file bound to a view model with a number "level" and a color
+/// "tint": its properties reported, then "level" set to 5 once loaded, and
+/// what it reports of it shown as text.
+#[component]
+fn ValueSet() -> impl IntoElement {
+    use dxn_vector_animation_nsh::{AnimationValue, ValueSetting};
+
+    let status = signal(String::from("loading"));
+    let player = component_ref::<dxn_vector_animation_nsh::VectorAnimation>();
+    view()
+        .child(
+            vector_animation()
+                .component_ref(&player)
+                .src(Some(Source::Bytes(VIEW_MODEL.to_vec())))
+                .on_load(move |info: &AnimationInfo| {
+                    let values: Vec<String> = info
+                        .values
+                        .iter()
+                        .map(|v| format!("{}:{}={}", v.path, v.kind, v.value))
+                        .collect();
+                    status.set(format!("Values {}", values.join(",")));
+                    if let Some(api) = player.api::<VectorAnimationApi>() {
+                        api.set_value("level".into(), ValueSetting::Number(5.0));
+                    }
+                })
+                .on_value(move |v: &AnimationValue| {
+                    status.update(|s| s.push_str(&format!(" then {} {}", v.path, v.value)));
+                }),
+        )
+        .child(text(move || status.get()))
+}
+
 const EVENTS: &[u8] = include_bytes!("../../../fixtures/rive-events.riv");
 
 /// A Rive file whose state machine fires "entered", then "left" and
@@ -294,4 +328,11 @@ fn a_rive_files_listeners_hear_the_pointer() {
 fn reports_the_cues_playback_passes() {
     let mut app = start::<Cues>();
     app.wait_for("Cues entered,left,leaving,arrived").unwrap();
+}
+
+#[test]
+fn reports_and_sets_view_model_values() {
+    let mut app = start::<ValueSet>();
+    app.wait_for("Values level:number=1.0,tint:color=4278190335 then level 5.0")
+        .unwrap();
 }
