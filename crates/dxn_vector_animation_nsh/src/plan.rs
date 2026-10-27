@@ -12,10 +12,10 @@
 use std::sync::Arc;
 
 use dxn_vector_animation::{
-    Animated, BlendMode, Clip, Dash, Direction, EllipseStart, Fill, FillRule, Frame, FramePaint,
-    FrameTextSpan, Geometry, Group, ImageData, Item, Keyframe, LineCap, LineJoin, Mask, Matrix,
-    MotionPath, MotionRotate, Node, Paint as ScenePaint, PaintOrder, Path, PathEl, Point, Rect,
-    Scene, Shape, ShapePath, Stroke, Text, TextAnchor, TextSpan, TimeMap, TimeRange, Track,
+    Animated, BlendMode, Clip, Dash, Direction, Easing, EllipseStart, Fill, FillRule, Frame,
+    FramePaint, FrameTextSpan, Geometry, Group, ImageData, Item, Keyframe, LineCap, LineJoin, Mask,
+    Matrix, MotionPath, MotionRotate, Node, Paint as ScenePaint, PaintOrder, Path, PathEl, Point,
+    Rect, Scene, Shape, ShapePath, Stroke, Text, TextAnchor, TextSpan, TimeMap, TimeRange, Track,
     TransformOp, Trim, TrimMode,
     outline::{geometry_path, path_length, trim_paths},
     transform::{decompose, point_along, transform_at, unwrap_angles},
@@ -319,7 +319,7 @@ fn switches(track: &Track<Path>) -> Vec<f64> {
             let (mut lo, mut hi) = (a.time, b.time);
             for _ in 0..60 {
                 let mid = (lo + hi) / 2.0;
-                if track.sample(mid).same_structure(&b.value) {
+                if commands_at(track, mid).same_structure(&b.value) {
                     hi = mid;
                 } else {
                     lo = mid;
@@ -329,6 +329,40 @@ fn switches(track: &Track<Path>) -> Vec<f64> {
         })
         .collect()
 }
+
+/// The keyframe whose commands `track` has at `time`, as
+/// [`Track::sample`] picks them, without making the path.
+fn commands_at(track: &Track<Path>, time: f64) -> &Path {
+    let k = &track.keyframes;
+    let i = k.partition_point(|kf| kf.time <= time);
+    match (i, k.len()) {
+        (_, 0) => &EMPTY,
+        (0, _) => &k[0].value,
+        (i, n) if i >= n => &k[n - 1].value,
+        (i, _) => {
+            let (a, b) = (&k[i - 1], &k[i]);
+            let span = b.time - a.time;
+            if span <= 0.0 {
+                return &b.value;
+            }
+            let eased = a.easing.apply(((time - a.time) / span).clamp(0.0, 1.0));
+            // Paths of other commands switch halfway; a morph keeps the
+            // first's.
+            if matches!(a.easing, Easing::Hold)
+                || eased == 0.0
+                || a.value.same_structure(&b.value)
+                || eased < 0.5
+            {
+                &a.value
+            } else {
+                &b.value
+            }
+        }
+    }
+}
+
+/// No path.
+static EMPTY: Path = Path::new();
 
 /// The times the paths of `s` switch commands, ascending, those closer
 /// than a millisecond one.

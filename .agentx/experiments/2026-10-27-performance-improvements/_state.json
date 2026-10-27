@@ -11,13 +11,13 @@
   "status": "",
   "createdAt": "2026-10-27T20:14:29Z",
   "finishedAt": null,
-  "lastStableCommit": "a9eba8e8fb24625468974d341186c970ecfdad3c",
+  "lastStableCommit": "8b0bf9378dbd560fbdfaef63e91cd49811441164",
   "repositories": [
     {
       "name": "main",
       "path": ".",
       "role": "main",
-      "lastStableCommit": "a9eba8e8fb24625468974d341186c970ecfdad3c"
+      "lastStableCommit": "8b0bf9378dbd560fbdfaef63e91cd49811441164"
     }
   ],
   "atomicDiscipline": {
@@ -28,8 +28,8 @@
     "successfulAttemptRequiresCommitBeforeNextExperiment": true,
     "rule": "Run exactly the printed hypothesis. If the attempted change fails, degrades, or suggests a different fix, revert to the checkpoint and finish this experiment as failure. Start a new experiment for the next idea."
   },
-  "currentExperimentId": "08798e18-46c1-499e-bcbb-9ac3dd3b826f",
-  "nextExperimentIndex": 3,
+  "currentExperimentId": "11eedca8-3f9f-46b5-a2dc-83044d989326",
+  "nextExperimentIndex": 4,
   "experiments": [
     {
       "id": "f0287285-7a36-4cb5-8eef-94cdd163e5a7",
@@ -50,6 +50,18 @@
       "name": "Corpus bench harness",
       "path": "2026-10-27-02-corpus-bench-harness.json",
       "startedAt": "2026-10-27T20:16:05Z",
+      "finishedAt": "2026-10-27T20:18:20Z",
+      "state": "done",
+      "status": "success",
+      "resultCommit": "8b0bf9378dbd560fbdfaef63e91cd49811441164"
+    },
+    {
+      "id": "11eedca8-3f9f-46b5-a2dc-83044d989326",
+      "index": 3,
+      "type": "hypothesis",
+      "name": "Switch detection without sampled paths",
+      "path": "2026-10-27-03-switch-detection-without-sampled-paths.json",
+      "startedAt": "2026-10-27T20:19:04Z",
       "finishedAt": null,
       "state": "running",
       "status": ""

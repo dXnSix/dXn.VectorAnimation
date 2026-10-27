@@ -9,11 +9,11 @@
   "path": "2026-10-27-02-corpus-bench-harness.json",
   "createdAt": "2026-10-27T20:16:05Z",
   "startedAt": "2026-10-27T20:16:05Z",
-  "finishedAt": null,
-  "state": "running",
-  "status": "",
+  "finishedAt": "2026-10-27T20:18:20Z",
+  "state": "done",
+  "status": "success",
   "checkpointCommit": "a9eba8e8fb24625468974d341186c970ecfdad3c",
-  "resultCommit": "",
+  "resultCommit": "8b0bf9378dbd560fbdfaef63e91cd49811441164",
   "rollbackCommand": "git -C \"/Users/dinko/work-private/projects/dXn/dXn.VectorAnimation\" reset --hard a9eba8e8fb24625468974d341186c970ecfdad3c",
   "repositories": [
     {
@@ -21,12 +21,19 @@
       "path": ".",
       "role": "main",
       "checkpointCommit": "a9eba8e8fb24625468974d341186c970ecfdad3c",
-      "resultCommit": "",
+      "resultCommit": "8b0bf9378dbd560fbdfaef63e91cd49811441164",
       "rollbackCommand": "git -C \"/Users/dinko/work-private/projects/dXn/dXn.VectorAnimation\" reset --hard a9eba8e8fb24625468974d341186c970ecfdad3c",
-      "status": ""
+      "status": "success"
     }
   ],
-  "repositoryCommits": [],
+  "repositoryCommits": [
+    {
+      "name": "main",
+      "path": ".",
+      "role": "main",
+      "commit": "8b0bf9378dbd560fbdfaef63e91cd49811441164"
+    }
+  ],
   "atomicDiscipline": {
     "oneHypothesisOnly": true,
     "singleImplementationAttempt": true,
@@ -36,17 +43,74 @@
     "rule": "Run exactly the printed hypothesis. If the attempted change fails, degrades, or suggests a different fix, revert to the checkpoint and finish this experiment as failure. Start a new experiment for the next idea."
   },
   "primaryTarget": "wasm/web with headed Playwright and WebGPU enabled",
-  "hypothesisMarkdown": "",
-  "measurementPlanMarkdown": "",
-  "expectedOutcomeMarkdown": "",
+  "hypothesisMarkdown": "## Corpus Bench Harness Hypothesis\n\nA `bench` subcommand of `vector-animation-check`, with a counting global allocator (`stats_alloc`), measures reproducibly over the corpus: time to first frame (read, compile as the component does it twice, scene kept, first rasters and sampled frames), its allocations and bytes, bytes held after, the engine thread's work a frame, the reference `frame_at` a frame, and the graph's size.\n\n**Tested mechanism:** measurement enablement only.\n**Allowed changes:** `crates/dxn_vector_animation_check` (new `bench.rs`, `stats_alloc` dependency, dispatch), README line.\n**Forbidden:** any optimization.",
+  "measurementPlanMarkdown": "### Measurement Plan\n\n`vector-animation-check bench artifacts-temp/corpus` three times (release); totals agree within 10%.",
+  "expectedOutcomeMarkdown": "### Expected Outcome\n\nRepeatable totals; allocation counts identical run to run.",
   "diagnostics": {
     "playwright": [],
     "rayx": [],
     "counters": [],
     "artifacts": []
   },
-  "measurements": [],
-  "reportMarkdown": "",
-  "decisionMarkdown": "",
+  "measurements": [
+    {
+      "metric": "read ms (sum)",
+      "before": "n/a",
+      "after": "73.9",
+      "delta": "",
+      "source": "bench median of 3"
+    },
+    {
+      "metric": "compile ms (sum)",
+      "before": "n/a",
+      "after": "179.6",
+      "delta": "",
+      "source": "bench"
+    },
+    {
+      "metric": "time to first frame ms (sum)",
+      "before": "n/a",
+      "after": "253.5",
+      "delta": "",
+      "source": "bench"
+    },
+    {
+      "metric": "ttff allocations / MB allocated",
+      "before": "n/a",
+      "after": "2,867,296 / 3061 MB",
+      "delta": "",
+      "source": "bench"
+    },
+    {
+      "metric": "held MB",
+      "before": "n/a",
+      "after": "979.7",
+      "delta": "",
+      "source": "bench"
+    },
+    {
+      "metric": "frame_at us/frame (sum) / allocs",
+      "before": "n/a",
+      "after": "354 / 7789",
+      "delta": "",
+      "source": "bench"
+    },
+    {
+      "metric": "engine us/frame (sum) / allocs",
+      "before": "n/a",
+      "after": "833 / 370",
+      "delta": "",
+      "source": "bench"
+    },
+    {
+      "metric": "graph nodes / breakpoints / ops",
+      "before": "n/a",
+      "after": "5026 / 115,936 / 45,331",
+      "delta": "",
+      "source": "bench"
+    }
+  ],
+  "reportMarkdown": "## Corpus Bench Harness Finished\n\n**Passed Status**: true: three runs within 2% on time, allocations identical.\n\n**Attempt Count:** 1. **Out-of-scope changes:** none.\n\nHot spots it shows: merge paths (read 40 ms, 2 GB allocated, 331 MB held), the repeater (compile 43 ms, 372 MB allocated, 222 MB held), onboarding (compile 60 ms; 0.78 ms a frame of moving blur rasters), thunder.svg (29k breakpoints), timeline.svg (frame_at 57 us, 1804 allocs a frame).\n\n| Repo | Path | Checkpoint | Result Commit | Status |\n| --- | --- | --- | --- | --- |\n| main | . | a9eba8e | 8b0bf93 | committed |",
+  "decisionMarkdown": "### Decision\n\nCommitted: 8b0bf93 feat(check): bench a folder's load, first frame, allocations and frames.",
   "notes": ""
 }
