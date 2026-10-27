@@ -11,13 +11,13 @@
   "status": "",
   "createdAt": "2026-10-27T20:14:29Z",
   "finishedAt": null,
-  "lastStableCommit": "9eb585954218bd89204c15b2a09e171bdb8c0113",
+  "lastStableCommit": "1821a74302a46aa981cf51565e27895ba7865973",
   "repositories": [
     {
       "name": "main",
       "path": ".",
       "role": "main",
-      "lastStableCommit": "9eb585954218bd89204c15b2a09e171bdb8c0113"
+      "lastStableCommit": "1821a74302a46aa981cf51565e27895ba7865973"
     }
   ],
   "atomicDiscipline": {
@@ -28,8 +28,8 @@
     "successfulAttemptRequiresCommitBeforeNextExperiment": true,
     "rule": "Run exactly the printed hypothesis. If the attempted change fails, degrades, or suggests a different fix, revert to the checkpoint and finish this experiment as failure. Start a new experiment for the next idea."
   },
-  "currentExperimentId": "d241e7c5-4f8f-4d81-8bce-7b36bad95f52",
-  "nextExperimentIndex": 18,
+  "currentExperimentId": "bd4a5b1e-d142-46ac-bc8b-1c6f3981c753",
+  "nextExperimentIndex": 19,
   "experiments": [
     {
       "id": "f0287285-7a36-4cb5-8eef-94cdd163e5a7",
@@ -230,6 +230,18 @@
       "name": "SVG keyframe values parsed once each",
       "path": "2026-10-27-17-svg-keyframe-values-parsed-once-each.json",
       "startedAt": "2026-10-27T20:56:28Z",
+      "finishedAt": "2026-10-27T20:57:37Z",
+      "state": "done",
+      "status": "success",
+      "resultCommit": "1821a74302a46aa981cf51565e27895ba7865973"
+    },
+    {
+      "id": "bd4a5b1e-d142-46ac-bc8b-1c6f3981c753",
+      "index": 18,
+      "type": "hypothesis",
+      "name": "CSS unrolling copies each value once",
+      "path": "2026-10-27-18-css-unrolling-copies-each-value-once.json",
+      "startedAt": "2026-10-27T20:57:53Z",
       "finishedAt": null,
       "state": "running",
       "status": ""
