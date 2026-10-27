@@ -9,11 +9,11 @@
   "path": "2026-10-27-37-lottie-values-copied-only-to-bake-expressions.json",
   "createdAt": "2026-10-27T21:43:33Z",
   "startedAt": "2026-10-27T21:43:33Z",
-  "finishedAt": null,
-  "state": "running",
-  "status": "",
+  "finishedAt": "2026-10-27T21:45:16Z",
+  "state": "done",
+  "status": "success",
   "checkpointCommit": "f0f22b4bfb0e6befeca40c2a4372a878b368e98f",
-  "resultCommit": "",
+  "resultCommit": "164b20dee97ceccc8e6808a2a34032c50c196f41",
   "rollbackCommand": "git -C \"/Users/dinko/work-private/projects/dXn/dXn.VectorAnimation\" reset --hard f0f22b4bfb0e6befeca40c2a4372a878b368e98f",
   "repositories": [
     {
@@ -21,12 +21,19 @@
       "path": ".",
       "role": "main",
       "checkpointCommit": "f0f22b4bfb0e6befeca40c2a4372a878b368e98f",
-      "resultCommit": "",
+      "resultCommit": "164b20dee97ceccc8e6808a2a34032c50c196f41",
       "rollbackCommand": "git -C \"/Users/dinko/work-private/projects/dXn/dXn.VectorAnimation\" reset --hard f0f22b4bfb0e6befeca40c2a4372a878b368e98f",
-      "status": ""
+      "status": "success"
     }
   ],
-  "repositoryCommits": [],
+  "repositoryCommits": [
+    {
+      "name": "main",
+      "path": ".",
+      "role": "main",
+      "commit": "164b20dee97ceccc8e6808a2a34032c50c196f41"
+    }
+  ],
   "atomicDiscipline": {
     "oneHypothesisOnly": true,
     "singleImplementationAttempt": true,
@@ -36,17 +43,39 @@
     "rule": "Run exactly the printed hypothesis. If the attempted change fails, degrades, or suggests a different fix, revert to the checkpoint and finish this experiment as failure. Start a new experiment for the next idea."
   },
   "primaryTarget": "wasm/web with headed Playwright and WebGPU enabled",
-  "hypothesisMarkdown": "",
-  "measurementPlanMarkdown": "",
-  "expectedOutcomeMarkdown": "",
+  "hypothesisMarkdown": "## Lottie values copied only to bake expressions Hypothesis\n\nReading a Lottie document from its JSON value copied the whole value, as baking expressions writes into it. Baking is split into working out its edits (from the value as it is) and writing them: a document whose expressions need no edits, most, is converted where it is; one with edits is copied and written into as before. `read_value` takes the value by reference.\\n\\n**Tested mechanism:** copy only for edits. **Allowed:** lottie `expressions.rs` bake split, `lib.rs` read_value, nsh source, a json_values test. **Forbidden:** the expression engine.",
+  "measurementPlanMarkdown": "### Measurement Plan\n\nRelease bench over the 53 corpus files (median of 3 runs, best of 5 each), plus the focused tests of the touched area.",
+  "expectedOutcomeMarkdown": "### Expected Outcome\n\nThe targeted metric improves with identical graph output and passing focused tests.",
   "diagnostics": {
     "playwright": [],
     "rayx": [],
     "counters": [],
     "artifacts": []
   },
-  "measurements": [],
-  "reportMarkdown": "",
-  "decisionMarkdown": "",
+  "measurements": [
+    {
+      "metric": "read ms, Lottie files (28) as values",
+      "before": "48.3",
+      "after": "45.1",
+      "delta": "",
+      "source": "scratchpad bench.sh: median of 3 `vector-animation-check bench artifacts-temp/corpus`"
+    },
+    {
+      "metric": "ttff allocations, Lottie values",
+      "before": "496,540",
+      "after": "332,085",
+      "delta": "",
+      "source": "scratchpad bench.sh: median of 3 `vector-animation-check bench artifacts-temp/corpus`"
+    },
+    {
+      "metric": "compiled scenes",
+      "before": "identical",
+      "after": "identical",
+      "delta": "",
+      "source": "scratchpad bench.sh: median of 3 `vector-animation-check bench artifacts-temp/corpus`"
+    }
+  ],
+  "reportMarkdown": "## Lottie values copied only to bake expressions Finished\n\n**Passed Status**: True\n\n**Attempt Count:** 1. **Out-of-scope changes:** none.\n\nReading an imported Lottie -7%, its allocations -33%. New json_values test: a document with an expression reads as its text does; lottie tests pass; compiled scene hashes identical; clippy clean.\n\n| Repo | Path | Checkpoint | Result Commit | Status |\n| --- | --- | --- | --- | --- |\n| main | . | f0f22b4 | 164b20d | committed |",
+  "decisionMarkdown": "### Decision\n\nCommitted 164b20d: perf(lottie): read a value without copying it unless expressions are baked into it",
   "notes": ""
 }

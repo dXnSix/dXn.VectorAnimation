@@ -11,13 +11,13 @@
   "status": "",
   "createdAt": "2026-10-27T20:14:29Z",
   "finishedAt": null,
-  "lastStableCommit": "f0f22b4bfb0e6befeca40c2a4372a878b368e98f",
+  "lastStableCommit": "164b20dee97ceccc8e6808a2a34032c50c196f41",
   "repositories": [
     {
       "name": "main",
       "path": ".",
       "role": "main",
-      "lastStableCommit": "f0f22b4bfb0e6befeca40c2a4372a878b368e98f"
+      "lastStableCommit": "164b20dee97ceccc8e6808a2a34032c50c196f41"
     }
   ],
   "atomicDiscipline": {
@@ -28,8 +28,8 @@
     "successfulAttemptRequiresCommitBeforeNextExperiment": true,
     "rule": "Run exactly the printed hypothesis. If the attempted change fails, degrades, or suggests a different fix, revert to the checkpoint and finish this experiment as failure. Start a new experiment for the next idea."
   },
-  "currentExperimentId": "5758b4dd-98df-41c6-9a83-a1e7e839bcba",
-  "nextExperimentIndex": 38,
+  "currentExperimentId": "4a1b4456-e0e1-42b1-a663-b5e7bdadde14",
+  "nextExperimentIndex": 39,
   "experiments": [
     {
       "id": "f0287285-7a36-4cb5-8eef-94cdd163e5a7",
@@ -467,6 +467,18 @@
       "name": "Lottie values copied only to bake expressions",
       "path": "2026-10-27-37-lottie-values-copied-only-to-bake-expressions.json",
       "startedAt": "2026-10-27T21:43:33Z",
+      "finishedAt": "2026-10-27T21:45:16Z",
+      "state": "done",
+      "status": "success",
+      "resultCommit": "164b20dee97ceccc8e6808a2a34032c50c196f41"
+    },
+    {
+      "id": "4a1b4456-e0e1-42b1-a663-b5e7bdadde14",
+      "index": 38,
+      "type": "hypothesis",
+      "name": "Cascaded declarations shared, not cloned",
+      "path": "2026-10-27-38-cascaded-declarations-shared-not-cloned.json",
+      "startedAt": "2026-10-27T21:46:03Z",
       "finishedAt": null,
       "state": "running",
       "status": ""

@@ -191,7 +191,7 @@ pub(crate) struct Converter<'a, 'input> {
     patterns: HashMap<roxmltree::NodeId, Option<Paint>>,
     depth: usize,
     nodes: usize,
-    declared: HashMap<roxmltree::NodeId, Declared>,
+    declared: HashMap<roxmltree::NodeId, std::rc::Rc<Declared>>,
     /// The document's SMIL animations, their begin times, and which
     /// animate each element.
     smil: Vec<Smil>,
@@ -388,7 +388,7 @@ impl<'a, 'input> Converter<'a, 'input> {
 
     /// The winning declarations of `node`: presentation attributes, then
     /// the sheets' rules by specificity and order, then its `style`.
-    fn cascade(&mut self, node: XmlNode<'a, 'input>) -> Declared {
+    fn cascade(&mut self, node: XmlNode<'a, 'input>) -> std::rc::Rc<Declared> {
         if let Some(d) = self.declared.get(&node.id()) {
             return d.clone();
         }
@@ -436,7 +436,8 @@ impl<'a, 'input> Converter<'a, 'input> {
                 put(&decl.name, &decl.value, (level, (0, 0, 0), 0));
             }
         }
-        let declared: Declared = best.into_iter().map(|(k, (_, v))| (k, v)).collect();
+        let declared: std::rc::Rc<Declared> =
+            std::rc::Rc::new(best.into_iter().map(|(k, (_, v))| (k, v)).collect());
         self.declared.insert(node.id(), declared.clone());
         declared
     }
