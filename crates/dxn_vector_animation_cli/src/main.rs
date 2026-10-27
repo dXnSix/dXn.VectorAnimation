@@ -620,6 +620,11 @@ fn describe_machine(file: &Path, artboard: Option<&str>, scene: &Scene) -> Resul
             vm.instance,
             values.join(", ")
         ));
+        if !vm.properties.is_empty() {
+            out.push_str(
+                "               (render --value '<path>=<value>@<seconds>', '<trigger>@<seconds>')\n",
+            );
+        }
     }
     let all = machine.all();
     for m in &all {
