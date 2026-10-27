@@ -153,6 +153,9 @@ struct Ready {
     native: bool,
     /// Parts of it are sampled frame by frame, on the engine's clock.
     mixed: bool,
+    /// The plan made on load for the view's fit and pixels then: the first
+    /// drawing of the same takes it rather than compiling again.
+    compiled: RefCell<Option<(Matrix, f64, plan::Plan)>>,
 }
 
 /// Plays an animated SVG (CSS animations, as Figma Motion exports them) or a
@@ -233,25 +236,38 @@ pub fn VectorAnimation(
                     for w in &loaded.warnings {
                         log::warn!("VectorAnimation: left out: {w}");
                     }
-                    let (native, mixed) = match plan::compile(&loaded.scene, Matrix::IDENTITY) {
-                        Ok(plan) => {
-                            for why in &plan.sampled {
-                                log::info!(
-                                    "VectorAnimation: a part sampled frame by frame ({why})"
-                                );
-                            }
-                            (true, !plan.sampled.is_empty())
-                        }
-                        Err(plan::Unsupported(why)) => {
-                            log::info!("VectorAnimation: sampled frame by frame ({why})");
-                            (false, false)
-                        }
+                    // Compiled for the view as measured, or, before it is (it
+                    // takes the scene's size unless the app sizes it), at the
+                    // scene's size: the first drawing of the same fit takes
+                    // the plan.
+                    let view = untracked(|| size.get());
+                    let (w, h) = match (f64::from(view.width.0), f64::from(view.height.0)) {
+                        (w, h) if w > 0.0 && h > 0.0 => (w, h),
+                        _ => (loaded.scene.width, loaded.scene.height),
                     };
+                    let base = fit(&loaded.scene, w, h, untracked(|| props.resize_mode.get()));
+                    let pixels = f64::from(pixel_ratio()).max(1.0);
+                    let (native, mixed, compiled) =
+                        match plan::compile_for(&loaded.scene, base, pixels) {
+                            Ok(plan) => {
+                                for why in &plan.sampled {
+                                    log::info!(
+                                        "VectorAnimation: a part sampled frame by frame ({why})"
+                                    );
+                                }
+                                (true, !plan.sampled.is_empty(), Some((base, pixels, plan)))
+                            }
+                            Err(plan::Unsupported(why)) => {
+                                log::info!("VectorAnimation: sampled frame by frame ({why})");
+                                (false, false, None)
+                            }
+                        };
                     let info = info(&loaded);
                     ready.set(Some(Rc::new(Ready {
                         loaded,
                         native,
                         mixed,
+                        compiled: RefCell::new(compiled),
                     })));
                     cx.emit(VectorAnimationEvent::Load(info));
                 }
@@ -434,7 +450,7 @@ pub fn VectorAnimation(
         let Some(r) = ready.get() else {
             return Vec::new();
         };
-        let Some((scene, _)) = played.get() else {
+        let Some((scene, on_event)) = played.get() else {
             return Vec::new();
         };
         let size = size.get();
@@ -444,8 +460,16 @@ pub fn VectorAnimation(
         }
         let base = fit(&scene, w, h, props.resize_mode.get());
         let pixels = f64::from(pixel_ratio()).max(1.0);
+        // The plan made on load is of the file's scene, not of what an
+        // event plays.
+        let made = r
+            .compiled
+            .borrow_mut()
+            .take()
+            .filter(|(b, p, _)| on_event.is_none() && *b == base && *p == pixels)
+            .map(|(_, _, plan)| plan);
         if r.native
-            && let Ok(plan) = plan::compile_for(&scene, base, pixels)
+            && let Ok(plan) = made.map_or_else(|| plan::compile_for(&scene, base, pixels), Ok)
         {
             let nodes = Nodes::new(&plan.graph, time);
             let part = move |unit: &plan::Unit| match unit {

@@ -15,7 +15,7 @@ use std::{
     time::Instant,
 };
 
-use dxn_vector_animation::{Matrix, Scene};
+use dxn_vector_animation::Scene;
 use dxn_vector_animation_nsh::{
     graph::Expr,
     plan::{self, Op, Unit},
@@ -167,18 +167,17 @@ fn view_size(scene: &Scene, size: f64) -> (f64, f64) {
 fn bench(bytes: &[u8], runs: usize, size: f64, ratio: f64) -> Option<Row> {
     let mut row = Row::default();
     let held = Region::new(GLOBAL);
-    // Time to first frame, as the player goes: read, compiled (to learn
-    // whether the graph plays it, then for the view), the scene played
-    // kept, the first rasters and sampled frames made.
+    // Time to first frame, as the player goes: read, compiled for the view
+    // (measured by then), the scene played kept, the first rasters and
+    // sampled frames made.
     let (read, loaded) = measured(runs, || dxn_vector_animation_nsh::source::read(bytes));
     row.read = read;
     let scene = loaded.ok()?.scene;
     let (w, h) = view_size(&scene, size);
     let base = dxn_vector_animation_nsh::fit(&scene, w, h, Default::default());
     let (compile, compiled) = measured(runs, || {
-        let native = plan::compile(&scene, Matrix::IDENTITY).is_ok();
+        let plan = plan::compile_for(&scene, base, ratio).ok();
         let played = scene.clone();
-        let plan = native.then(|| plan::compile_for(&played, base, ratio).ok())?;
         Some((played, plan))
     });
     row.compile = compile;

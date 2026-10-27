@@ -11,13 +11,13 @@
   "status": "",
   "createdAt": "2026-10-27T20:14:29Z",
   "finishedAt": null,
-  "lastStableCommit": "50f02d725e32b93faa403dde457e73f6b5045a05",
+  "lastStableCommit": "e874f1ea300affa058ede7612e45657b111b369c",
   "repositories": [
     {
       "name": "main",
       "path": ".",
       "role": "main",
-      "lastStableCommit": "50f02d725e32b93faa403dde457e73f6b5045a05"
+      "lastStableCommit": "e874f1ea300affa058ede7612e45657b111b369c"
     }
   ],
   "atomicDiscipline": {
@@ -28,8 +28,8 @@
     "successfulAttemptRequiresCommitBeforeNextExperiment": true,
     "rule": "Run exactly the printed hypothesis. If the attempted change fails, degrades, or suggests a different fix, revert to the checkpoint and finish this experiment as failure. Start a new experiment for the next idea."
   },
-  "currentExperimentId": "d160e5ca-f428-4391-9487-ab35bf43c756",
-  "nextExperimentIndex": 11,
+  "currentExperimentId": "f299ae61-8c67-4b8d-8991-1c92f7844696",
+  "nextExperimentIndex": 12,
   "experiments": [
     {
       "id": "f0287285-7a36-4cb5-8eef-94cdd163e5a7",
@@ -146,6 +146,18 @@
       "name": "Vertical blur over whole rows",
       "path": "2026-10-27-10-vertical-blur-over-whole-rows.json",
       "startedAt": "2026-10-27T20:33:37Z",
+      "finishedAt": "2026-10-27T20:35:00Z",
+      "state": "done",
+      "status": "success",
+      "resultCommit": "e874f1ea300affa058ede7612e45657b111b369c"
+    },
+    {
+      "id": "f299ae61-8c67-4b8d-8991-1c92f7844696",
+      "index": 11,
+      "type": "hypothesis",
+      "name": "One compile on load",
+      "path": "2026-10-27-11-one-compile-on-load.json",
+      "startedAt": "2026-10-27T20:35:43Z",
       "finishedAt": null,
       "state": "running",
       "status": ""
