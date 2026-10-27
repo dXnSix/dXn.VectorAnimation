@@ -93,6 +93,7 @@ pub mod ty {
     pub const CUSTOM_STRING: u16 = 130;
     pub const OPEN_URL_EVENT: u16 = 131;
     pub const LISTENER_FIRE_EVENT: u16 = 168;
+    pub const LISTENER_TRIGGER_CHANGE: u16 = 115;
     pub const FIRE_EVENT: u16 = 169;
     pub const KEY_FRAME_CALLBACK: u16 = 171;
     pub const BLEND_ANIMATION_1D: u16 = 75;
@@ -285,6 +286,7 @@ pub mod key {
     pub const FIRE_EVENT_ID: u16 = 392;
     pub const FIRE_OCCURS: u16 = 393;
     pub const EVENT_TRIGGER: u16 = 395;
+    pub const LISTENER_EVENT: u16 = 399;
     pub const ACTION_INPUT: u16 = 227;
     pub const ACTION_BOOL_VALUE: u16 = 228;
 }

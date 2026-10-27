@@ -413,6 +413,7 @@ impl<'a> Converter<'a> {
                 c.spans = spans;
                 if let Some(m) = machine {
                     c.machine_layer = Some(m.layer);
+                    c.hit_targets = c.listener_targets_of(m.machine);
                     c.nested_plans = c.nested_machine_plans(&m);
                 }
             }
@@ -560,7 +561,15 @@ impl<'a> Converter<'a> {
 
     /// The objects the default state machine's listeners listen on.
     fn listener_targets(&self) -> Vec<usize> {
-        let Some(sm) = self.default_machine().map(|i| &self.ab.state_machines[i]) else {
+        match self.default_machine() {
+            Some(i) => self.listener_targets_of(i),
+            None => Vec::new(),
+        }
+    }
+
+    /// The objects state machine `index`'s listeners listen on.
+    fn listener_targets_of(&self, index: usize) -> Vec<usize> {
+        let Some(sm) = self.ab.state_machines.get(index) else {
             return Vec::new();
         };
         sm.listeners
@@ -586,7 +595,12 @@ impl<'a> Converter<'a> {
         // The changes made, each at the first frame at or after its time:
         // (frame, input, value; `None` fires a trigger).
         let mut changes: Vec<(usize, usize, Option<f64>)> = Vec::new();
-        for c in self.changes.clone() {
+        for c in self
+            .changes
+            .clone()
+            .into_iter()
+            .filter(|c| c.path.is_empty())
+        {
             let Some(input) = names.iter().position(|n| *n == c.input) else {
                 self.warn(format!(
                     "no input named {:?} in state machine {name:?}",
@@ -635,50 +649,27 @@ impl<'a> Converter<'a> {
         };
         // Where each layer settles: after its last change of state or mix,
         // half a minute past the last change of an input at most.
-        let last_change = changes.last().map_or(0, |c| c.0);
+        // A nested artboard's machine changed plays on past it too.
+        let last_change = self
+            .changes
+            .iter()
+            .map(|c| ((c.time.max(0.0) / DT - 1e-6).ceil() as usize).min(MAX_FRAMES))
+            .chain(
+                self.aligned
+                    .iter()
+                    .map(|a| ((a.time.max(0.0) / DT - 1e-6).ceil() as usize).min(MAX_FRAMES)),
+            )
+            .max()
+            .unwrap_or(0);
         let horizon = last_change + 30 * 60;
         let (mut played, mut fired) = play(horizon.min(MAX_FRAMES));
-        let mut settled = 0;
-        let mut steady = true;
-        let mut periods = Vec::new();
-        for l in &played {
-            let changed = |what: &dyn Fn(usize) -> bool| {
-                (1..l.len()).rev().find(|&k| what(k)).map_or(0, |k| k + 1)
-            };
-            let last_change = changed(&|k| l[k].serial != l[k - 1].serial || l[k].mix < 1.0);
-            if last_change + 120 >= l.len() {
-                steady = false;
-            }
-            let period = |a: usize, rate: f64| {
-                let an = &anims[a];
-                let d = (an.end - an.start).abs() / (an.speed * rate).abs();
-                match an.loop_mode {
-                    LoopMode::Loop if d > 0.0 => Some(d),
-                    LoopMode::PingPong if d > 0.0 => Some(2.0 * d),
-                    _ => None,
-                }
-            };
-            let looping: Option<Vec<f64>> = l.last().and_then(|ap| match &ap.blend {
-                // A blend repeats over what its animations that loop do.
-                Some(b) => {
-                    let all: Vec<f64> = b
-                        .parts
-                        .iter()
-                        .flatten()
-                        .filter_map(|b| period(b.anim, 1.0))
-                        .collect();
-                    (!all.is_empty()).then_some(all)
-                }
-                None => period(ap.current?.0, ap.direction).map(|p| vec![p]),
-            });
-            match looping {
-                Some(all) => {
-                    periods.extend(all);
-                    settled = settled.max(last_change);
-                }
-                // Still from the last frame that moved.
-                None => settled = settled.max(changed(&|k| l[k] != l[k - 1]).saturating_sub(1)),
-            }
+        let (mut settled, mut periods, mut steady) = settle(&played, &anims);
+        // Nested artboards' machines a player changed play on: where they
+        // settle, and what they repeat over.
+        for (n_settled, n_periods, n_steady) in self.changed_nested_settles(horizon) {
+            settled = settled.max(n_settled);
+            periods.extend(n_periods);
+            steady &= n_steady;
         }
         // Nested artboards play on: what they repeat over repeats too, and
         // what they play once is played out.
@@ -748,7 +739,12 @@ impl<'a> Converter<'a> {
     /// State machine `index` of the artboard, ready to play: its layers'
     /// states, the animations they play and its inputs' values.
     fn machine(&mut self, index: usize) -> Option<Machine> {
-        let ab = self.ab;
+        self.machine_in(self.ab, index)
+    }
+
+    /// State machine `index` of artboard `ab` (this one, or one it nests),
+    /// ready to play.
+    fn machine_in(&mut self, ab: &'a Artboard, index: usize) -> Option<Machine> {
         let sm = ab.state_machines.get(index)?;
         let specs: Vec<Spec> = ab.animations.iter().map(|a| Spec::of(&a.object)).collect();
         let anims: Vec<machine::Anim> = specs
@@ -849,7 +845,7 @@ impl<'a> Converter<'a> {
                     }
                     let ease = o
                         .id(p::STATE_TRANSITION_INTERPOLATOR_ID)
-                        .and_then(|i| self.object(i))
+                        .and_then(|i| ab.objects.get(i).and_then(Option::as_ref))
                         .map(interpolator);
                     transitions.push(machine::Trans {
                         to,
@@ -951,6 +947,95 @@ impl<'a> Converter<'a> {
         })
     }
 
+    /// Where the machines of this artboard's nested artboards that a player
+    /// changed settle, each played on its own with its inputs as they are
+    /// and the changes made to it, `horizon` frames at most: as [`settle`]
+    /// has it.
+    fn changed_nested_settles(&mut self, horizon: usize) -> Vec<(usize, Vec<f64>, bool)> {
+        let mut out = Vec::new();
+        for (i, o) in self.ab.objects.iter().enumerate() {
+            let Some(o) = o.as_ref().filter(|o| o.ty == t::NESTED_ARTBOARD) else {
+                continue;
+            };
+            let Some(target) = o
+                .id(p::NESTED_ARTBOARD_ARTBOARD_ID)
+                .and_then(|a| self.file.artboards.get(a))
+            else {
+                continue;
+            };
+            let name = o.string(p::COMPONENT_NAME);
+            let own = format!("#{i}");
+            let changes: Vec<&crate::InputChange> = self
+                .changes
+                .iter()
+                .filter(|c| {
+                    let first = c.path.split('/').next().unwrap_or("");
+                    !c.path.contains('/') && (first == own || (!name.is_empty() && first == name))
+                })
+                .collect();
+            if changes.is_empty() {
+                continue;
+            }
+            let Some(sm) = self.children[i].iter().find_map(|&c| {
+                let co = self.object(c)?;
+                (co.ty == t::NESTED_STATE_MACHINE)
+                    .then(|| co.uint(p::NESTED_ANIMATION_ANIMATION_ID) as usize)
+            }) else {
+                continue;
+            };
+            let changes: Vec<(usize, String, crate::InputValue)> = changes
+                .iter()
+                .map(|c| {
+                    (
+                        ((c.time.max(0.0) / DT - 1e-6).ceil() as usize).min(MAX_FRAMES),
+                        c.input.clone(),
+                        c.value,
+                    )
+                })
+                .collect();
+            let Some(Machine {
+                layers,
+                anims,
+                inputs,
+                names,
+                ..
+            }) = self.machine_in(target, sm)
+            else {
+                continue;
+            };
+            let inputs_at = |k: usize| {
+                let mut v = inputs.clone();
+                for (frame, input, value) in &changes {
+                    if *frame > k {
+                        break;
+                    }
+                    let Some(slot) = names
+                        .iter()
+                        .position(|n| n == input)
+                        .and_then(|j| v.get_mut(j))
+                    else {
+                        continue;
+                    };
+                    match value {
+                        crate::InputValue::Bool(b) => *slot = Some(f64::from(u8::from(*b))),
+                        crate::InputValue::Number(n) => *slot = Some(*n),
+                        crate::InputValue::Fire if *frame == k => *slot = Some(1.0),
+                        crate::InputValue::Fire => {}
+                    }
+                }
+                v
+            };
+            let played: Vec<Vec<machine::Applied>> = layers
+                .iter()
+                .map(|states| {
+                    machine::play(states, &anims, &inputs_at, horizon.min(MAX_FRAMES), DT).applied
+                })
+                .collect();
+            out.push(settle(&played, &anims));
+        }
+        out
+    }
+
     /// What nested state machine `m` plays in each of the scene's spans, its
     /// inputs at the parent's values there.
     fn nested_machine_plans(&mut self, m: &NestedMachine) -> Vec<Rc<Plan>> {
@@ -971,9 +1056,35 @@ impl<'a> Converter<'a> {
         } else {
             &self.spans[..]
         };
+        // The changes made to it (a player's), each at the first frame of a
+        // span at or after its time.
+        let names: Vec<String> = self.ab.state_machines[m.machine]
+            .inputs
+            .iter()
+            .map(|i| {
+                i.as_ref()
+                    .map(|o| o.string(p::STATE_MACHINE_COMPONENT_NAME))
+                    .unwrap_or_default()
+            })
+            .collect();
+        let changes: Vec<(f64, usize, Option<f64>)> = self
+            .changes
+            .iter()
+            .filter(|c| c.path.is_empty())
+            .filter_map(|c| {
+                let input = names.iter().position(|n| *n == c.input)?;
+                let value = match c.value {
+                    crate::InputValue::Bool(b) => Some(f64::from(u8::from(b))),
+                    crate::InputValue::Number(n) => Some(n),
+                    crate::InputValue::Fire => None,
+                };
+                Some((c.time, input, value))
+            })
+            .collect();
         for (s, &(start, duration)) in spans.iter().enumerate() {
             let frames = ((duration / DT).ceil() as usize + 1).min(self.limits.max_keyframes);
             let source = m.sources.get(s).copied().unwrap_or(Some(start));
+            let frame_of = |t: f64| ((t - start).max(0.0) / DT - 1e-6).ceil() as usize;
             let inputs_at = |k: usize| {
                 let mut v = inputs.clone();
                 if let Some(source) = source {
@@ -981,6 +1092,22 @@ impl<'a> Converter<'a> {
                     for (i, curve) in &m.inputs {
                         if let Some(slot) = v.get_mut(*i) {
                             *slot = Some(curve.at(t));
+                        }
+                    }
+                }
+                for &(t, input, value) in &changes {
+                    if t < start - 1e-9 || t > start + duration {
+                        continue;
+                    }
+                    let frame = frame_of(t);
+                    if frame > k {
+                        break;
+                    }
+                    if let Some(slot) = v.get_mut(input) {
+                        match value {
+                            Some(value) => *slot = Some(value),
+                            None if frame == k => *slot = Some(1.0),
+                            None => {}
                         }
                     }
                 }
@@ -1487,7 +1614,7 @@ impl<'a> Converter<'a> {
         let moves: Vec<crate::Aligned> = self
             .aligned
             .iter()
-            .filter(|a| a.node == i)
+            .filter(|a| a.node == i && a.path.is_empty())
             .cloned()
             .collect();
         if moves.is_empty() {
@@ -3500,7 +3627,39 @@ impl<'a> Converter<'a> {
         // its time restarts there at each one's start; a span where the
         // inputs move has keys of its own. Otherwise they are laid out over
         // every span.
-        let alike = !self.spans.is_empty()
+        // What a player changes in it: the changes whose path starts at it.
+        let name = o.string(p::COMPONENT_NAME);
+        let own = format!("#{i}");
+        let inside = |path: &str| -> Option<String> {
+            let (first, rest) = path.split_once('/').unwrap_or((path, ""));
+            (first == own || (!name.is_empty() && first == name)).then(|| rest.to_owned())
+        };
+        let options = crate::Options {
+            artboard: None,
+            inputs: self
+                .changes
+                .iter()
+                .filter_map(|c| {
+                    Some(crate::InputChange {
+                        path: inside(&c.path)?,
+                        ..c.clone()
+                    })
+                })
+                .collect(),
+            aligned: self
+                .aligned
+                .iter()
+                .filter_map(|a| {
+                    Some(crate::Aligned {
+                        path: inside(&a.path)?,
+                        ..a.clone()
+                    })
+                })
+                .collect(),
+        };
+        let changed = !options.inputs.is_empty() || !options.aligned.is_empty();
+        let alike = !changed
+            && !self.spans.is_empty()
             && plays
                 .iter()
                 .all(|(_, _, how)| matches!(how, Pieces::Rate(r) if r.keys.is_empty()));
@@ -3633,14 +3792,16 @@ impl<'a> Converter<'a> {
             spans,
             machine,
         };
-        let (scene, warnings) = Self::convert(
+        let (mut scene, warnings) = Self::convert(
             self.file,
             index,
             clock,
-            &crate::Options::default(),
+            &options,
             self.depth + 1,
             self.limits,
         )?;
+        // Its ids under its own, so that each object is named once.
+        scoped(&mut scene.root, &format!("{i}/"), 0);
         for w in warnings {
             self.warn(format!("nested artboard: {w}"));
         }
@@ -4112,10 +4273,11 @@ impl<'a> Converter<'a> {
         for what in later {
             self.warn(format!("left out: {what}"));
         }
-        // A nested artboard's state machine reports its events to Rive's
-        // nested listeners, not to the app.
+        // A nested artboard's state machine reports its events to its
+        // parent's listeners, not to the app: those its listeners fire
+        // reach them (`Interaction`), those it fires as it plays do not.
         if self.depth > 0 && self.ab.objects.iter().flatten().any(|o| o.is(t::EVENT)) {
-            self.warn("left out: events (a nested artboard's)");
+            self.warn("left out: events a nested artboard's state machine fires as it plays (those its listeners fire reach its parent's listeners)");
         }
         let machines = self.ab.state_machines.len();
         if self.plan.is_some() {
@@ -4441,6 +4603,71 @@ fn interpolator(i: &Object) -> Interp {
         },
         _ => Interp::Linear,
     }
+}
+
+/// `group` and what it holds with their ids under `prefix`.
+fn scoped(group: &mut Group, prefix: &str, depth: usize) {
+    if depth > 256 {
+        return;
+    }
+    if let Some(id) = &mut group.id {
+        *id = format!("{prefix}{id}");
+    }
+    for child in &mut group.children {
+        if let Node::Group(g) = child {
+            scoped(g, prefix, depth + 1);
+        }
+    }
+}
+
+/// Where the layers `played` (of animations `anims`) settle: the frame
+/// after which they stop changing states and mixing (a layer holding still,
+/// after its last frame that moved), the lengths they repeat over from
+/// there, and whether they settle before their end at all.
+fn settle(played: &[Vec<machine::Applied>], anims: &[machine::Anim]) -> (usize, Vec<f64>, bool) {
+    let mut settled = 0;
+    let mut steady = true;
+    let mut periods = Vec::new();
+    for l in played {
+        let changed = |what: &dyn Fn(usize) -> bool| {
+            (1..l.len()).rev().find(|&k| what(k)).map_or(0, |k| k + 1)
+        };
+        let last_change = changed(&|k| l[k].serial != l[k - 1].serial || l[k].mix < 1.0);
+        if last_change + 120 >= l.len() {
+            steady = false;
+        }
+        let period = |a: usize, rate: f64| {
+            let an = &anims[a];
+            let d = (an.end - an.start).abs() / (an.speed * rate).abs();
+            match an.loop_mode {
+                LoopMode::Loop if d > 0.0 => Some(d),
+                LoopMode::PingPong if d > 0.0 => Some(2.0 * d),
+                _ => None,
+            }
+        };
+        let looping: Option<Vec<f64>> = l.last().and_then(|ap| match &ap.blend {
+            // A blend repeats over what its animations that loop do.
+            Some(b) => {
+                let all: Vec<f64> = b
+                    .parts
+                    .iter()
+                    .flatten()
+                    .filter_map(|b| period(b.anim, 1.0))
+                    .collect();
+                (!all.is_empty()).then_some(all)
+            }
+            None => period(ap.current?.0, ap.direction).map(|p| vec![p]),
+        });
+        match looping {
+            Some(all) => {
+                periods.extend(all);
+                settled = settled.max(last_change);
+            }
+            // Still from the last frame that moved.
+            None => settled = settled.max(changed(&|k| l[k] != l[k - 1]).saturating_sub(1)),
+        }
+    }
+    (settled, periods, steady)
 }
 
 /// The events `objects` (a state's or a transition's fire actions) fire.

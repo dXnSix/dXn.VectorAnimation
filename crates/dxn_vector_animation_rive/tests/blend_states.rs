@@ -104,6 +104,7 @@ fn with_x(riv: &Riv, changes: &[(f64, f64)]) -> Scene {
             .iter()
             .map(|&(time, x)| InputChange {
                 time,
+                path: String::new(),
                 input: "x".into(),
                 value: InputValue::Number(x),
             })

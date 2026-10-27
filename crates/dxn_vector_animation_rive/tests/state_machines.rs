@@ -298,6 +298,7 @@ fn with_inputs(riv: &Riv, inputs: &[(&str, InputValue, f64)]) -> Scene {
             .iter()
             .map(|(name, value, time)| InputChange {
                 time: *time,
+                path: String::new(),
                 input: (*name).to_owned(),
                 value: *value,
             })

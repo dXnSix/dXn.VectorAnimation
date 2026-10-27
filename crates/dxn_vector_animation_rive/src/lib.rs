@@ -106,6 +106,8 @@ pub struct Options {
 pub struct Aligned {
     /// The timeline's seconds it is moved at.
     pub time: f64,
+    /// The nested artboards it is in, as [`InputChange::path`] has them.
+    pub path: String,
     /// The node, by its index in the artboard (as the scene's group ids
     /// name objects).
     pub node: usize,
@@ -121,6 +123,11 @@ pub struct Aligned {
 pub struct InputChange {
     /// The timeline's seconds it is made at.
     pub time: f64,
+    /// The nested artboards whose state machine it is made to, from the
+    /// artboard read: each the nested artboard's name, or `#` and its index
+    /// in the artboard holding it, `/` between (Rive's `setInputAtPath`);
+    /// empty for the artboard's default state machine.
+    pub path: String,
     /// The input's name.
     pub input: String,
     /// What it is set to.

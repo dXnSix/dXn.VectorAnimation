@@ -408,6 +408,7 @@ fn parse_input(text: &str) -> Result<dxn_vector_animation_rive::InputChange, Str
     };
     Ok(InputChange {
         time,
+        path: String::new(),
         input: input.to_owned(),
         value,
     })
@@ -544,6 +545,7 @@ fn describe_machine(file: &Path, artboard: Option<&str>, scene: &Scene) -> Resul
                     PointerEvent::Up => "up",
                     PointerEvent::Move => "move",
                     PointerEvent::Click => "click",
+                PointerEvent::Drag => "drag",
                 })
                 .collect();
         let actions: Vec<String> = l
