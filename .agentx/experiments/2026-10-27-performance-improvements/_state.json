@@ -11,13 +11,13 @@
   "status": "",
   "createdAt": "2026-10-27T20:14:29Z",
   "finishedAt": null,
-  "lastStableCommit": "066cc567f67e5cf8e1b16a451f96461d3a68a05f",
+  "lastStableCommit": "66c6207d8e6891d0a454878666cf6d63f7ef5c5e",
   "repositories": [
     {
       "name": "main",
       "path": ".",
       "role": "main",
-      "lastStableCommit": "066cc567f67e5cf8e1b16a451f96461d3a68a05f"
+      "lastStableCommit": "66c6207d8e6891d0a454878666cf6d63f7ef5c5e"
     }
   ],
   "atomicDiscipline": {
@@ -28,8 +28,8 @@
     "successfulAttemptRequiresCommitBeforeNextExperiment": true,
     "rule": "Run exactly the printed hypothesis. If the attempted change fails, degrades, or suggests a different fix, revert to the checkpoint and finish this experiment as failure. Start a new experiment for the next idea."
   },
-  "currentExperimentId": "35bb1688-e81e-43c4-96eb-6d5fd1a25549",
-  "nextExperimentIndex": 23,
+  "currentExperimentId": "abd63771-efdb-4960-8c97-87da1737c453",
+  "nextExperimentIndex": 24,
   "experiments": [
     {
       "id": "f0287285-7a36-4cb5-8eef-94cdd163e5a7",
@@ -290,6 +290,18 @@
       "name": "Sampled graph values thinned to their shape",
       "path": "2026-10-27-22-sampled-graph-values-thinned-to-their-shape.json",
       "startedAt": "2026-10-27T21:04:28Z",
+      "finishedAt": "2026-10-27T21:05:55Z",
+      "state": "done",
+      "status": "success",
+      "resultCommit": "66c6207d8e6891d0a454878666cf6d63f7ef5c5e"
+    },
+    {
+      "id": "abd63771-efdb-4960-8c97-87da1737c453",
+      "index": 23,
+      "type": "hypothesis",
+      "name": "Gradient reach sampled coarsely",
+      "path": "2026-10-27-23-gradient-reach-sampled-coarsely.json",
+      "startedAt": "2026-10-27T21:06:25Z",
       "finishedAt": null,
       "state": "running",
       "status": ""

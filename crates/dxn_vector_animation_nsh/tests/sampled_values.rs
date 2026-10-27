@@ -55,3 +55,22 @@ fn a_curve_keeps_what_single_precision_tells_apart() {
         assert!((g.eval(n, t) - f(t)).abs() < 1e-2, "at {t}");
     }
 }
+
+#[test]
+fn a_value_needed_about_right_keeps_fewer_samples() {
+    // How far out a gradient's far shape reaches as its ends move.
+    let f = |t: f64| 5.0e4 / (100.0 + 40.0 * (t * 3.0).sin());
+    let (mut fine, mut coarse) = (Graph::default(), Graph::default());
+    fine.sampled(&frames(), TIME, f);
+    let Num::Node(n) = coarse.sampled_within(&frames(), TIME, 1e-3, f) else {
+        panic!("a node");
+    };
+    assert!(breakpoints(&coarse) * 4 < breakpoints(&fine));
+    for k in 0..=3000 {
+        let t = 3.0 * f64::from(k) / 3000.0;
+        assert!(
+            (coarse.eval(n, t) - f(t)).abs() <= 1e-3 * 834.0 + 1.0,
+            "at {t}"
+        );
+    }
+}

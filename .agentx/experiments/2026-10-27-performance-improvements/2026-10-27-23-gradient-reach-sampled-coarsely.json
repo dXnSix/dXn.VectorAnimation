@@ -1,0 +1,52 @@
+{
+  "schemaVersion": 1,
+  "id": "abd63771-efdb-4960-8c97-87da1737c453",
+  "loopId": "9e7a8b6d-0104-4e72-a31e-3b168c0b3881",
+  "index": 23,
+  "type": "hypothesis",
+  "name": "Gradient reach sampled coarsely",
+  "slug": "gradient-reach-sampled-coarsely",
+  "path": "2026-10-27-23-gradient-reach-sampled-coarsely.json",
+  "createdAt": "2026-10-27T21:06:25Z",
+  "startedAt": "2026-10-27T21:06:25Z",
+  "finishedAt": null,
+  "state": "running",
+  "status": "",
+  "checkpointCommit": "66c6207d8e6891d0a454878666cf6d63f7ef5c5e",
+  "resultCommit": "",
+  "rollbackCommand": "git -C \"/Users/dinko/work-private/projects/dXn/dXn.VectorAnimation\" reset --hard 66c6207d8e6891d0a454878666cf6d63f7ef5c5e",
+  "repositories": [
+    {
+      "name": "main",
+      "path": ".",
+      "role": "main",
+      "checkpointCommit": "66c6207d8e6891d0a454878666cf6d63f7ef5c5e",
+      "resultCommit": "",
+      "rollbackCommand": "git -C \"/Users/dinko/work-private/projects/dXn/dXn.VectorAnimation\" reset --hard 66c6207d8e6891d0a454878666cf6d63f7ef5c5e",
+      "status": ""
+    }
+  ],
+  "repositoryCommits": [],
+  "atomicDiscipline": {
+    "oneHypothesisOnly": true,
+    "singleImplementationAttempt": true,
+    "noUnplannedFixesInsideExperiment": true,
+    "failedAttemptRequiresImmediateRevert": true,
+    "successfulAttemptRequiresCommitBeforeNextExperiment": true,
+    "rule": "Run exactly the printed hypothesis. If the attempted change fails, degrades, or suggests a different fix, revert to the checkpoint and finish this experiment as failure. Start a new experiment for the next idea."
+  },
+  "primaryTarget": "wasm/web with headed Playwright and WebGPU enabled",
+  "hypothesisMarkdown": "",
+  "measurementPlanMarkdown": "",
+  "expectedOutcomeMarkdown": "",
+  "diagnostics": {
+    "playwright": [],
+    "rayx": [],
+    "counters": [],
+    "artifacts": []
+  },
+  "measurements": [],
+  "reportMarkdown": "",
+  "decisionMarkdown": "",
+  "notes": ""
+}

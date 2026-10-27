@@ -359,7 +359,8 @@ impl Compiler {
                 let place = self.linear_place(&g.start, &g.end, time);
                 // As far out as everything is, however long the gradient.
                 let (far, sm) = (self.far(), scale_of(m).max(1e-9));
-                let reach = self.g.sampled(&times, time, |t| {
+                // (Far past the view, a thousandth either way.)
+                let reach = self.g.sampled_within(&times, time, 1e-3, |t| {
                     let (a, b) = (g.start.sample(t), g.end.sample(t));
                     far / ((b.x - a.x).hypot(b.y - a.y) * sm).max(1e-9)
                 });

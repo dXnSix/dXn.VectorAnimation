@@ -549,6 +549,19 @@ impl Graph {
     /// nonlinear functions of tracks: `tan` of a skew, a radius from two
     /// points).
     pub fn sampled(&mut self, times: &[f64], time: NodeId, f: impl Fn(f64) -> f64) -> Num {
+        // Within what single precision (the native graph's) tells apart.
+        self.sampled_within(times, time, 1e-7, f)
+    }
+
+    /// [`Graph::sampled`] within `share` of its largest value: for values
+    /// that need only be about right (how far out a far shape reaches).
+    pub fn sampled_within(
+        &mut self,
+        times: &[f64],
+        time: NodeId,
+        share: f64,
+        f: impl Fn(f64) -> f64,
+    ) -> Num {
         let mut times = times.to_vec();
         times.sort_by(f64::total_cmp);
         times.dedup();
@@ -563,9 +576,8 @@ impl Graph {
         }
         inputs.push(*times.last().unwrap_or(&0.0));
         let outputs: Vec<f64> = inputs.iter().map(|&t| f(t)).collect();
-        // Without the samples a line between their neighbors stands for,
-        // within what single precision (the native graph's) tells apart.
-        let tolerance = outputs.iter().fold(0.0, |m: f64, v| m.max(v.abs())) * 1e-7;
+        // Without the samples a line between their neighbors stands for.
+        let tolerance = outputs.iter().fold(0.0, |m: f64, v| m.max(v.abs())) * share;
         let (inputs, outputs) = crate::plan::simplified(&inputs, &outputs, tolerance);
         if let [one] = outputs.as_slice() {
             return Num::Const(*one);
