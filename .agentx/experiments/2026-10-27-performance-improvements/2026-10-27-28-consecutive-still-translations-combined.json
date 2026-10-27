@@ -9,11 +9,11 @@
   "path": "2026-10-27-28-consecutive-still-translations-combined.json",
   "createdAt": "2026-10-27T21:21:27Z",
   "startedAt": "2026-10-27T21:21:27Z",
-  "finishedAt": null,
-  "state": "running",
-  "status": "",
+  "finishedAt": "2026-10-27T21:23:23Z",
+  "state": "done",
+  "status": "success",
   "checkpointCommit": "1fe932711e5cd165cc542a892257b11bf28f059a",
-  "resultCommit": "",
+  "resultCommit": "270d269a24998119afdf2cb84b9bae8c40d9e6cf",
   "rollbackCommand": "git -C \"/Users/dinko/work-private/projects/dXn/dXn.VectorAnimation\" reset --hard 1fe932711e5cd165cc542a892257b11bf28f059a",
   "repositories": [
     {
@@ -21,12 +21,19 @@
       "path": ".",
       "role": "main",
       "checkpointCommit": "1fe932711e5cd165cc542a892257b11bf28f059a",
-      "resultCommit": "",
+      "resultCommit": "270d269a24998119afdf2cb84b9bae8c40d9e6cf",
       "rollbackCommand": "git -C \"/Users/dinko/work-private/projects/dXn/dXn.VectorAnimation\" reset --hard 1fe932711e5cd165cc542a892257b11bf28f059a",
-      "status": ""
+      "status": "success"
     }
   ],
-  "repositoryCommits": [],
+  "repositoryCommits": [
+    {
+      "name": "main",
+      "path": ".",
+      "role": "main",
+      "commit": "270d269a24998119afdf2cb84b9bae8c40d9e6cf"
+    }
+  ],
   "atomicDiscipline": {
     "oneHypothesisOnly": true,
     "singleImplementationAttempt": true,
@@ -36,17 +43,32 @@
     "rule": "Run exactly the printed hypothesis. If the attempted change fails, degrades, or suggests a different fix, revert to the checkpoint and finish this experiment as failure. Start a new experiment for the next idea."
   },
   "primaryTarget": "wasm/web with headed Playwright and WebGPU enabled",
-  "hypothesisMarkdown": "",
-  "measurementPlanMarkdown": "",
-  "expectedOutcomeMarkdown": "",
+  "hypothesisMarkdown": "## Consecutive still translations combined Hypothesis\n\nA transform list's still translations one after another (Lottie's position, then less its anchor) were two canvas translations each replayed every frame the canvas draws; they are one, none where they undo each other.\\n\\n**Tested mechanism:** combining consecutive constant translations in `Compiler::transform`. **Allowed:** `plan.rs` transform, a new test group. **Forbidden:** other transform ops, moving translations.",
+  "measurementPlanMarkdown": "### Measurement Plan\n\nRelease bench over the 53 corpus files (median of 3 runs, best of 5 each), plus the focused tests of the touched area.",
+  "expectedOutcomeMarkdown": "### Expected Outcome\n\nThe targeted metric improves with identical graph output and passing focused tests.",
   "diagnostics": {
     "playwright": [],
     "rayx": [],
     "counters": [],
     "artifacts": []
   },
-  "measurements": [],
-  "reportMarkdown": "",
-  "decisionMarkdown": "",
+  "measurements": [
+    {
+      "metric": "canvas ops (save/restore aside)",
+      "before": "45,331",
+      "after": "44,936",
+      "delta": "",
+      "source": "scratchpad bench.sh: median of 3 `vector-animation-check bench artifacts-temp/corpus`"
+    },
+    {
+      "metric": "corpus fidelity",
+      "before": "identical",
+      "after": "identical",
+      "delta": "",
+      "source": "scratchpad bench.sh: median of 3 `vector-animation-check bench artifacts-temp/corpus`"
+    }
+  ],
+  "reportMarkdown": "## Consecutive still translations combined Finished\n\n**Passed Status**: True\n\n**Attempt Count:** 1. **Out-of-scope changes:** none.\n\nOps a frame -0.9%. New test group `tests/still_translations.rs` (red at the checkpoint); plans, fitting, bound_layers, shadow_casting, moving_outlines, trims_that_move pass; fidelity identical; clippy clean.\n\n| Repo | Path | Checkpoint | Result Commit | Status |\n| --- | --- | --- | --- | --- |\n| main | . | 1fe9327 | 270d269 | committed |",
+  "decisionMarkdown": "### Decision\n\nCommitted 270d269: perf(nsh): still translations in a row are one",
   "notes": ""
 }

@@ -11,13 +11,13 @@
   "status": "",
   "createdAt": "2026-10-27T20:14:29Z",
   "finishedAt": null,
-  "lastStableCommit": "1fe932711e5cd165cc542a892257b11bf28f059a",
+  "lastStableCommit": "270d269a24998119afdf2cb84b9bae8c40d9e6cf",
   "repositories": [
     {
       "name": "main",
       "path": ".",
       "role": "main",
-      "lastStableCommit": "1fe932711e5cd165cc542a892257b11bf28f059a"
+      "lastStableCommit": "270d269a24998119afdf2cb84b9bae8c40d9e6cf"
     }
   ],
   "atomicDiscipline": {
@@ -28,8 +28,8 @@
     "successfulAttemptRequiresCommitBeforeNextExperiment": true,
     "rule": "Run exactly the printed hypothesis. If the attempted change fails, degrades, or suggests a different fix, revert to the checkpoint and finish this experiment as failure. Start a new experiment for the next idea."
   },
-  "currentExperimentId": "d8529707-0cae-47ef-9206-ade3101f0f02",
-  "nextExperimentIndex": 29,
+  "currentExperimentId": "8a08e1b9-a4af-4ddd-b428-e01884111962",
+  "nextExperimentIndex": 30,
   "experiments": [
     {
       "id": "f0287285-7a36-4cb5-8eef-94cdd163e5a7",
@@ -361,6 +361,18 @@
       "name": "Consecutive still translations combined",
       "path": "2026-10-27-28-consecutive-still-translations-combined.json",
       "startedAt": "2026-10-27T21:21:27Z",
+      "finishedAt": "2026-10-27T21:23:23Z",
+      "state": "done",
+      "status": "success",
+      "resultCommit": "270d269a24998119afdf2cb84b9bae8c40d9e6cf"
+    },
+    {
+      "id": "8a08e1b9-a4af-4ddd-b428-e01884111962",
+      "index": 29,
+      "type": "hypothesis",
+      "name": "Outlines built at their size",
+      "path": "2026-10-27-29-outlines-built-at-their-size.json",
+      "startedAt": "2026-10-27T21:24:06Z",
       "finishedAt": null,
       "state": "running",
       "status": ""
