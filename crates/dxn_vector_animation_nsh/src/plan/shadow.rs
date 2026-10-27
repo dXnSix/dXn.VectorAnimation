@@ -16,7 +16,7 @@
 //! (`source-atop`).
 
 use dxn_vector_animation::{
-    Animated, BlendMode, Clip, ClipShape, Color, Effect, Fill, Group, Item, Keyframe, Matrix,
+    Animated, BlendMode, Clip, ClipShape, Color, Effect, Fill, Group, Keyframe, Matrix,
     MotionRotate, Node, Paint as ScenePaint, Path, Point, Rect, Scene, Shape, ShapePath, Track,
     TransformOp,
     outline::geometry_path,
@@ -688,55 +688,27 @@ impl Compiler {
     }
 
     /// The matrix from `g`'s lengths to the view at each of `times` (`g` not
-    /// yet among the groups drawn inside), from the scene's frames.
+    /// yet among the groups drawn inside), as the scene's frames place a
+    /// shape of `g`: each group's transform at its own time, from the
+    /// root in; where it is not finite, the one before.
     pub(super) fn chain_matrices(&self, g: &Group, times: &[f64]) -> Vec<Matrix> {
-        let mut probe = shell(g);
-        probe.effects = Vec::new();
-        probe.clip = None;
-        probe.mask = None;
-        probe.opacity = Animated::Static(1.0);
-        probe.active = None;
-        probe.children = vec![Node::shape(Shape {
-            paths: vec![ShapePath::new(dxn_vector_animation::Geometry::Rect {
-                center: dxn_vector_animation::AnimatedPoint::fixed(0.5, 0.5),
-                size: dxn_vector_animation::AnimatedPoint::fixed(1.0, 1.0),
-                radius: dxn_vector_animation::AnimatedPoint::fixed(0.0, 0.0),
-                direction: dxn_vector_animation::Direction::Clockwise,
-                start: dxn_vector_animation::RectStart::TopLeft,
-            })],
-            fill: Some(Fill {
-                paint: ScenePaint::solid(Color::rgba(0.0, 0.0, 0.0, 1.0)),
-                opacity: Animated::Static(1.0),
-                rule: Default::default(),
-            }),
-            ..Default::default()
-        })];
-        let mut part = Node::Group(probe);
-        for (ancestor, _) in self.ancestors.iter().rev() {
-            let mut a = ancestor.clone();
-            a.opacity = Animated::Static(1.0);
-            a.active = None;
-            a.clip = None;
-            a.mask = None;
-            a.effects = Vec::new();
-            a.children = vec![part];
-            part = Node::Group(a);
-        }
-        let scene = Scene {
-            root: Group {
-                children: vec![part],
-                ..Group::new()
-            },
-            ..self.stage.clone()
-        };
+        let root = Group::new();
+        let chain: Vec<&Group> = std::iter::once(&root)
+            .chain(self.ancestors.iter().map(|(a, _)| a))
+            .chain(std::iter::once(g))
+            .collect();
         let mut last = Matrix::IDENTITY;
         times
             .iter()
             .map(|&t| {
-                if let Some(m) = scene.frame_at(t).items.iter().find_map(|item| match item {
-                    Item::Fill { transform, .. } => Some(*transform),
-                    _ => None,
-                }) {
+                let mut time = t;
+                let mut m = Matrix::IDENTITY;
+                let finite = chain.iter().all(|group| {
+                    time = group.local_time(time);
+                    m = m * transform_at(&group.transform, time);
+                    m.is_finite()
+                });
+                if finite {
                     last = m;
                 }
                 self.base * last
