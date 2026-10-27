@@ -569,24 +569,25 @@ fn sample_group(group: &Group, time: f64, parent: Matrix, out: &mut Vec<Item>, d
 }
 
 fn sample_shape(shape: &Shape, time: f64, m: Matrix, out: &mut Vec<Item>, depth: usize) {
-    let paths: Vec<Path> = shape
-        .paths
-        .iter()
-        .map(|p| {
-            let path = geometry_path(&p.geometry, time);
-            if p.transform.is_empty() {
-                path
-            } else {
-                path.transformed(transform_at(&p.transform, time))
-            }
-        })
-        .collect();
-    let path = match &shape.trim {
-        Some(trim) => trim_paths(&paths, trim, time),
-        None => {
+    let sample = |p: &crate::ShapePath| {
+        let path = geometry_path(&p.geometry, time);
+        if p.transform.is_empty() {
+            path
+        } else {
+            path.transformed(transform_at(&p.transform, time))
+        }
+    };
+    let path = match (&shape.trim, shape.paths.as_slice()) {
+        (Some(trim), paths) => {
+            let paths: Vec<Path> = paths.iter().map(sample).collect();
+            trim_paths(&paths, trim, time)
+        }
+        // One outline is the shape's path as it is.
+        (None, [one]) => sample(one),
+        (None, paths) => {
             let mut all = Path::new();
-            for p in &paths {
-                all.extend(p);
+            for p in paths {
+                all.extend(&sample(p));
             }
             all
         }

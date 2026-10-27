@@ -11,13 +11,13 @@
   "status": "",
   "createdAt": "2026-10-27T20:14:29Z",
   "finishedAt": null,
-  "lastStableCommit": "846c2ee419657cbbf917b363af8177fb59715f1d",
+  "lastStableCommit": "5e739f5902fe1f49277d7480ad23cc704e27f30e",
   "repositories": [
     {
       "name": "main",
       "path": ".",
       "role": "main",
-      "lastStableCommit": "846c2ee419657cbbf917b363af8177fb59715f1d"
+      "lastStableCommit": "5e739f5902fe1f49277d7480ad23cc704e27f30e"
     }
   ],
   "atomicDiscipline": {
@@ -28,8 +28,8 @@
     "successfulAttemptRequiresCommitBeforeNextExperiment": true,
     "rule": "Run exactly the printed hypothesis. If the attempted change fails, degrades, or suggests a different fix, revert to the checkpoint and finish this experiment as failure. Start a new experiment for the next idea."
   },
-  "currentExperimentId": "61ed3c8f-1494-4b23-baf3-fd6beb5019ab",
-  "nextExperimentIndex": 14,
+  "currentExperimentId": "41b8cf2a-c7b0-4baa-86c6-4ff0435b9566",
+  "nextExperimentIndex": 15,
   "experiments": [
     {
       "id": "f0287285-7a36-4cb5-8eef-94cdd163e5a7",
@@ -182,6 +182,18 @@
       "name": "Frame items take the shape's path",
       "path": "2026-10-27-13-frame-items-take-the-shape-s-path.json",
       "startedAt": "2026-10-27T20:39:43Z",
+      "finishedAt": "2026-10-27T20:40:57Z",
+      "state": "done",
+      "status": "success",
+      "resultCommit": "5e739f5902fe1f49277d7480ad23cc704e27f30e"
+    },
+    {
+      "id": "41b8cf2a-c7b0-4baa-86c6-4ff0435b9566",
+      "index": 14,
+      "type": "hypothesis",
+      "name": "One untrimmed path sampled without a merged copy",
+      "path": "2026-10-27-14-one-untrimmed-path-sampled-without-a-merged-copy.json",
+      "startedAt": "2026-10-27T20:41:16Z",
       "finishedAt": null,
       "state": "running",
       "status": ""
