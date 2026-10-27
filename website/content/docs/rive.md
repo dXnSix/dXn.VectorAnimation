@@ -139,6 +139,12 @@ vector-animation render icons.riv --marker hover --fps 30
 vector-animation render menu.riv --artboard Menu -t 0.5
 ```
 
+```example
+demo: rive-switch
+height: 260
+caption: A click on the switch toggles its bool input "on" through its listener; the button sets it with `setInput`.
+```
+
 ## Events
 
 The events the default state machine fires are the timeline's [cues](./scene-model.md#the-timeline), where
@@ -151,6 +157,12 @@ too: `Interaction::take_fired` gives those the pointer fired, as cues at their t
 
 The player reports each cue as playback passes it (`onCue`), and those listeners fire as the pointer acts;
 `inspect` lists the timeline's cues.
+
+```example
+demo: rive-events
+height: 220
+caption: The ball's state fires "started" as it is entered, its animation "left" and "right" at each side: `onCue` reports them.
+```
 
 ## Data binding
 
@@ -182,6 +194,12 @@ listener changing a
 view model (`ListenerViewModelChange`) writes the value its bindable property holds through that property's
 binding to the view model, as the pointer reaches the listener: a press firing a view model trigger, often.
 A property the file's instance writes no value of is left out, as Rive copies the instance.
+
+```example
+demo: rive-progress
+height: 320
+caption: A view model drives the bar: its width through an interpolating converter and a range mapper, its label through a to-string, its color eased; the buttons call `setValue` and `fireValue`.
+```
 
 `Options::unbound` reads the file as a player binding nothing does. `view_model(data, &options)` gives the
 view model bound and its instance's values; `inspect` prints them, and the listeners that set them.
