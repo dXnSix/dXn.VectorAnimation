@@ -490,7 +490,8 @@ graph's evaluation on the platforms' UI threads, and frame times on real phones,
 `vector-animation-check bench <dir> [--runs <n>] [--files]` sums, over a folder's files, what the player does from
 a file's bytes to its first drawing (reading, compiling, the first rasters and sampled frames: time, allocations,
 bytes allocated and held after), the engine thread's work a frame, the reference's `frame_at` a frame, and the
-graph's size; each the best of `runs` (5).
+graph's size; each the best of `runs` (5). `--values` reads JSON files as the values an app imports them as
+(`Source::Json`).
 
 ## Development
 

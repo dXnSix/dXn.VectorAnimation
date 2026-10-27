@@ -1,12 +1,13 @@
 //! `bench <dir> [--runs <n>] [--size <points>] [--ratio <pixels a point>]
-//! [--files]`: what loading and playing every animation of a folder
-//! costs, summed over the folder, the best of `runs` each. Time to first
-//! frame is what the player does from the file's bytes to its first
+//! [--files] [--values]`: what loading and playing every animation of a
+//! folder costs, summed over the folder, the best of `runs` each. Time to
+//! first frame is what the player does from the file's bytes to its first
 //! drawing (reading, compiling, the first rasters and sampled frames);
 //! held bytes are what stays allocated for it after. A frame is the
 //! engine thread's work (parts sampled frame by frame, rasters of parts
 //! that move) and, apart, the reference's `frame_at`. The graph's size is
-//! the UI thread's work each frame.
+//! the UI thread's work each frame. With `--values`, JSON files are read as
+//! the values an app imports them as.
 
 use std::{
     alloc::System,
@@ -164,12 +165,20 @@ fn view_size(scene: &Scene, size: f64) -> (f64, f64) {
 }
 
 /// What playing the file of `bytes` costs.
-fn bench(bytes: &[u8], runs: usize, size: f64, ratio: f64) -> Option<Row> {
+fn bench(bytes: &[u8], values: bool, runs: usize, size: f64, ratio: f64) -> Option<Row> {
     let mut row = Row::default();
     let held = Region::new(GLOBAL);
     // Time to first frame, as the player goes: read, compiled for the view,
     // the first rasters and sampled frames made.
-    let (read, loaded) = measured(runs, || dxn_vector_animation_nsh::source::read(bytes));
+    // A JSON file as a value (a `.json` import) where asked: read from the
+    // value, made beforehand.
+    let value = values
+        .then(|| serde_json::from_slice::<serde_json::Value>(bytes).ok())
+        .flatten();
+    let (read, loaded) = measured(runs, || match &value {
+        Some(value) => dxn_vector_animation_nsh::source::read_json(value),
+        None => dxn_vector_animation_nsh::source::read(bytes),
+    });
     row.read = read;
     let scene = loaded.ok()?.scene;
     let (w, h) = view_size(&scene, size);
@@ -298,6 +307,7 @@ pub fn run(args: &[String]) -> Result<(), String> {
     let size = number("--size", 200.0)?;
     let ratio = number("--ratio", 3.0)?;
     let each = args.iter().any(|a| a == "--files");
+    let values = args.iter().any(|a| a == "--values");
     let mut list = Vec::new();
     files(&dir, &mut list);
     list.sort();
@@ -343,7 +353,7 @@ pub fn run(args: &[String]) -> Result<(), String> {
         let Ok(bytes) = std::fs::read(path) else {
             continue;
         };
-        let Some(row) = bench(&bytes, runs, size, ratio) else {
+        let Some(row) = bench(&bytes, values, runs, size, ratio) else {
             println!("{name:<36} not read");
             continue;
         };

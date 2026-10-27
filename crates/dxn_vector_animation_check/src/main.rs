@@ -14,7 +14,7 @@
 //! - `profile <dir> [--size <points>] [--ratio <pixels>]` reports what
 //!   playing each file of a folder costs (`profile.rs`).
 //! - `bench <dir> [--runs <n>] [--size <points>] [--ratio <pixels>]
-//!   [--files]` sums what loading and playing a folder's files costs:
+//!   [--files] [--values]` sums what loading and playing a folder's files costs:
 //!   time to first frame, allocations, held bytes, a frame (`bench.rs`).
 
 mod bench;
@@ -95,7 +95,7 @@ fn main() -> ExitCode {
             "usage: vector-animation-check scenes <app> [--corpus <dir>] [--gallery <dir>]\n       \
                   vector-animation-check compare <shots> <app> [--tile <points>] [--out <dir>]\n       \
                   vector-animation-check profile <dir> [--size <points>] [--ratio <pixels a point>]\n       \
-                  vector-animation-check bench <dir> [--runs <n>] [--size <points>] [--ratio <pixels a point>] [--files]"
+                  vector-animation-check bench <dir> [--runs <n>] [--size <points>] [--ratio <pixels a point>] [--files] [--values]"
                 .into(),
         ),
     };

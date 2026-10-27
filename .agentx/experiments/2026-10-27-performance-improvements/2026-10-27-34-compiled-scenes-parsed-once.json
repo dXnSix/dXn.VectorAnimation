@@ -9,11 +9,11 @@
   "path": "2026-10-27-34-compiled-scenes-parsed-once.json",
   "createdAt": "2026-10-27T21:37:06Z",
   "startedAt": "2026-10-27T21:37:06Z",
-  "finishedAt": null,
-  "state": "running",
-  "status": "",
+  "finishedAt": "2026-10-27T21:38:30Z",
+  "state": "done",
+  "status": "success",
   "checkpointCommit": "50e8c0113f0cc375519ae3d31812b2cdd98c9b9f",
-  "resultCommit": "",
+  "resultCommit": "d585323e9569a821d1bb58d7e5f03a80380d378b",
   "rollbackCommand": "git -C \"/Users/dinko/work-private/projects/dXn/dXn.VectorAnimation\" reset --hard 50e8c0113f0cc375519ae3d31812b2cdd98c9b9f",
   "repositories": [
     {
@@ -21,12 +21,19 @@
       "path": ".",
       "role": "main",
       "checkpointCommit": "50e8c0113f0cc375519ae3d31812b2cdd98c9b9f",
-      "resultCommit": "",
+      "resultCommit": "d585323e9569a821d1bb58d7e5f03a80380d378b",
       "rollbackCommand": "git -C \"/Users/dinko/work-private/projects/dXn/dXn.VectorAnimation\" reset --hard 50e8c0113f0cc375519ae3d31812b2cdd98c9b9f",
-      "status": ""
+      "status": "success"
     }
   ],
-  "repositoryCommits": [],
+  "repositoryCommits": [
+    {
+      "name": "main",
+      "path": ".",
+      "role": "main",
+      "commit": "d585323e9569a821d1bb58d7e5f03a80380d378b"
+    }
+  ],
   "atomicDiscipline": {
     "oneHypothesisOnly": true,
     "singleImplementationAttempt": true,
@@ -36,17 +43,39 @@
     "rule": "Run exactly the printed hypothesis. If the attempted change fails, degrades, or suggests a different fix, revert to the checkpoint and finish this experiment as failure. Start a new experiment for the next idea."
   },
   "primaryTarget": "wasm/web with headed Playwright and WebGPU enabled",
-  "hypothesisMarkdown": "",
-  "measurementPlanMarkdown": "",
-  "expectedOutcomeMarkdown": "",
+  "hypothesisMarkdown": "## Compiled scenes parsed once Hypothesis\n\nA compiled scene (the format apps import) was parsed twice: its format and version first, then whole. It is parsed once, format and version with the scene; only where that fails is the head read alone, to say first that a file is of another format or a newer version, as before.\\n\\n**Tested mechanism:** single-pass compiled read. **Allowed:** core `compiled::from_json`, a compiled_checks test. **Forbidden:** the format.",
+  "measurementPlanMarkdown": "### Measurement Plan\n\nRelease bench over the 53 corpus files (median of 3 runs, best of 5 each), plus the focused tests of the touched area.",
+  "expectedOutcomeMarkdown": "### Expected Outcome\n\nThe targeted metric improves with identical graph output and passing focused tests.",
   "diagnostics": {
     "playwright": [],
     "rayx": [],
     "counters": [],
     "artifacts": []
   },
-  "measurements": [],
-  "reportMarkdown": "",
-  "decisionMarkdown": "",
+  "measurements": [
+    {
+      "metric": "read ms, the corpus compiled (53 scenes, 20 MB)",
+      "before": "50.8",
+      "after": "47.2",
+      "delta": "",
+      "source": "scratchpad bench.sh: median of 3 `vector-animation-check bench artifacts-temp/corpus`"
+    },
+    {
+      "metric": "ttff allocations (compiled corpus)",
+      "before": "362,408",
+      "after": "361,452",
+      "delta": "",
+      "source": "scratchpad bench.sh: median of 3 `vector-animation-check bench artifacts-temp/corpus`"
+    },
+    {
+      "metric": "ttff MB allocated (compiled corpus)",
+      "before": "282.3",
+      "after": "271.2",
+      "delta": "",
+      "source": "scratchpad bench.sh: median of 3 `vector-animation-check bench artifacts-temp/corpus`"
+    }
+  ],
+  "reportMarkdown": "## Compiled scenes parsed once Finished\n\n**Passed Status**: True\n\n**Attempt Count:** 1. **Out-of-scope changes:** none.\n\nReading compiled scenes -7%. New compiled_checks test: a newer version whose scene parses is still unsupported; the existing format and version tests pass; core tests pass; clippy clean.\n\n| Repo | Path | Checkpoint | Result Commit | Status |\n| --- | --- | --- | --- | --- |\n| main | . | 50e8c01 | d585323 | committed |",
+  "decisionMarkdown": "### Decision\n\nCommitted d585323: perf(core): read a compiled scene in one pass",
   "notes": ""
 }

@@ -11,13 +11,13 @@
   "status": "",
   "createdAt": "2026-10-27T20:14:29Z",
   "finishedAt": null,
-  "lastStableCommit": "50e8c0113f0cc375519ae3d31812b2cdd98c9b9f",
+  "lastStableCommit": "d585323e9569a821d1bb58d7e5f03a80380d378b",
   "repositories": [
     {
       "name": "main",
       "path": ".",
       "role": "main",
-      "lastStableCommit": "50e8c0113f0cc375519ae3d31812b2cdd98c9b9f"
+      "lastStableCommit": "d585323e9569a821d1bb58d7e5f03a80380d378b"
     }
   ],
   "atomicDiscipline": {
@@ -28,8 +28,8 @@
     "successfulAttemptRequiresCommitBeforeNextExperiment": true,
     "rule": "Run exactly the printed hypothesis. If the attempted change fails, degrades, or suggests a different fix, revert to the checkpoint and finish this experiment as failure. Start a new experiment for the next idea."
   },
-  "currentExperimentId": "e0241a04-0d41-41c2-8bab-4631398cb2cc",
-  "nextExperimentIndex": 35,
+  "currentExperimentId": "7cf4f4e4-834b-4f0d-adbd-9cf56b2e7dac",
+  "nextExperimentIndex": 36,
   "experiments": [
     {
       "id": "f0287285-7a36-4cb5-8eef-94cdd163e5a7",
@@ -431,6 +431,18 @@
       "name": "Compiled scenes parsed once",
       "path": "2026-10-27-34-compiled-scenes-parsed-once.json",
       "startedAt": "2026-10-27T21:37:06Z",
+      "finishedAt": "2026-10-27T21:38:30Z",
+      "state": "done",
+      "status": "success",
+      "resultCommit": "d585323e9569a821d1bb58d7e5f03a80380d378b"
+    },
+    {
+      "id": "7cf4f4e4-834b-4f0d-adbd-9cf56b2e7dac",
+      "index": 35,
+      "type": "hypothesis",
+      "name": "Bench reads JSON values",
+      "path": "2026-10-27-35-bench-reads-json-values.json",
+      "startedAt": "2026-10-27T21:38:54Z",
       "finishedAt": null,
       "state": "running",
       "status": ""
