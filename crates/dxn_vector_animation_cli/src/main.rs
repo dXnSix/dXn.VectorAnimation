@@ -92,7 +92,8 @@ enum Command {
         events: Vec<String>,
         /// A change to a Rive state machine's input, `name=value@seconds`
         /// (`true`, `false` or a number), or `name@seconds` to fire a
-        /// trigger (repeatable; `inspect` lists the inputs).
+        /// trigger, a nested artboard's machine's with its path before
+        /// (`#12/hover=true@1`; repeatable; `inspect` lists the inputs).
         #[arg(long = "input")]
         inputs: Vec<String>,
         /// A pointer over a Rive file, `down:x,y@seconds` (or `up:`,
@@ -387,10 +388,28 @@ fn point(
     for (time, kind, at) in events {
         play.pointer(time, kind, at).map_err(fail)?;
     }
+    // What the pointer did, on stderr.
+    for c in play.changes() {
+        let path = if c.path.is_empty() {
+            String::new()
+        } else {
+            format!("{}/", c.path)
+        };
+        let value = match c.value {
+            dxn_vector_animation_rive::InputValue::Bool(b) => format!("= {b}"),
+            dxn_vector_animation_rive::InputValue::Number(n) => format!("= {n}"),
+            dxn_vector_animation_rive::InputValue::Fire => "fired".to_owned(),
+        };
+        eprintln!("input {path}{} {value} at {:.3} s", c.input, c.time);
+    }
+    for c in play.take_fired() {
+        eprintln!("event {} at {:.3} s", c.name, c.time);
+    }
     Ok((Format::Rive, play.import().clone()))
 }
 
 /// A state machine input's change: `name=value@seconds`, or `name@seconds`
+/// (a nested artboard's machine's with its path before, `/` between)
 /// firing a trigger.
 fn parse_input(text: &str) -> Result<dxn_vector_animation_rive::InputChange, String> {
     use dxn_vector_animation_rive::{InputChange, InputValue};
@@ -406,9 +425,11 @@ fn parse_input(text: &str) -> Result<dxn_vector_animation_rive::InputChange, Str
             InputValue::Number(v.trim().parse().map_err(|_| bad())?),
         ),
     };
+    // A nested artboard's machine's: its path first (`Button/hover`).
+    let (path, input) = input.rsplit_once('/').unwrap_or(("", input));
     Ok(InputChange {
         time,
-        path: String::new(),
+        path: path.to_owned(),
         input: input.to_owned(),
         value,
     })
@@ -521,80 +542,101 @@ fn describe_machine(file: &Path, artboard: Option<&str>, scene: &Scene) -> Resul
     else {
         return Ok(String::new());
     };
-    let mut out = format!("  machine      {}\n", machine.name);
-    for i in &machine.inputs {
-        let kind = match i.kind {
-            InputKind::Bool(v) => format!("bool, {v}"),
-            InputKind::Number(v) => format!("number, {v}"),
-            InputKind::Trigger => "trigger".to_owned(),
+    let mut out = String::new();
+    let all = machine.all();
+    for m in &all {
+        let at = if m.path.is_empty() {
+            String::new()
+        } else {
+            format!(" (in {})", m.path)
         };
-        out.push_str(&format!("  input        {}: {kind}\n", i.name));
-    }
-    if !machine.inputs.is_empty() {
-        out.push_str(
-            "               (render --input '<name>=<value>@<seconds>', '<trigger>@<seconds>')\n",
-        );
-    }
-    for l in &machine.listeners {
-        let on: Vec<&str> =
-            l.on.iter()
-                .map(|e| match e {
-                    PointerEvent::Enter => "enter",
-                    PointerEvent::Exit => "exit",
-                    PointerEvent::Down => "down",
-                    PointerEvent::Up => "up",
-                    PointerEvent::Move => "move",
-                    PointerEvent::Click => "click",
-                PointerEvent::Drag => "drag",
+        if m.path.is_empty() || !m.inputs.is_empty() || !m.listeners.is_empty() {
+            out.push_str(&format!("  machine      {}{at}\n", m.name));
+        }
+        let path = if m.path.is_empty() {
+            String::new()
+        } else {
+            format!("{}/", m.path)
+        };
+        for i in &m.inputs {
+            let kind = match i.kind {
+                InputKind::Bool(v) => format!("bool, {v}"),
+                InputKind::Number(v) => format!("number, {v}"),
+                InputKind::Trigger => "trigger".to_owned(),
+            };
+            out.push_str(&format!("  input        {path}{}: {kind}\n", i.name));
+        }
+        for l in &m.listeners {
+            let mut on: Vec<String> =
+                l.on.iter()
+                    .map(|e| {
+                        match e {
+                            PointerEvent::Enter => "enter",
+                            PointerEvent::Exit => "exit",
+                            PointerEvent::Down => "down",
+                            PointerEvent::Up => "up",
+                            PointerEvent::Move => "move",
+                            PointerEvent::Click => "click",
+                            PointerEvent::Drag => "drag",
+                        }
+                        .to_owned()
+                    })
+                    .collect();
+            on.extend(l.events.iter().map(|e| format!("event {e}")));
+            let actions: Vec<String> = l
+                .actions
+                .iter()
+                .map(|a| match a {
+                    Action::Input { input, change } => match change {
+                        Change::Set(InputValue::Bool(v)) => format!("{path}{input} = {v}"),
+                        Change::Set(InputValue::Number(v)) => format!("{path}{input} = {v}"),
+                        Change::Set(InputValue::Fire) => format!("fires {path}{input}"),
+                        Change::Toggle => format!("toggles {path}{input}"),
+                    },
+                    Action::Fire { event } => format!("fires event {event}"),
+                    Action::Align { node, keep_offset } => format!(
+                        "moves node {node} to the pointer{}",
+                        if *keep_offset {
+                            ", keeping its offset"
+                        } else {
+                            ""
+                        }
+                    ),
                 })
                 .collect();
-        let actions: Vec<String> = l
-            .actions
-            .iter()
-            .map(|a| match a {
-                Action::Input { input, change } => match change {
-                    Change::Set(InputValue::Bool(v)) => format!("{input} = {v}"),
-                    Change::Set(InputValue::Number(v)) => format!("{input} = {v}"),
-                    Change::Set(InputValue::Fire) => format!("fires {input}"),
-                    Change::Toggle => format!("toggles {input}"),
+            let at = l
+                .targets
+                .iter()
+                .filter_map(|id| scene.hit_bounds(id, 0.0))
+                .reduce(|a, b| a.union(b))
+                .map(|b| {
+                    format!(
+                        " ({:.0},{:.0} to {:.0},{:.0})",
+                        b.x,
+                        b.y,
+                        b.x + b.width,
+                        b.y + b.height
+                    )
+                })
+                .unwrap_or_default();
+            out.push_str(&format!(
+                "  listener     {} on {}{at}: {}\n",
+                on.join(", "),
+                match l.targets.as_slice() {
+                    [] => format!("{path}node {}", l.node),
+                    [one] => format!("shape {one}"),
+                    more => format!("{} shapes", more.len()),
                 },
-                Action::Fire { event } => format!("fires event {event}"),
-                Action::Align { node, keep_offset } => format!(
-                    "moves node {node} to the pointer{}",
-                    if *keep_offset {
-                        ", keeping its offset"
-                    } else {
-                        ""
-                    }
-                ),
-            })
-            .collect();
-        let at = l
-            .targets
-            .iter()
-            .filter_map(|id| scene.hit_bounds(id, 0.0))
-            .reduce(|a, b| a.union(b))
-            .map(|b| {
-                format!(
-                    " ({:.0},{:.0} to {:.0},{:.0})",
-                    b.x,
-                    b.y,
-                    b.x + b.width,
-                    b.y + b.height
-                )
-            })
-            .unwrap_or_default();
-        out.push_str(&format!(
-            "  listener     {} on {}{at}: {}\n",
-            on.join(", "),
-            match l.targets.as_slice() {
-                [one] => format!("shape {one}"),
-                more => format!("{} shapes", more.len()),
-            },
-            actions.join(", ")
-        ));
+                actions.join(", ")
+            ));
+        }
     }
-    if !machine.listeners.is_empty() {
+    if all.iter().any(|m| !m.inputs.is_empty()) {
+        out.push_str(
+            "               (render --input '<path/><name>=<value>@<seconds>', '<path/><trigger>@<seconds>')\n",
+        );
+    }
+    if all.iter().any(|m| !m.listeners.is_empty()) {
         out.push_str(
             "               (render --pointer <down|up|move|exit|lift>:<x>,<y>@<seconds>)\n",
         );
