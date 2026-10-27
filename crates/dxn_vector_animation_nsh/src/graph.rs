@@ -5,7 +5,7 @@
 
 use std::collections::HashMap;
 
-use dxn_vector_animation::{Animated, Color, Easing, Keyframe};
+use dxn_vector_animation::{Animated, Color, Easing, Keyframe, Track};
 
 /// A curve within an interpolation's segments: what every NSH graph
 /// eases with. Holds and CSS `steps()` and `linear()` become breakpoints
@@ -430,6 +430,9 @@ impl Graph {
             [one] => return Num::Const(f(one.value)),
             _ => {}
         }
+        if let Some((one, local)) = self.fold(keys, time) {
+            return self.track(&Animated::Track(one), local, f);
+        }
         let times = rising(keys.iter().map(|k| k.time).collect());
         let values: Vec<f64> = keys.iter().map(|k| f(k.value)).collect();
         let easings: Vec<&Easing> = keys[..keys.len() - 1].iter().map(|k| &k.easing).collect();
@@ -476,6 +479,9 @@ impl Graph {
             [one] => return Paint::Const(pack(one.value.with_opacity(opacity))),
             _ => {}
         }
+        if let Some((one, local)) = self.fold(keys, time) {
+            return self.color_track(&Animated::Track(one), local, opacity);
+        }
         let times = rising(keys.iter().map(|k| k.time).collect());
         let colors: Vec<u32> = keys
             .iter()
@@ -498,6 +504,45 @@ impl Graph {
             colors,
             curve: Curve::Linear,
         }))
+    }
+
+    /// One repetition of `keys` (times from its start) and `time` read
+    /// within it, where they repeat (a looping animation over a longer
+    /// timeline): `time` held within their span, less their start, modulo
+    /// the period. A breakpoint a keyframe of one repetition, not of all.
+    fn fold<T: Clone + PartialEq>(
+        &mut self,
+        keys: &[Keyframe<T>],
+        time: NodeId,
+    ) -> Option<(Track<T>, NodeId)> {
+        // A keyframe the next repeats (a repetition's end where the next
+        // starts, a nanosecond apart at most) changes nothing: the later
+        // one holds from then.
+        let keys: Vec<&Keyframe<T>> = keys
+            .iter()
+            .zip(keys.iter().skip(1).map(Some).chain([None]))
+            .filter(|(k, next)| {
+                !next.is_some_and(|n| {
+                    (n.time - k.time).abs() <= 1e-9 * k.time.abs().max(1.0) && n.value == k.value
+                })
+            })
+            .map(|(k, _)| k)
+            .collect();
+        let m = period(&keys)?;
+        let (first, last) = (keys[0].time, keys[keys.len() - 1].time);
+        let held = self.lookup(Num::Node(time), &[first, last], &[0.0, last - first]);
+        let local = match self.math(MathOp::Mod, held, Num::Const(keys[m].time - first)) {
+            Num::Node(n) => n,
+            Num::Const(c) => self.constant(c),
+        };
+        let one = keys[..=m]
+            .iter()
+            .map(|k| Keyframe {
+                time: k.time - first,
+                ..(*k).clone()
+            })
+            .collect();
+        Some((Track { keyframes: one }, local))
     }
 
     /// A value sampled from `f` over the keyframe times `times` (for
@@ -674,6 +719,29 @@ impl Graph {
             Paint::Node(id) => self.eval_color(id, time),
         }
     }
+}
+
+/// The keyframes of one repetition of `keys`, where they repeat twice or
+/// more: each a period after the one as many before it, of the same value
+/// and easing, ending with a whole repetition, with no jump where one meets
+/// the next (so the end holds what a repetition starts with, and a time
+/// read a hair either side of a period's end reads alike).
+fn period<T: PartialEq>(keys: &[&Keyframe<T>]) -> Option<usize> {
+    let n = keys.len();
+    (1..=n.saturating_sub(1) / 2).find(|&m| {
+        let p = keys[m].time - keys[0].time;
+        p > 0.0
+            && (n - 1).is_multiple_of(m)
+            && keys[1].time > keys[0].time
+            && keys[m].time > keys[m - 1].time
+            && (m..n).all(|i| {
+                let (a, b) = (keys[i - m], keys[i]);
+                let apart = b.time - a.time - p;
+                apart.abs() <= 1e-9 * b.time.abs().max(1.0)
+                    && a.value == b.value
+                    && (i == n - 1 || a.easing == b.easing)
+            })
+    })
 }
 
 /// Keyframe times made to rise: of keyframes at one time the last holds

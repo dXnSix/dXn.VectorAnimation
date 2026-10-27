@@ -266,7 +266,9 @@ The view is the animation's own size unless the app sizes it.
   on the UI thread.
 - **Easing per segment.** A track whose segments share an easing is one interpolation. Segments of different
   easings share a warped time (each segment eased from 0 to 1, added up); overshooting easings (Back) add
-  each segment's change on its own.
+  each segment's change on its own. A track that repeats (a loop over a longer timeline: CSS loops of
+  different lengths play over the least common multiple of their lengths) is one repetition read modulo its
+  period, its breakpoints a repetition's keyframes.
 - **Canvases and layers.** Content between layers shares one canvas. A group faded over overlapping content,
   or blended, is a layer (a view of its own, its opacity the view's). Masks of opaque shapes are clips of
   their outlines. Soft masks (partly transparent shapes, luminance, chained mattes) draw the content on a

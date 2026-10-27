@@ -11,13 +11,13 @@
   "status": "",
   "createdAt": "2026-10-27T20:14:29Z",
   "finishedAt": null,
-  "lastStableCommit": "5e739f5902fe1f49277d7480ad23cc704e27f30e",
+  "lastStableCommit": "8b013420ff0005559d0af9e5689eda5656c4f5a3",
   "repositories": [
     {
       "name": "main",
       "path": ".",
       "role": "main",
-      "lastStableCommit": "5e739f5902fe1f49277d7480ad23cc704e27f30e"
+      "lastStableCommit": "8b013420ff0005559d0af9e5689eda5656c4f5a3"
     }
   ],
   "atomicDiscipline": {
@@ -28,8 +28,8 @@
     "successfulAttemptRequiresCommitBeforeNextExperiment": true,
     "rule": "Run exactly the printed hypothesis. If the attempted change fails, degrades, or suggests a different fix, revert to the checkpoint and finish this experiment as failure. Start a new experiment for the next idea."
   },
-  "currentExperimentId": "41b8cf2a-c7b0-4baa-86c6-4ff0435b9566",
-  "nextExperimentIndex": 15,
+  "currentExperimentId": "995c2aff-b047-49da-8cff-d28bc5f78383",
+  "nextExperimentIndex": 16,
   "experiments": [
     {
       "id": "f0287285-7a36-4cb5-8eef-94cdd163e5a7",
@@ -194,6 +194,18 @@
       "name": "One untrimmed path sampled without a merged copy",
       "path": "2026-10-27-14-one-untrimmed-path-sampled-without-a-merged-copy.json",
       "startedAt": "2026-10-27T20:41:16Z",
+      "finishedAt": "2026-10-27T20:42:30Z",
+      "state": "done",
+      "status": "success",
+      "resultCommit": "8b013420ff0005559d0af9e5689eda5656c4f5a3"
+    },
+    {
+      "id": "995c2aff-b047-49da-8cff-d28bc5f78383",
+      "index": 15,
+      "type": "hypothesis",
+      "name": "Repeating tracks folded to one period",
+      "path": "2026-10-27-15-repeating-tracks-folded-to-one-period.json",
+      "startedAt": "2026-10-27T20:43:43Z",
       "finishedAt": null,
       "state": "running",
       "status": ""
