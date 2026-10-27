@@ -137,14 +137,60 @@ pub enum Paint {
 pub struct Graph {
     nodes: Vec<Expr>,
     /// Nodes by a hash of their expression (equal ones are one).
-    index: HashMap<u64, Vec<NodeId>>,
+    index: HashMap<u64, Vec<NodeId>, Hashed>,
+}
+
+/// A map keyed by hashes already made: the key is its own hash.
+#[derive(Debug, Clone, Default)]
+struct Hashed;
+
+impl std::hash::BuildHasher for Hashed {
+    type Hasher = Fold;
+    fn build_hasher(&self) -> Fold {
+        Fold(0)
+    }
+}
+
+/// A fast hash of words (FxHash's fold): what the graph tells nodes apart
+/// by before it compares them.
+#[derive(Debug, Clone, Copy, Default)]
+struct Fold(u64);
+
+impl std::hash::Hasher for Fold {
+    fn finish(&self) -> u64 {
+        self.0
+    }
+
+    fn write(&mut self, bytes: &[u8]) {
+        for chunk in bytes.chunks(8) {
+            let mut word = [0u8; 8];
+            word[..chunk.len()].copy_from_slice(chunk);
+            self.write_u64(u64::from_le_bytes(word));
+        }
+    }
+
+    fn write_u64(&mut self, v: u64) {
+        self.0 = (self.0.rotate_left(5) ^ v).wrapping_mul(0x51_7c_c1_b7_27_22_0a_95);
+    }
+
+    fn write_usize(&mut self, v: usize) {
+        self.write_u64(v as u64);
+    }
+
+    fn write_u8(&mut self, v: u8) {
+        self.write_u64(u64::from(v));
+    }
+
+    fn write_u32(&mut self, v: u32) {
+        self.write_u64(u64::from(v));
+    }
 }
 
 impl Default for Graph {
     fn default() -> Self {
         let mut g = Graph {
             nodes: Vec::new(),
-            index: HashMap::new(),
+            index: HashMap::with_hasher(Hashed),
         };
         g.add(Expr::Time);
         g
@@ -154,14 +200,14 @@ impl Default for Graph {
 /// A hash of `expr`: its variant, nodes, and numbers' bits.
 fn hash(expr: &Expr) -> u64 {
     use std::hash::{Hash, Hasher};
-    let mut h = std::collections::hash_map::DefaultHasher::new();
-    let floats = |h: &mut std::collections::hash_map::DefaultHasher, v: &[f64]| {
+    let mut h = Fold::default();
+    let floats = |h: &mut Fold, v: &[f64]| {
         v.len().hash(h);
         for x in v {
             x.to_bits().hash(h);
         }
     };
-    let curve = |h: &mut std::collections::hash_map::DefaultHasher, c: &Curve| match c {
+    let curve = |h: &mut Fold, c: &Curve| match c {
         Curve::Linear => 0u8.hash(h),
         Curve::Bezier(a, b, c, d) => {
             1u8.hash(h);

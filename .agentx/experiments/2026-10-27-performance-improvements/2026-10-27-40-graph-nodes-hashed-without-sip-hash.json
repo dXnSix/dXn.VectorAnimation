@@ -1,0 +1,52 @@
+{
+  "schemaVersion": 1,
+  "id": "79380e69-705e-4935-a0aa-1f248175cac2",
+  "loopId": "9e7a8b6d-0104-4e72-a31e-3b168c0b3881",
+  "index": 40,
+  "type": "hypothesis",
+  "name": "Graph nodes hashed without SipHash",
+  "slug": "graph-nodes-hashed-without-sip-hash",
+  "path": "2026-10-27-40-graph-nodes-hashed-without-sip-hash.json",
+  "createdAt": "2026-10-27T21:49:20Z",
+  "startedAt": "2026-10-27T21:49:20Z",
+  "finishedAt": null,
+  "state": "running",
+  "status": "",
+  "checkpointCommit": "8b6f7a2145e17f6ab09635b8e272d240156f718e",
+  "resultCommit": "",
+  "rollbackCommand": "git -C \"/Users/dinko/work-private/projects/dXn/dXn.VectorAnimation\" reset --hard 8b6f7a2145e17f6ab09635b8e272d240156f718e",
+  "repositories": [
+    {
+      "name": "main",
+      "path": ".",
+      "role": "main",
+      "checkpointCommit": "8b6f7a2145e17f6ab09635b8e272d240156f718e",
+      "resultCommit": "",
+      "rollbackCommand": "git -C \"/Users/dinko/work-private/projects/dXn/dXn.VectorAnimation\" reset --hard 8b6f7a2145e17f6ab09635b8e272d240156f718e",
+      "status": ""
+    }
+  ],
+  "repositoryCommits": [],
+  "atomicDiscipline": {
+    "oneHypothesisOnly": true,
+    "singleImplementationAttempt": true,
+    "noUnplannedFixesInsideExperiment": true,
+    "failedAttemptRequiresImmediateRevert": true,
+    "successfulAttemptRequiresCommitBeforeNextExperiment": true,
+    "rule": "Run exactly the printed hypothesis. If the attempted change fails, degrades, or suggests a different fix, revert to the checkpoint and finish this experiment as failure. Start a new experiment for the next idea."
+  },
+  "primaryTarget": "wasm/web with headed Playwright and WebGPU enabled",
+  "hypothesisMarkdown": "",
+  "measurementPlanMarkdown": "",
+  "expectedOutcomeMarkdown": "",
+  "diagnostics": {
+    "playwright": [],
+    "rayx": [],
+    "counters": [],
+    "artifacts": []
+  },
+  "measurements": [],
+  "reportMarkdown": "",
+  "decisionMarkdown": "",
+  "notes": ""
+}

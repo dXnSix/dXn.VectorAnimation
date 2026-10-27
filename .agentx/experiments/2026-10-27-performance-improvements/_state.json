@@ -11,13 +11,13 @@
   "status": "",
   "createdAt": "2026-10-27T20:14:29Z",
   "finishedAt": null,
-  "lastStableCommit": "4e039835f68cfc66ba309be63f4b90d060989fec",
+  "lastStableCommit": "8b6f7a2145e17f6ab09635b8e272d240156f718e",
   "repositories": [
     {
       "name": "main",
       "path": ".",
       "role": "main",
-      "lastStableCommit": "4e039835f68cfc66ba309be63f4b90d060989fec"
+      "lastStableCommit": "8b6f7a2145e17f6ab09635b8e272d240156f718e"
     }
   ],
   "atomicDiscipline": {
@@ -28,8 +28,8 @@
     "successfulAttemptRequiresCommitBeforeNextExperiment": true,
     "rule": "Run exactly the printed hypothesis. If the attempted change fails, degrades, or suggests a different fix, revert to the checkpoint and finish this experiment as failure. Start a new experiment for the next idea."
   },
-  "currentExperimentId": "8fc85b2a-51cd-4fb9-a1b0-a3e619f694c5",
-  "nextExperimentIndex": 40,
+  "currentExperimentId": "79380e69-705e-4935-a0aa-1f248175cac2",
+  "nextExperimentIndex": 41,
   "experiments": [
     {
       "id": "f0287285-7a36-4cb5-8eef-94cdd163e5a7",
@@ -491,6 +491,18 @@
       "name": "CSS declarations read without temporary copies",
       "path": "2026-10-27-39-css-declarations-read-without-temporary-copies.json",
       "startedAt": "2026-10-27T21:47:24Z",
+      "finishedAt": "2026-10-27T21:48:44Z",
+      "state": "done",
+      "status": "success",
+      "resultCommit": "8b6f7a2145e17f6ab09635b8e272d240156f718e"
+    },
+    {
+      "id": "79380e69-705e-4935-a0aa-1f248175cac2",
+      "index": 40,
+      "type": "hypothesis",
+      "name": "Graph nodes hashed without SipHash",
+      "path": "2026-10-27-40-graph-nodes-hashed-without-sip-hash.json",
+      "startedAt": "2026-10-27T21:49:20Z",
       "finishedAt": null,
       "state": "running",
       "status": ""
