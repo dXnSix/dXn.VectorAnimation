@@ -27,6 +27,22 @@ pub(crate) enum Interp {
     },
 }
 
+impl Interp {
+    /// The eased fraction at `f` (`KeyFrameInterpolator::transform`): a
+    /// value curve's is `f`, as its time alone does not ease it.
+    pub fn transform(self, f: f64) -> f64 {
+        match self {
+            Interp::Hold | Interp::Linear | Interp::Value(_) => f,
+            Interp::Cubic(c) => Easing::cubic_bezier(c[0], c[1], c[2], c[3]).apply(f),
+            Interp::Elastic {
+                easing,
+                amplitude,
+                period,
+            } => elastic(easing, amplitude, period, f),
+        }
+    }
+}
+
 /// A keyframe in the scene's seconds.
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct Key<T> {

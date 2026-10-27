@@ -1,19 +1,49 @@
 //! Data binding: the artboard's view model's first instance bound, as
 //! Rive's editor and players binding automatically have it; its values set
-//! what they are bound to, and the state machine's conditions on them hold
-//! as they compare.
+//! what they are bound to (through converters and nested view models), and
+//! the state machine's conditions on them hold as they compare.
 
 #![allow(clippy::unwrap_used, clippy::expect_used, missing_docs)]
 
 mod common;
 
-use common::{Riv, V, color_at, key, scene, ty};
+use common::{Riv, V, color_at, inked, key, scene, ty};
 use dxn_vector_animation::Limits;
 use dxn_vector_animation_rive::{Options, read_options};
 
 const RED: [u8; 3] = [255, 0, 0];
 const BLUE: [u8; 3] = [0, 0, 255];
 const WHITE: [u8; 3] = [255, 255, 255];
+const FONT: &[u8] = include_bytes!("../../../fixtures/fonts/KaTeX_SansSerif-Regular.ttf");
+
+/// Types and properties of view models and converters these tests write.
+mod dt {
+    pub const VM_BOOL: u16 = 448;
+    pub const VM_INSTANCE_BOOL: u16 = 449;
+    pub const VM_BOOL_VALUE: u16 = 593;
+    pub const VM_VIEW_MODEL: u16 = 436;
+    pub const VM_VIEW_MODEL_REFERENCE: u16 = 565;
+    pub const VM_INSTANCE_VIEW_MODEL: u16 = 444;
+    pub const VM_INSTANCE_VIEW_MODEL_VALUE: u16 = 577;
+    pub const BIND_CONVERTER: u16 = 660;
+    pub const OPERATION_VALUE: u16 = 500;
+    pub const OPERATION_TYPE: u16 = 682;
+    pub const OPERAND: u16 = 681;
+    pub const RANGE_MAPPER: u16 = 519;
+    pub const RANGE_MIN_INPUT: u16 = 716;
+    pub const RANGE_MAX_INPUT: u16 = 717;
+    pub const RANGE_MIN_OUTPUT: u16 = 718;
+    pub const RANGE_MAX_OUTPUT: u16 = 719;
+    pub const GROUP: u16 = 499;
+    pub const GROUP_ITEM: u16 = 498;
+    pub const GROUP_ITEM_CONVERTER: u16 = 679;
+    pub const ROUNDER: u16 = 489;
+    pub const BOOLEAN_NEGATE: u16 = 535;
+    pub const TO_STRING: u16 = 490;
+    pub const TO_STRING_FLAGS: u16 = 764;
+    pub const TO_STRING_DECIMALS: u16 = 765;
+    pub const IS_VISIBLE: u16 = 41;
+}
 
 /// A view model with a number "level" (property 0) and a color "tint"
 /// (property 1), its instance holding `level` and blue; a 100 × 50
@@ -133,4 +163,295 @@ fn conditions_on_bound_values_hold_as_they_compare() {
     let s = scene(&riv);
     assert_eq!(color_at(&s, 0.05, 10, 25), WHITE);
     assert_eq!(color_at(&s, 0.05, 70, 25), BLUE);
+}
+
+/// `riv` with a binding of property `property` of what it read last to the
+/// view model property at `path`, through converter `converter`.
+fn bind(riv: Riv, property: u16, path: &[u8], converter: Option<u64>) -> Riv {
+    let mut props = vec![
+        (key::BIND_PROPERTY_KEY, V::U(u64::from(property))),
+        (key::BIND_PATH, V::Bytes(path.to_vec())),
+    ];
+    if let Some(c) = converter {
+        props.push((dt::BIND_CONVERTER, V::U(c)));
+    }
+    riv.obj(ty::DATA_BIND_CONTEXT, &props)
+}
+
+/// A view model with a number "n" (property 0) of 12.34, a bool "off"
+/// (property 1) of false and a number "pick" (property 2) of 1, and
+/// converters: 0 multiplies by 2, 1 maps 0 to 20 onto 0 to 100, 2 groups 3
+/// (rounding to a whole number) and 4 (adding 40), 5 negates.
+fn with_converters() -> Riv {
+    Riv::new()
+        .obj(
+            dt::OPERATION_VALUE,
+            &[(dt::OPERATION_TYPE, V::U(2)), (dt::OPERAND, V::D(2.0))],
+        )
+        .obj(
+            dt::RANGE_MAPPER,
+            &[
+                (dt::RANGE_MIN_INPUT, V::D(0.0)),
+                (dt::RANGE_MAX_INPUT, V::D(20.0)),
+                (dt::RANGE_MIN_OUTPUT, V::D(0.0)),
+                (dt::RANGE_MAX_OUTPUT, V::D(100.0)),
+            ],
+        )
+        .obj(dt::GROUP, &[])
+        .obj(dt::GROUP_ITEM, &[(dt::GROUP_ITEM_CONVERTER, V::U(3))])
+        .obj(dt::GROUP_ITEM, &[(dt::GROUP_ITEM_CONVERTER, V::U(4))])
+        .obj(dt::ROUNDER, &[])
+        .obj(
+            dt::OPERATION_VALUE,
+            &[(dt::OPERATION_TYPE, V::U(0)), (dt::OPERAND, V::D(40.0))],
+        )
+        .obj(dt::BOOLEAN_NEGATE, &[])
+        .obj(ty::VIEW_MODEL, &[(key::VM_NAME, V::S("Game"))])
+        .obj(ty::VM_NUMBER, &[(key::VM_NAME, V::S("n"))])
+        .obj(dt::VM_BOOL, &[(key::VM_NAME, V::S("off"))])
+        .obj(ty::VM_NUMBER, &[(key::VM_NAME, V::S("pick"))])
+        .obj(ty::VM_INSTANCE, &[(key::VM_INSTANCE_VM, V::U(0))])
+        .obj(
+            ty::VM_INSTANCE_NUMBER,
+            &[
+                (key::VM_VALUE_PROPERTY, V::U(0)),
+                (key::VM_NUMBER_VALUE, V::D(12.34)),
+            ],
+        )
+        .obj(
+            dt::VM_INSTANCE_BOOL,
+            &[
+                (key::VM_VALUE_PROPERTY, V::U(1)),
+                (dt::VM_BOOL_VALUE, V::B(false)),
+            ],
+        )
+        .obj(
+            ty::VM_INSTANCE_NUMBER,
+            &[
+                (key::VM_VALUE_PROPERTY, V::U(2)),
+                (key::VM_NUMBER_VALUE, V::D(1.0)),
+            ],
+        )
+}
+
+/// The artboard of a file `riv` starts, 100 × 60 and bound to view model 0.
+fn bound_artboard(riv: Riv) -> Riv {
+    riv.obj(
+        ty::ARTBOARD,
+        &[
+            (key::NAME, V::S("Main")),
+            (key::WIDTH, V::D(100.0)),
+            (key::HEIGHT, V::D(60.0)),
+            (key::ORIGIN_X, V::D(0.0)),
+            (key::ORIGIN_Y, V::D(0.0)),
+            (key::ARTBOARD_VIEW_MODEL, V::U(0)),
+        ],
+    )
+}
+
+/// A 6 × 6 square filled with `argb` under `parent` at (`x`, `y`), its x
+/// bound to `x_from` (a path and converter) and its fill's visibility to
+/// `shown_from`.
+fn square(
+    riv: Riv,
+    parent: u64,
+    (x, y): (f32, f32),
+    argb: u32,
+    x_from: Option<(&[u8], Option<u64>)>,
+    shown_from: Option<(&[u8], Option<u64>)>,
+) -> Riv {
+    let shape = riv.next_index();
+    let mut riv = riv.shape(parent, x, y);
+    if let Some((path, c)) = x_from {
+        riv = bind(riv, key::X, path, c);
+    }
+    let fill = shape + 2;
+    riv = riv
+        .obj(
+            ty::RECTANGLE,
+            &[
+                (key::PARENT_ID, V::U(shape)),
+                (key::PATH_WIDTH, V::D(6.0)),
+                (key::PATH_HEIGHT, V::D(6.0)),
+            ],
+        )
+        .obj(ty::FILL, &[(key::PARENT_ID, V::U(shape))]);
+    if let Some((path, c)) = shown_from {
+        riv = bind(riv, dt::IS_VISIBLE, path, c);
+    }
+    riv.obj(
+        ty::SOLID_COLOR,
+        &[(key::PARENT_ID, V::U(fill)), (key::COLOR, V::C(argb))],
+    )
+}
+
+const RED_ARGB: u32 = 0xFFFF_0000;
+
+#[test]
+fn converters_change_values_on_their_way_to_what_is_bound() {
+    let mut riv = bound_artboard(with_converters());
+    // 12.34 × 2, mapped to 61.7, rounded plus 40.
+    riv = square(riv, 0, (0.0, 5.0), RED_ARGB, Some((&[0, 0], Some(0))), None);
+    riv = square(
+        riv,
+        0,
+        (0.0, 15.0),
+        RED_ARGB,
+        Some((&[0, 0], Some(1))),
+        None,
+    );
+    riv = square(
+        riv,
+        0,
+        (0.0, 25.0),
+        RED_ARGB,
+        Some((&[0, 0], Some(2))),
+        None,
+    );
+    // Shown as "off" negated, hidden as "off".
+    riv = square(
+        riv,
+        0,
+        (80.0, 35.0),
+        RED_ARGB,
+        None,
+        Some((&[0, 1], Some(5))),
+    );
+    riv = square(riv, 0, (90.0, 35.0), RED_ARGB, None, Some((&[0, 1], None)));
+    let s = scene(&riv);
+    assert_eq!(color_at(&s, 0.0, 24, 5), RED);
+    assert_eq!(color_at(&s, 0.0, 61, 15), RED);
+    assert_eq!(color_at(&s, 0.0, 52, 25), RED);
+    assert_eq!(color_at(&s, 0.0, 2, 25), WHITE);
+    assert_eq!(color_at(&s, 0.0, 80, 35), RED);
+    assert_eq!(color_at(&s, 0.0, 90, 35), WHITE);
+}
+
+#[test]
+fn a_number_bound_to_a_solo_picks_its_child_by_index() {
+    let riv = bound_artboard(with_converters());
+    let solo = riv.next_index();
+    let mut riv = riv.obj(ty::SOLO, &[(key::PARENT_ID, V::U(0))]);
+    riv = bind(riv, key::ACTIVE_COMPONENT_ID, &[0, 2], None);
+    for x in [20.0, 50.0, 80.0] {
+        riv = square(riv, solo, (x, 30.0), RED_ARGB, None, None);
+    }
+    let s = scene(&riv);
+    assert_eq!(color_at(&s, 0.0, 50, 30), RED);
+    assert_eq!(color_at(&s, 0.0, 20, 30), WHITE);
+    assert_eq!(color_at(&s, 0.0, 80, 30), WHITE);
+}
+
+/// `riv` with the font embedded, then a 100 × 60 artboard bound to view
+/// model 0 and black 30-unit text at (5, 5) of one run of `text`, bound
+/// through converter `converter` to "n" when there is one.
+fn bound_text(riv: Riv, text: &'static str, converter: Option<u64>) -> Riv {
+    let riv = riv.obj(ty::FONT_ASSET, &[(key::NAME, V::S("KaTeX"))]).obj(
+        ty::FILE_ASSET_CONTENTS,
+        &[(key::BYTES, V::Bytes(FONT.to_vec()))],
+    );
+    let riv = bound_artboard(riv)
+        .obj(
+            ty::TEXT,
+            &[
+                (key::PARENT_ID, V::U(0)),
+                (key::X, V::D(5.0)),
+                (key::Y, V::D(5.0)),
+            ],
+        )
+        .obj(
+            ty::TEXT_STYLE_PAINT,
+            &[
+                (key::PARENT_ID, V::U(1)),
+                (key::FONT_SIZE, V::D(30.0)),
+                (key::FONT_ASSET_ID, V::U(0)),
+            ],
+        )
+        .fill(2, 0xFF00_0000)
+        .obj(
+            ty::TEXT_VALUE_RUN,
+            &[
+                (key::PARENT_ID, V::U(1)),
+                (key::RUN_STYLE_ID, V::U(2)),
+                (key::RUN_TEXT, V::S(text)),
+            ],
+        );
+    match converter {
+        Some(c) => bind(riv, key::RUN_TEXT, &[0, 0], Some(c)),
+        None => riv,
+    }
+}
+
+#[test]
+fn numbers_converted_to_text_set_runs() {
+    // "n" with one decimal: as the run "12.3" draws.
+    let riv = with_converters().obj(
+        dt::TO_STRING,
+        &[
+            (dt::TO_STRING_FLAGS, V::U(1)),
+            (dt::TO_STRING_DECIMALS, V::U(1)),
+        ],
+    );
+    let bound = scene(&bound_text(riv, "x", Some(6)));
+    let written = scene(&bound_text(with_converters(), "12.3", None));
+    assert!(inked(&bound, 0.0, 5, 5, 95, 55));
+    for (x, y) in [(10, 20), (20, 20), (30, 25), (40, 20), (55, 20), (70, 20)] {
+        assert_eq!(
+            color_at(&bound, 0.0, x, y),
+            color_at(&written, 0.0, x, y),
+            "({x}, {y})"
+        );
+    }
+}
+
+#[test]
+fn nested_view_models_bind_their_instances_values() {
+    // "Game" holds a "Player" (view model 1, its instance 1 of x 70) as
+    // property 0; the square's x is bound to the player's x.
+    let riv = Riv::new()
+        .obj(ty::VIEW_MODEL, &[(key::VM_NAME, V::S("Game"))])
+        .obj(
+            dt::VM_VIEW_MODEL,
+            &[
+                (key::VM_NAME, V::S("player")),
+                (dt::VM_VIEW_MODEL_REFERENCE, V::U(1)),
+            ],
+        )
+        .obj(ty::VM_INSTANCE, &[(key::VM_INSTANCE_VM, V::U(0))])
+        .obj(
+            dt::VM_INSTANCE_VIEW_MODEL,
+            &[
+                (key::VM_VALUE_PROPERTY, V::U(0)),
+                (dt::VM_INSTANCE_VIEW_MODEL_VALUE, V::U(1)),
+            ],
+        )
+        .obj(ty::VIEW_MODEL, &[(key::VM_NAME, V::S("Player"))])
+        .obj(ty::VM_NUMBER, &[(key::VM_NAME, V::S("x"))])
+        .obj(ty::VM_INSTANCE, &[(key::VM_INSTANCE_VM, V::U(1))])
+        .obj(
+            ty::VM_INSTANCE_NUMBER,
+            &[
+                (key::VM_VALUE_PROPERTY, V::U(0)),
+                (key::VM_NUMBER_VALUE, V::D(30.0)),
+            ],
+        )
+        .obj(ty::VM_INSTANCE, &[(key::VM_INSTANCE_VM, V::U(1))])
+        .obj(
+            ty::VM_INSTANCE_NUMBER,
+            &[
+                (key::VM_VALUE_PROPERTY, V::U(0)),
+                (key::VM_NUMBER_VALUE, V::D(70.0)),
+            ],
+        );
+    let riv = square(
+        bound_artboard(riv),
+        0,
+        (10.0, 30.0),
+        RED_ARGB,
+        Some((&[0, 0, 0], None)),
+        None,
+    );
+    let s = scene(&riv);
+    assert_eq!(color_at(&s, 0.0, 70, 30), RED);
+    assert_eq!(color_at(&s, 0.0, 10, 30), WHITE);
 }

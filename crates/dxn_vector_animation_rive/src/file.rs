@@ -150,7 +150,13 @@ pub(crate) struct File {
     /// Its view models, with their properties and instances.
     pub view_models: Vec<ViewModel>,
     /// Its data converters (what bindings' `converterId` points at).
-    pub converters: Vec<Object>,
+    pub converters: Vec<Converter>,
+    /// Its enums' values (what custom enum properties' `enumId` points
+    /// at).
+    pub enums: Vec<Vec<Object>>,
+    /// Its interpolators outside artboards (what converters'
+    /// `interpolatorId` points at).
+    pub interpolators: Vec<Object>,
     /// Its data bindings, each with what it binds.
     pub binds: Vec<Bind>,
     /// Objects of types the runtime of the tables' tag does not know, by
@@ -164,6 +170,14 @@ pub(crate) struct ViewModel {
     pub object: Object,
     pub properties: Vec<Object>,
     pub instances: Vec<Instance>,
+}
+
+/// A data converter and, for a group, its items' converters (indices of
+/// `File::converters`, unchecked).
+#[derive(Debug, Clone)]
+pub(crate) struct Converter {
+    pub object: Object,
+    pub items: Vec<usize>,
 }
 
 /// An instance of a view model: its values.
@@ -191,7 +205,9 @@ pub(crate) enum BindTarget {
         machine: usize,
         index: usize,
     },
-    /// Something else (a converter, a script's input).
+    /// A data converter, by index.
+    Converter { index: usize },
+    /// Something else (a script's input).
     Other,
 }
 
@@ -392,23 +408,26 @@ pub(crate) fn read(data: &[u8]) -> Result<File, Error> {
 }
 
 /// How many objects the last artboard and its last state machine's
-/// bindable properties hold.
-fn counts(file: &File) -> (usize, usize, usize) {
+/// bindable properties hold, and how many converters the file has.
+fn counts(file: &File) -> (usize, usize, usize, usize) {
     let ab = file.artboards.last();
     (
         file.artboards.len(),
         ab.map_or(0, |a| a.objects.len()),
         ab.and_then(|a| a.state_machines.last())
             .map_or(0, |m| m.bindables.len()),
+        file.converters.len(),
     )
 }
 
 /// What the object placed after `before` was counted is, as a binding's
 /// target.
-fn placed(file: &File, before: (usize, usize, usize)) -> BindTarget {
+fn placed(file: &File, before: (usize, usize, usize, usize)) -> BindTarget {
     let after = counts(file);
     let artboard = file.artboards.len().saturating_sub(1);
-    if after.0 == before.0 && after.1 > before.1 {
+    if after.3 > before.3 {
+        BindTarget::Converter { index: after.3 - 1 }
+    } else if after.0 == before.0 && after.1 > before.1 {
         BindTarget::Object {
             artboard,
             index: after.1 - 1,
@@ -491,7 +510,37 @@ fn place(
         return;
     }
     if is_a(ty, types::DATA_CONVERTER) {
-        file.converters.push(object);
+        file.converters.push(Converter {
+            object,
+            items: Vec::new(),
+        });
+        return;
+    }
+    if ty == types::DATA_CONVERTER_GROUP_ITEM {
+        // The latest group's (`DataConverterGroupImporter`).
+        let id = object.id(defs::props::DATA_CONVERTER_GROUP_ITEM_CONVERTER_ID);
+        if let (Some(group), Some(id)) = (
+            file.converters
+                .iter_mut()
+                .rfind(|c| c.object.ty == types::DATA_CONVERTER_GROUP),
+            id,
+        ) {
+            group.items.push(id);
+        }
+        return;
+    }
+    if ty == types::DATA_ENUM || ty == types::DATA_ENUM_CUSTOM {
+        file.enums.push(Vec::new());
+        return;
+    }
+    if ty == types::DATA_ENUM_VALUE {
+        if let Some(values) = file.enums.last_mut() {
+            values.push(object);
+        }
+        return;
+    }
+    if file.artboards.is_empty() && is_a(ty, types::KEY_FRAME_INTERPOLATOR) {
+        file.interpolators.push(object);
         return;
     }
     if ty == types::FILE_ASSET_CONTENTS {

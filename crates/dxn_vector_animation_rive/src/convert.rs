@@ -4607,7 +4607,7 @@ fn piece_keys<T: Keyed>(seg: &Segment, anim: &Curve<T>, out: &mut Vec<Key<T>>) {
 }
 
 /// How interpolator `i` eases.
-fn interpolator(i: &Object) -> Interp {
+pub(crate) fn interpolator(i: &Object) -> Interp {
     let c = || {
         [
             i.num(p::CUBIC_INTERPOLATOR_X1),
