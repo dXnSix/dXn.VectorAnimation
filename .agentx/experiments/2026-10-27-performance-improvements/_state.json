@@ -11,13 +11,13 @@
   "status": "",
   "createdAt": "2026-10-27T20:14:29Z",
   "finishedAt": null,
-  "lastStableCommit": "66c6207d8e6891d0a454878666cf6d63f7ef5c5e",
+  "lastStableCommit": "aa1593c17ef519d5c8798e153638555cf829e333",
   "repositories": [
     {
       "name": "main",
       "path": ".",
       "role": "main",
-      "lastStableCommit": "66c6207d8e6891d0a454878666cf6d63f7ef5c5e"
+      "lastStableCommit": "aa1593c17ef519d5c8798e153638555cf829e333"
     }
   ],
   "atomicDiscipline": {
@@ -28,8 +28,8 @@
     "successfulAttemptRequiresCommitBeforeNextExperiment": true,
     "rule": "Run exactly the printed hypothesis. If the attempted change fails, degrades, or suggests a different fix, revert to the checkpoint and finish this experiment as failure. Start a new experiment for the next idea."
   },
-  "currentExperimentId": "abd63771-efdb-4960-8c97-87da1737c453",
-  "nextExperimentIndex": 24,
+  "currentExperimentId": "c1e69e78-6e62-4cb3-bf50-ba437ac6d860",
+  "nextExperimentIndex": 25,
   "experiments": [
     {
       "id": "f0287285-7a36-4cb5-8eef-94cdd163e5a7",
@@ -302,6 +302,18 @@
       "name": "Gradient reach sampled coarsely",
       "path": "2026-10-27-23-gradient-reach-sampled-coarsely.json",
       "startedAt": "2026-10-27T21:06:25Z",
+      "finishedAt": "2026-10-27T21:07:37Z",
+      "state": "done",
+      "status": "success",
+      "resultCommit": "aa1593c17ef519d5c8798e153638555cf829e333"
+    },
+    {
+      "id": "c1e69e78-6e62-4cb3-bf50-ba437ac6d860",
+      "index": 24,
+      "type": "hypothesis",
+      "name": "JSON pointer keys escaped only when needed",
+      "path": "2026-10-27-24-json-pointer-keys-escaped-only-when-needed.json",
+      "startedAt": "2026-10-27T21:09:55Z",
       "finishedAt": null,
       "state": "running",
       "status": ""
