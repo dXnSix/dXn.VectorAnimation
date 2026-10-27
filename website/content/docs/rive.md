@@ -128,16 +128,30 @@ vector-animation render icons.riv --marker hover --fps 30
 vector-animation render menu.riv --artboard Menu -t 0.5
 ```
 
+## Events
+
+The events the default state machine fires are the timeline's [cues](./scene-model.md#the-timeline), where
+they happen: those its states fire as they are entered and left, its transitions as they start and end
+(after their mix), and those the animations its states play key, as the animations pass their keyframes
+(across loops and ping-pong turns too). A cue carries its event's name, an open-URL event's link and target,
+and its custom properties (numbers, strings, booleans). Rive's web runtime reports an event in the frame after
+the one it happened in, with how long ago it happened; the cue is the moment itself. Listeners fire events
+too: `Interaction::take_fired` gives those the pointer fired, as cues at their times.
+
+The player reports each cue as playback passes it (`onCue`), and those listeners fire as the pointer acts;
+`inspect` lists the timeline's cues.
+
 ## Left out for now
 
 What a file holds beyond that is left out with a warning (`Import::warnings`, `inspect`, `onLoad`):
 
 - conditions and blends on view models, other state machines than the default, listeners on nested
-  artboards, drags and events, listeners changing view models, Rive events and data binding;
+  artboards and drags, listeners changing view models, a nested artboard's events, audio and data
+  binding;
 - text variation and follow-path modifiers and text ellipses, layout, draggable and scroll constraints,
   scripting and audio.
 
 These come in the phases of the [design](https://github.com/dXnSix/dXn.VectorAnimation/blob/main/docs/design/rive.md):
-what the runtime evaluates (what is left of text), Rive events, then data binding and layout.
+what the runtime evaluates (what is left of text), then data binding and layout.
 
 Next: [Limits](./limits.md), which bound a Rive file as they bound the others.

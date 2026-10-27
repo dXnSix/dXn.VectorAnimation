@@ -48,6 +48,7 @@ lottie-motion.json
 | `timeline` | Duration, frame rate when the file has one, and `once`, `loops` or `ping-pong`, with `from <seconds>` when the loop starts over after the start (`1.400 s, loops from 0.400 s` for a staggered loader) |
 | `marker` | Each named marker: start and duration |
 | `event` | Each event the file plays something on, and the `render` flag that plays it |
+| `cue` | Each cue of the timeline (a Rive event): its time, name, link and properties |
 | `machine`, `input`, `listener` | A Rive file's default state machine: its inputs with their values at first, its listeners (what they act on, the shapes they listen on and where those are at 0 s, what they do), and the `render` flags that change them |
 | `nodes`, `animation`, `path points` | The scene's [`Stats`](./limits.md#checking-a-scene) |
 | `left out` | Each warning, or `nothing` |

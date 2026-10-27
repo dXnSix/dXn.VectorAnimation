@@ -208,7 +208,13 @@ The core gains what Rive needs, each with the reference renderer's drawing and t
    or over the reset, exits on a blend animation's time; a blend weighing one animation alone bakes as its
    pieces, a real mix frame by frame. The test files draw as Rive does (blends mixing over the frame before
    reach the same values a few frames later: Rive's web player applies the first frame three times).
-   **Still to come**: Rive events, listeners on nested artboards and drags.
+   **Done: events**: what states and transitions fire (`StateMachineFireEvent`, at their start or
+   end) and what the animations states play key (`KeyFrameCallback` on an event's `trigger`, as
+   `reportKeyedCallbacks` passes them, with their delays) are the timeline's cues (`Timeline::cues`) at the
+   moments they happen, with their custom properties and links; listeners' `ListenerFireEvent` come from
+   `Interaction::take_fired`. The player reports cues as playback passes them (`onCue`). Rive's web runtime
+   reports the same events a frame later, with their delays. **Still to come**: listeners on nested
+   artboards and drags, a nested artboard's events.
 9. **View models and data binding** (phase 4): view models, instances and bindings to properties and
    conditions, with converters; layout components laid out at import for the artboard's size.
 10. **Out of scope for now:** Luau scripting, audio, open-URL events (reported to the app as events), text
@@ -242,5 +248,5 @@ The core gains what Rive needs, each with the reference renderer's drawing and t
    meshes, constraints, draw rules, text modifiers (done; variation and follow-path modifiers and
    ellipses left), elastic easing.
 3. **State machines**: done as they play untouched, with their inputs changed, their listeners acting on a
-   pointer in the core, the CLI and the player, and blend states; events to come.
+   pointer in the core, the CLI and the player, blend states and events.
 4. **Data binding and layout.**

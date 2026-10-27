@@ -204,7 +204,7 @@ them alone.
   drawables; opacity multiplied down the tree into each paint; embedded images (PNG, JPEG, WebP).
 - The default state machine first, as Rive plays it: layers together, transitions whose conditions hold,
   exit times, mixes, states playing backwards, blend states (1D and direct), repeating from where it
-  settles. Nested artboards' state
+  settles; the events it fires as the timeline's cues, which the player reports as it passes them. Nested artboards' state
   machines too, their inputs as the parent's animations key them. Its inputs changed over time
   (`Options::inputs`), and its listeners acting on a pointer (`Interaction`: presses, releases, clicks,
   enters, leaves and moves over their shapes setting, toggling and firing inputs and moving nodes to the
@@ -225,7 +225,7 @@ them alone.
   scale, transform, distance, IK, follow-path) applied as Rive's runtime applies them. Draw rules, keyed too.
   Text modifiers moving, turning, scaling and fading glyphs by their ranges.
 - Left out with a warning, for the phases of [its design](docs/design/rive.md) to come: other
-  state machines and Rive events, text variation and follow-path modifiers and ellipses, layout,
+  state machines, text variation and follow-path modifiers and ellipses, layout,
   data binding, scripting and audio.
 
 ## Untrusted input
@@ -568,7 +568,7 @@ The scene model and its inputs:
    markers with their loops; feathered edges; strokes that do not scale; nested artboards; text; joysticks;
    bones, skins and image meshes; constraints; draw rules; text modifiers.
 4. Rive, as [its design](docs/design/rive.md) says: what the runtime evaluates (what is
-   left of text), Rive events, then data binding and layout.
+   left of text), then data binding and layout.
 
 The NSH player:
 

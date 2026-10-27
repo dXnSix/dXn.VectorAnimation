@@ -44,6 +44,7 @@ says.
 |---|---|---|
 | `onLoad` | `AnimationInfo` | The file was read |
 | `onEnd` | none | Playback reached its end; never while repeating forever |
+| `onCue` | `{ name, time, url, target, properties }` | Playback passed a cue: an event a Rive file's state machine fired, or a listener fired as the pointer acted; `properties` is an object of its custom properties |
 | `onInput` | `{ name, kind, value }` | An input of a Rive file's state machine changed: a listener under the pointer, `setInput` or `fire` changed it (a bool's value is 0 or 1, a trigger fired 1) |
 | `onError` | `string` | The file could not be loaded or read |
 
