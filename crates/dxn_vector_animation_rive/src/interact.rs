@@ -570,6 +570,12 @@ impl Interaction {
         &self.options.values
     }
 
+    /// The view model bound to the artboard, as its first instance holds
+    /// it (before the changes made).
+    pub fn view_model(&self) -> Option<crate::ViewModel> {
+        crate::view_model(&self.data, &self.options).ok().flatten()
+    }
+
     /// Sets property `path` of the view model instance bound (see
     /// [`ValueChange::path`]) to `value` at `time`
     /// ([`PropertyValue::Trigger`] fires a trigger), reading the scene

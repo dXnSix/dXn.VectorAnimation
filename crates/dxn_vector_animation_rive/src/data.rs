@@ -554,12 +554,22 @@ fn evaluate(
 }
 
 /// The value change `value` makes to a property holding `now` (a trigger
-/// fired counts once more; an enum's value is by index or name); `None`
-/// when it is of another kind.
+/// fired counts once more; an enum's value is by index or name, a color's
+/// ARGB or `#rrggbb` or `#aarrggbb`); `None` when it is of another kind.
 fn changed_to(file: &File, value: &PropertyValue, now: &Data) -> Option<Data> {
     Some(match (value, now) {
         (PropertyValue::Number(v), Data::Enum(_, e)) if *v >= 0.0 && v.fract() == 0.0 => {
             Data::Enum(*v as u32, *e)
+        }
+        (PropertyValue::Number(v), Data::Color(_)) => Data::Color(*v as i64 as u32),
+        (PropertyValue::Text(s), Data::Color(_)) => {
+            let hex = s.strip_prefix('#')?;
+            let c = u32::from_str_radix(hex, 16).ok()?;
+            Data::Color(match hex.len() {
+                6 => 0xFF00_0000 | c,
+                8 => c,
+                _ => return None,
+            })
         }
         (PropertyValue::Text(s), Data::Enum(_, e)) => {
             let values = e.and_then(|e| file.enums.get(e))?;
