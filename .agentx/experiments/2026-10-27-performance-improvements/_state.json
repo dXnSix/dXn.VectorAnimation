@@ -11,13 +11,13 @@
   "status": "",
   "createdAt": "2026-10-27T20:14:29Z",
   "finishedAt": null,
-  "lastStableCommit": "005e0f9d7835d4afafd5771f00e15a52c10c3a2a",
+  "lastStableCommit": "5cf36e914c535d063920bdaed44e760e606c216a",
   "repositories": [
     {
       "name": "main",
       "path": ".",
       "role": "main",
-      "lastStableCommit": "005e0f9d7835d4afafd5771f00e15a52c10c3a2a"
+      "lastStableCommit": "5cf36e914c535d063920bdaed44e760e606c216a"
     }
   ],
   "atomicDiscipline": {
@@ -28,8 +28,8 @@
     "successfulAttemptRequiresCommitBeforeNextExperiment": true,
     "rule": "Run exactly the printed hypothesis. If the attempted change fails, degrades, or suggests a different fix, revert to the checkpoint and finish this experiment as failure. Start a new experiment for the next idea."
   },
-  "currentExperimentId": "451658a6-9fb8-4d38-b5d3-adaafdead367",
-  "nextExperimentIndex": 44,
+  "currentExperimentId": "b0c460a0-43fe-4f19-ad8a-c6d3a601a5f6",
+  "nextExperimentIndex": 45,
   "experiments": [
     {
       "id": "f0287285-7a36-4cb5-8eef-94cdd163e5a7",
@@ -538,6 +538,18 @@
       "name": "Blur written back in a flat pass",
       "path": "2026-10-27-43-blur-written-back-in-a-flat-pass.json",
       "startedAt": "2026-10-27T21:54:55Z",
+      "finishedAt": "2026-10-27T21:56:13Z",
+      "state": "done",
+      "status": "success",
+      "resultCommit": "5cf36e914c535d063920bdaed44e760e606c216a"
+    },
+    {
+      "id": "b0c460a0-43fe-4f19-ad8a-c6d3a601a5f6",
+      "index": 44,
+      "type": "hypothesis",
+      "name": "Merge buffers sized ahead",
+      "path": "2026-10-27-44-merge-buffers-sized-ahead.json",
+      "startedAt": "2026-10-27T21:57:19Z",
       "finishedAt": null,
       "state": "running",
       "status": ""

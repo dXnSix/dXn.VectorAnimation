@@ -9,11 +9,11 @@
   "path": "2026-10-27-43-blur-written-back-in-a-flat-pass.json",
   "createdAt": "2026-10-27T21:54:55Z",
   "startedAt": "2026-10-27T21:54:55Z",
-  "finishedAt": null,
-  "state": "running",
-  "status": "",
+  "finishedAt": "2026-10-27T21:56:13Z",
+  "state": "done",
+  "status": "success",
   "checkpointCommit": "005e0f9d7835d4afafd5771f00e15a52c10c3a2a",
-  "resultCommit": "",
+  "resultCommit": "5cf36e914c535d063920bdaed44e760e606c216a",
   "rollbackCommand": "git -C \"/Users/dinko/work-private/projects/dXn/dXn.VectorAnimation\" reset --hard 005e0f9d7835d4afafd5771f00e15a52c10c3a2a",
   "repositories": [
     {
@@ -21,12 +21,19 @@
       "path": ".",
       "role": "main",
       "checkpointCommit": "005e0f9d7835d4afafd5771f00e15a52c10c3a2a",
-      "resultCommit": "",
+      "resultCommit": "5cf36e914c535d063920bdaed44e760e606c216a",
       "rollbackCommand": "git -C \"/Users/dinko/work-private/projects/dXn/dXn.VectorAnimation\" reset --hard 005e0f9d7835d4afafd5771f00e15a52c10c3a2a",
-      "status": ""
+      "status": "success"
     }
   ],
-  "repositoryCommits": [],
+  "repositoryCommits": [
+    {
+      "name": "main",
+      "path": ".",
+      "role": "main",
+      "commit": "5cf36e914c535d063920bdaed44e760e606c216a"
+    }
+  ],
   "atomicDiscipline": {
     "oneHypothesisOnly": true,
     "singleImplementationAttempt": true,
@@ -36,17 +43,46 @@
     "rule": "Run exactly the printed hypothesis. If the attempted change fails, degrades, or suggests a different fix, revert to the checkpoint and finish this experiment as failure. Start a new experiment for the next idea."
   },
   "primaryTarget": "wasm/web with headed Playwright and WebGPU enabled",
-  "hypothesisMarkdown": "",
-  "measurementPlanMarkdown": "",
-  "expectedOutcomeMarkdown": "",
+  "hypothesisMarkdown": "## Blur written back in a flat pass Hypothesis\n\nA blur's floats were written back pixel by pixel, each channel rounded and clamped to its pixel's rounded alpha. Rounding and clamping every value to a byte's range is one flat pass over the floats (which vectorizes); the channels are then held to their alpha: the same bytes.\\n\\n**Tested mechanism:** flat write-back. **Allowed:** render `blur`. **Forbidden:** the box sums.",
+  "measurementPlanMarkdown": "### Measurement Plan\n\nRelease bench over the 53 corpus files (median of 3 runs, best of 5 each), plus the focused tests of the touched area.",
+  "expectedOutcomeMarkdown": "### Expected Outcome\n\nThe targeted metric improves with identical graph output and passing focused tests.",
   "diagnostics": {
     "playwright": [],
     "rayx": [],
     "counters": [],
     "artifacts": []
   },
-  "measurements": [],
-  "reportMarkdown": "",
-  "decisionMarkdown": "",
+  "measurements": [
+    {
+      "metric": "engine us/frame",
+      "before": "530",
+      "after": "502",
+      "delta": "",
+      "source": "scratchpad bench.sh: median of 3 `vector-animation-check bench artifacts-temp/corpus`"
+    },
+    {
+      "metric": "onboarding engine us/frame (3 runs)",
+      "before": "496",
+      "after": "467",
+      "delta": "",
+      "source": "scratchpad bench.sh: median of 3 `vector-animation-check bench artifacts-temp/corpus`"
+    },
+    {
+      "metric": "reference frames (4629 PNGs)",
+      "before": "identical",
+      "after": "identical",
+      "delta": "",
+      "source": "scratchpad bench.sh: median of 3 `vector-animation-check bench artifacts-temp/corpus`"
+    },
+    {
+      "metric": "corpus fidelity",
+      "before": "identical",
+      "after": "identical",
+      "delta": "",
+      "source": "scratchpad bench.sh: median of 3 `vector-animation-check bench artifacts-temp/corpus`"
+    }
+  ],
+  "reportMarkdown": "## Blur written back in a flat pass Finished\n\n**Passed Status**: True\n\n**Attempt Count:** 1. **Out-of-scope changes:** none.\n\nEngine thread -5% a frame. Reference PNG hashes and fidelity identical; render tests pass; clippy clean.\n\n| Repo | Path | Checkpoint | Result Commit | Status |\n| --- | --- | --- | --- | --- |\n| main | . | 005e0f9 | 5cf36e9 | committed |",
+  "decisionMarkdown": "### Decision\n\nCommitted 5cf36e9: perf(render): write a blur back in a flat pass",
   "notes": ""
 }
