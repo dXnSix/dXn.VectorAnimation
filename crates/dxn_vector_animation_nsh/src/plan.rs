@@ -318,9 +318,19 @@ fn switches(track: &Track<Path>) -> Vec<f64> {
         .filter_map(|w| {
             let (a, b) = (w[0].last()?, w[1].first()?);
             let (mut lo, mut hi) = (a.time, b.time);
+            // Between the two (of other commands), `Track::sample` gives the
+            // later's commands once the eased progress is halfway.
+            let later = |t: f64| {
+                let span = b.time - a.time;
+                if span <= 0.0 {
+                    return true;
+                }
+                let eased = a.easing.apply(((t - a.time) / span).clamp(0.0, 1.0));
+                !(matches!(a.easing, Easing::Hold) || eased == 0.0 || eased < 0.5)
+            };
             for _ in 0..60 {
                 let mid = (lo + hi) / 2.0;
-                if commands_at(track, mid).same_structure(&b.value) {
+                if later(mid) {
                     hi = mid;
                 } else {
                     lo = mid;
@@ -330,40 +340,6 @@ fn switches(track: &Track<Path>) -> Vec<f64> {
         })
         .collect()
 }
-
-/// The keyframe whose commands `track` has at `time`, as
-/// [`Track::sample`] picks them, without making the path.
-fn commands_at(track: &Track<Path>, time: f64) -> &Path {
-    let k = &track.keyframes;
-    let i = k.partition_point(|kf| kf.time <= time);
-    match (i, k.len()) {
-        (_, 0) => &EMPTY,
-        (0, _) => &k[0].value,
-        (i, n) if i >= n => &k[n - 1].value,
-        (i, _) => {
-            let (a, b) = (&k[i - 1], &k[i]);
-            let span = b.time - a.time;
-            if span <= 0.0 {
-                return &b.value;
-            }
-            let eased = a.easing.apply(((time - a.time) / span).clamp(0.0, 1.0));
-            // Paths of other commands switch halfway; a morph keeps the
-            // first's.
-            if matches!(a.easing, Easing::Hold)
-                || eased == 0.0
-                || a.value.same_structure(&b.value)
-                || eased < 0.5
-            {
-                &a.value
-            } else {
-                &b.value
-            }
-        }
-    }
-}
-
-/// No path.
-static EMPTY: Path = Path::new();
 
 /// The times the paths of `s` switch commands, ascending, those closer
 /// than a millisecond one.

@@ -11,13 +11,13 @@
   "status": "",
   "createdAt": "2026-10-27T20:14:29Z",
   "finishedAt": null,
-  "lastStableCommit": "d0d3f072a6d52b5db71b0bbe91dc1ae48f17f2cc",
+  "lastStableCommit": "32fe684557a7e3a4e0a7309dac595c9209481796",
   "repositories": [
     {
       "name": "main",
       "path": ".",
       "role": "main",
-      "lastStableCommit": "d0d3f072a6d52b5db71b0bbe91dc1ae48f17f2cc"
+      "lastStableCommit": "32fe684557a7e3a4e0a7309dac595c9209481796"
     }
   ],
   "atomicDiscipline": {
@@ -28,8 +28,8 @@
     "successfulAttemptRequiresCommitBeforeNextExperiment": true,
     "rule": "Run exactly the printed hypothesis. If the attempted change fails, degrades, or suggests a different fix, revert to the checkpoint and finish this experiment as failure. Start a new experiment for the next idea."
   },
-  "currentExperimentId": "89fdb475-a21d-44e1-9613-133b44176aa1",
-  "nextExperimentIndex": 7,
+  "currentExperimentId": "2c1c691b-43e7-4be4-aec4-ceffae81518c",
+  "nextExperimentIndex": 8,
   "experiments": [
     {
       "id": "f0287285-7a36-4cb5-8eef-94cdd163e5a7",
@@ -98,6 +98,18 @@
       "name": "Chain matrices without probe frames",
       "path": "2026-10-27-06-chain-matrices-without-probe-frames.json",
       "startedAt": "2026-10-27T20:25:59Z",
+      "finishedAt": "2026-10-27T20:28:37Z",
+      "state": "done",
+      "status": "success",
+      "resultCommit": "32fe684557a7e3a4e0a7309dac595c9209481796"
+    },
+    {
+      "id": "2c1c691b-43e7-4be4-aec4-ceffae81518c",
+      "index": 7,
+      "type": "hypothesis",
+      "name": "Switch times from the easing alone",
+      "path": "2026-10-27-07-switch-times-from-the-easing-alone.json",
+      "startedAt": "2026-10-27T20:28:42Z",
       "finishedAt": null,
       "state": "running",
       "status": ""
