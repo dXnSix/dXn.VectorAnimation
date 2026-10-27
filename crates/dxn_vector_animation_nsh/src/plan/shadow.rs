@@ -362,12 +362,12 @@ fn opaque_image(
                 .unwrap_or(tiny_skia::PremultipliedColorU8::TRANSPARENT);
         }
     }
-    match pixmap.encode_png() {
-        Ok(bytes) => std::sync::Arc::new(dxn_vector_animation::ImageData {
+    match super::png(&pixmap) {
+        Some(bytes) => std::sync::Arc::new(dxn_vector_animation::ImageData {
             mime: "image/png".into(),
             bytes,
         }),
-        Err(_) => data.clone(),
+        None => data.clone(),
     }
 }
 
@@ -1100,7 +1100,7 @@ impl Compiler {
             *px = tiny_skia::PremultipliedColorU8::from_rgba(0, 0, 0, a)
                 .unwrap_or(tiny_skia::PremultipliedColorU8::TRANSPARENT);
         }
-        let Ok(bytes) = pixmap.encode_png() else {
+        let Some(bytes) = super::png(&pixmap) else {
             return unsupported("a shadow of content too large to image");
         };
         let data = std::sync::Arc::new(dxn_vector_animation::ImageData {

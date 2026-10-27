@@ -237,7 +237,8 @@ pub fn raster(view: &Scene, time: f64, ratio: f64) -> Option<(Arc<ImageData>, Re
 
 /// `pixmap` as a PNG made fast rather than small (`fdeflate`, each row less
 /// the one above): a part that moves is rastered again frame after frame,
-/// each decoded at once.
+/// each decoded at once, and the images a plan holds are made before its
+/// first frame.
 fn png(pixmap: &tiny_skia::Pixmap) -> Option<Vec<u8>> {
     let data: Vec<u8> = pixmap
         .pixels()
