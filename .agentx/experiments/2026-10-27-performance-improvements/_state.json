@@ -11,13 +11,13 @@
   "status": "",
   "createdAt": "2026-10-27T20:14:29Z",
   "finishedAt": null,
-  "lastStableCommit": "8b0bf9378dbd560fbdfaef63e91cd49811441164",
+  "lastStableCommit": "050fa8f45d1d2f58fd95b45beb3001a88cc9a5b6",
   "repositories": [
     {
       "name": "main",
       "path": ".",
       "role": "main",
-      "lastStableCommit": "8b0bf9378dbd560fbdfaef63e91cd49811441164"
+      "lastStableCommit": "050fa8f45d1d2f58fd95b45beb3001a88cc9a5b6"
     }
   ],
   "atomicDiscipline": {
@@ -28,8 +28,8 @@
     "successfulAttemptRequiresCommitBeforeNextExperiment": true,
     "rule": "Run exactly the printed hypothesis. If the attempted change fails, degrades, or suggests a different fix, revert to the checkpoint and finish this experiment as failure. Start a new experiment for the next idea."
   },
-  "currentExperimentId": "11eedca8-3f9f-46b5-a2dc-83044d989326",
-  "nextExperimentIndex": 4,
+  "currentExperimentId": "ec442edf-392a-4845-b5f9-e0a82b568c52",
+  "nextExperimentIndex": 5,
   "experiments": [
     {
       "id": "f0287285-7a36-4cb5-8eef-94cdd163e5a7",
@@ -62,6 +62,18 @@
       "name": "Switch detection without sampled paths",
       "path": "2026-10-27-03-switch-detection-without-sampled-paths.json",
       "startedAt": "2026-10-27T20:19:04Z",
+      "finishedAt": "2026-10-27T20:20:24Z",
+      "state": "done",
+      "status": "success",
+      "resultCommit": "050fa8f45d1d2f58fd95b45beb3001a88cc9a5b6"
+    },
+    {
+      "id": "ec442edf-392a-4845-b5f9-e0a82b568c52",
+      "index": 4,
+      "type": "hypothesis",
+      "name": "Held bytes count shrinking reallocations",
+      "path": "2026-10-27-04-held-bytes-count-shrinking-reallocations.json",
+      "startedAt": "2026-10-27T20:22:28Z",
       "finishedAt": null,
       "state": "running",
       "status": ""

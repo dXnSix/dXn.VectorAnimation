@@ -58,7 +58,7 @@ fn measured<T>(runs: usize, mut f: impl FnMut() -> T) -> (Cost, T) {
         let cost = Cost {
             ms,
             allocs: stats.allocations + stats.reallocations,
-            bytes: stats.bytes_allocated + stats.bytes_reallocated.max(0) as usize,
+            bytes: stats.bytes_allocated,
         };
         (cost, made)
     };
@@ -230,7 +230,9 @@ fn bench(bytes: &[u8], runs: usize, size: f64, ratio: f64) -> Option<Row> {
     });
     row.first = first;
     let change = held.change();
-    row.held = (change.bytes_allocated + change.bytes_reallocated.max(0) as usize)
+    // (Reallocations count in both as they grow or shrink.)
+    row.held = change
+        .bytes_allocated
         .saturating_sub(change.bytes_deallocated);
     // A frame: the engine thread's work, and the reference's `frame_at`.
     let d = scene.timeline.duration;
