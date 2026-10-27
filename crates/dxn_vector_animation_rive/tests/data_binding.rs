@@ -1116,3 +1116,85 @@ fn interpolating_converters_ease_changes_over_their_duration() {
     );
     assert_eq!(color_at(&s, 2.2, 10, 25), RED);
 }
+
+/// "level" (30) bound to a red square's x, 25 down, which its state
+/// machine's first state keys to 10 for 1 s ("left"); the next state's
+/// animation keys its rotation alone ("turn").
+fn animated_and_bound() -> Riv {
+    let riv = Riv::new()
+        .obj(ty::VIEW_MODEL, &[(key::VM_NAME, V::S("Game"))])
+        .obj(ty::VM_NUMBER, &[(key::VM_NAME, V::S("level"))])
+        .obj(ty::VM_INSTANCE, &[(key::VM_INSTANCE_VM, V::U(0))])
+        .obj(
+            ty::VM_INSTANCE_NUMBER,
+            &[
+                (key::VM_VALUE_PROPERTY, V::U(0)),
+                (key::VM_NUMBER_VALUE, V::D(30.0)),
+            ],
+        );
+    let mut riv = square(
+        bound_artboard(riv),
+        0,
+        (0.0, 25.0),
+        0xFFFF_0000,
+        Some((&[0, 0], None)),
+        None,
+    );
+    for (name, key, value) in [("left", key::X, 10.0), ("turn", key::ROTATION, 0.0)] {
+        riv = riv
+            .obj(
+                ty::LINEAR_ANIMATION,
+                &[
+                    (key::ANIMATION_NAME, V::S(name)),
+                    (key::FPS, V::U(10)),
+                    (key::DURATION, V::U(10)),
+                ],
+            )
+            .obj(ty::KEYED_OBJECT, &[(key::OBJECT_ID, V::U(1))])
+            .obj(
+                ty::KEYED_PROPERTY,
+                &[(key::PROPERTY_KEY, V::U(u64::from(key)))],
+            )
+            .obj(
+                ty::KEY_FRAME_DOUBLE,
+                &[(key::FRAME, V::U(0)), (key::VALUE, V::D(value))],
+            );
+    }
+    riv.obj(
+        ty::STATE_MACHINE,
+        &[(key::ANIMATION_NAME, V::S("State Machine 1"))],
+    )
+    .obj(ty::STATE_MACHINE_LAYER, &[])
+    .obj(ty::ENTRY_STATE, &[])
+    .obj(ty::STATE_TRANSITION, &[(key::STATE_TO_ID, V::U(3))])
+    .obj(ty::ANY_STATE, &[])
+    .obj(ty::EXIT_STATE, &[])
+    .obj(ty::ANIMATION_STATE, &[(key::ANIMATION_ID, V::U(0))])
+    .obj(
+        ty::STATE_TRANSITION,
+        &[
+            (key::STATE_TO_ID, V::U(4)),
+            (key::TRANSITION_FLAGS, V::U(4 | 8)),
+            (key::EXIT_TIME, V::U(100)),
+        ],
+    )
+    .obj(ty::ANIMATION_STATE, &[(key::ANIMATION_ID, V::U(1))])
+}
+
+#[test]
+fn bound_values_change_what_animations_leave_alone() {
+    // 50 at 0.5 s shows in its frame alone, "left" keying x; 80 at 1.5 s
+    // holds, "turn" leaving x alone.
+    let s = changed(
+        &animated_and_bound(),
+        &[
+            (0.5, "level", PropertyValue::Number(50.0)),
+            (1.5, "level", PropertyValue::Number(80.0)),
+        ],
+    );
+    assert_eq!(color_at(&s, 0.25, 10, 25), RED);
+    assert_eq!(color_at(&s, 0.5001, 50, 25), RED);
+    assert_eq!(color_at(&s, 0.52, 10, 25), RED);
+    assert_eq!(color_at(&s, 1.2, 10, 25), RED);
+    assert_eq!(color_at(&s, 1.6, 80, 25), RED);
+}

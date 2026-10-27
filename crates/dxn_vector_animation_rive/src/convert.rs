@@ -1307,7 +1307,7 @@ impl<'a> Converter<'a> {
         &self,
         plans: &[Rc<Plan>],
         list: &[(usize, &KeyedProperty)],
-        setup: &T,
+        (setup, bound): (&T, &[(f64, T)]),
         value: &impl Fn(&Object) -> Option<T>,
         keys: &mut Vec<Key<T>>,
     ) {
@@ -1343,7 +1343,7 @@ impl<'a> Converter<'a> {
             return;
         }
         for plan in plans {
-            self.plan_keys(plan, &curves, setup, keys);
+            self.plan_keys(plan, &curves, (setup, bound), keys);
         }
     }
 
@@ -1354,7 +1354,7 @@ impl<'a> Converter<'a> {
         &self,
         plan: &Plan,
         curves: &HashMap<usize, Curve<T>>,
-        setup: &T,
+        (setup, bound): (&T, &[(f64, T)]),
         keys: &mut Vec<Key<T>>,
     ) {
         let keyed = |x: Option<(usize, f64)>| x.filter(|(a, _)| curves.contains_key(a));
@@ -1405,10 +1405,34 @@ impl<'a> Converter<'a> {
             }
         };
         let mut resets: HashMap<(usize, usize), T> = HashMap::new();
-        for w in plan.bounds.windows(2) {
+        // The frames the view model instance bound changes it in: there its
+        // value (as Rive applies bindings after animations), from the next
+        // what the layers apply, or held.
+        let changed: BTreeMap<usize, &T> = bound
+            .iter()
+            .filter_map(|(t, v)| {
+                let k = ((t - plan.offset) / dt).round();
+                (k >= 0.0 && (k as usize) < frames).then_some((k as usize, v))
+            })
+            .collect();
+        let mut bounds = plan.bounds.clone();
+        if !changed.is_empty() {
+            bounds.extend(changed.keys().flat_map(|&c| [c, c + 1]));
+            bounds.sort_unstable();
+            bounds.dedup();
+        }
+        for w in bounds.windows(2) {
             let (k, e) = (w[0], w[1].min(frames));
             if k >= frames {
                 break;
+            }
+            if let Some(&v) = changed.get(&k) {
+                keys.push(Key {
+                    t: at(k),
+                    value: v.clone(),
+                    interp: Interp::Hold,
+                });
+                continue;
             }
             let Some(l) = effective(k) else {
                 hold_last(keys);
@@ -1568,11 +1592,11 @@ impl<'a> Converter<'a> {
         &mut self,
         i: usize,
         key: u16,
-        setup: T,
+        (setup, bound): (T, &[(f64, T)]),
         value: impl Fn(&Object) -> Option<T>,
     ) -> Curve<T> {
         let Some(list) = self.keyed.get(&(i, key)).cloned() else {
-            return Curve::fixed(setup);
+            return with_bound(Curve::fixed(setup), bound);
         };
         self.used.insert((i, key));
         let keys_in = |seg: &Segment| list.iter().find(|(a, _)| *a == seg.animation);
@@ -1581,14 +1605,14 @@ impl<'a> Converter<'a> {
             .iter()
             .rposition(|l| l.iter().any(|seg| keys_in(seg).is_some()))
         else {
-            return Curve::fixed(setup);
+            return with_bound(Curve::fixed(setup), bound);
         };
         let segments = self.layers[layer].clone();
         let mut keys: Vec<Key<T>> = Vec::new();
         // A nested state machine: what it plays in each span.
         if self.machine_layer == Some(layer) {
             let plans = self.nested_plans.clone();
-            self.machine_keys(&plans, &list, &setup, &value, &mut keys);
+            self.machine_keys(&plans, &list, (&setup, bound), &value, &mut keys);
             if keys.first().is_none_or(|k| k.t > 0.0) {
                 keys.insert(
                     0,
@@ -1605,7 +1629,7 @@ impl<'a> Converter<'a> {
         if layer == 0
             && let Some(plan) = self.plan.clone()
         {
-            self.machine_keys(&[plan], &list, &setup, &value, &mut keys);
+            self.machine_keys(&[plan], &list, (&setup, bound), &value, &mut keys);
             // Its setup value until the machine first applies it.
             if keys.first().is_none_or(|k| k.t > 0.0) {
                 keys.insert(
@@ -1671,25 +1695,23 @@ impl<'a> Converter<'a> {
         let setup = self
             .object(i)
             .map_or_else(|| defs::initial(key).unwrap_or(0.0), |o| o.num(key));
-        let curve = self.curve(i, key, setup, |k| match k.ty {
+        let bound = self.bound_changes(i, key, |o| o.num(key));
+        self.curve(i, key, (setup, &bound), |k| match k.ty {
             t::KEY_FRAME_DOUBLE => Some(k.num(p::KEY_FRAME_DOUBLE_VALUE)),
             t::KEY_FRAME_BOOL => Some(k.num(p::KEY_FRAME_BOOL_VALUE)),
             t::KEY_FRAME_ID => Some(k.num(p::KEY_FRAME_ID_VALUE)),
             t::KEY_FRAME_UINT => Some(k.num(p::KEY_FRAME_UINT_VALUE)),
             _ => None,
-        });
-        let changes = self.bound_changes(i, key, |o| o.num(key));
-        self.with_bound(curve, changes)
+        })
     }
 
     /// A color property.
     fn color_curve(&mut self, i: usize, key: u16) -> Curve<Color> {
         let setup = argb(self.object(i).map_or(0, |o| o.color(key)));
-        let curve = self.curve(i, key, setup, |k| {
+        let bound = self.bound_changes(i, key, |o| argb(o.color(key)));
+        self.curve(i, key, (setup, &bound), |k| {
             (k.ty == t::KEY_FRAME_COLOR).then(|| argb(k.color(p::KEY_FRAME_COLOR_VALUE)))
-        });
-        let changes = self.bound_changes(i, key, |o| argb(o.color(key)));
-        self.with_bound(curve, changes)
+        })
     }
 
     /// This artboard's index in the file.
@@ -1731,34 +1753,6 @@ impl<'a> Converter<'a> {
             .map(|t| ((t.max(0.0) / DT - 1e-6).ceil() as usize).min(MAX_FRAMES))
             .max()
             .unwrap_or(0)
-    }
-
-    /// `curve` held at each of `changes` from its time: where no animation
-    /// keys the property (where one does, it keys it).
-    fn with_bound<T: Keyed>(&mut self, curve: Curve<T>, changes: Vec<(f64, T)>) -> Curve<T> {
-        if changes.is_empty() {
-            return curve;
-        }
-        if !curve.keys.is_empty() {
-            self.warn(
-                "view model changes: properties animations key change as the animations key them",
-            );
-            return curve;
-        }
-        let mut keys = vec![Key {
-            t: 0.0,
-            value: curve.setup.clone(),
-            interp: Interp::Hold,
-        }];
-        keys.extend(changes.into_iter().map(|(t, value)| Key {
-            t,
-            value,
-            interp: Interp::Hold,
-        }));
-        Curve {
-            setup: curve.setup,
-            keys,
-        }
     }
 
     /// A number property as the scene animates it, times `scale`.
@@ -3754,7 +3748,11 @@ impl<'a> Converter<'a> {
             }
         }
         let lookup = table.clone();
-        let curve = self.curve(i, key, 0.0, |k| {
+        let bound: Vec<(f64, f64)> = bound
+            .into_iter()
+            .map(|(t, v)| (t, table.iter().position(|s| *s == v).unwrap_or(0) as f64))
+            .collect();
+        let curve = self.curve(i, key, (0.0, &bound), |k| {
             (k.ty == t::KEY_FRAME_STRING)
                 .then(|| {
                     lookup
@@ -3764,11 +3762,7 @@ impl<'a> Converter<'a> {
                 .flatten()
                 .map(|v| v as f64)
         });
-        let bound = bound
-            .into_iter()
-            .map(|(t, v)| (t, table.iter().position(|s| *s == v).unwrap_or(0) as f64))
-            .collect();
-        (self.with_bound(curve, bound), table)
+        (curve, table)
     }
 
     /// Nested artboard `i`: the artboard it shows, converted on its own and
@@ -4934,6 +4928,28 @@ fn settle(played: &[Vec<machine::Applied>], anims: &[machine::Anim]) -> (usize, 
         }
     }
     (settled, periods, steady)
+}
+
+/// `curve` (a property nothing animates) held at each of `bound` (the
+/// changes a view model instance bound makes to it) from its time.
+fn with_bound<T: Keyed>(curve: Curve<T>, bound: &[(f64, T)]) -> Curve<T> {
+    if bound.is_empty() {
+        return curve;
+    }
+    let mut keys = vec![Key {
+        t: 0.0,
+        value: curve.setup.clone(),
+        interp: Interp::Hold,
+    }];
+    keys.extend(bound.iter().map(|(t, value)| Key {
+        t: *t,
+        value: value.clone(),
+        interp: Interp::Hold,
+    }));
+    Curve {
+        setup: curve.setup,
+        keys,
+    }
 }
 
 /// A new input of `inputs` holding `first`, then from each frame of `later`
