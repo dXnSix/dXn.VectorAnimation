@@ -87,7 +87,8 @@ chained mattes) draw the content on a canvas of its own and take away what the m
 - **Inner shadows** are a canvas over the content: the silhouette in the shadow's color, less the silhouette
   moved and blurred.
 - **Blurs** are images the reference renderer makes: once where they do not move, frame by frame where they do,
-  kept for when the loop comes round.
+  kept for when the loop comes round. A part whose images take long to make is made less often, each held a few
+  frames, so that making them takes a quarter of the time at most.
 
 ```example
 demo: moving-shadows

@@ -538,8 +538,15 @@ pub fn VectorAnimation(
                 let Ok((play, swapped, inputs, values, fired)) = blocking(made).await else {
                     break;
                 };
+                // The web makes it on the page's one thread: as long again is
+                // left to the page before the next batch, the moves meanwhile
+                // coalesced, so that a pointer moving on keeps it responsive.
+                #[cfg(target_arch = "wasm32")]
+                let started = nsh_core::time::now();
                 #[cfg(target_arch = "wasm32")]
                 let (play, swapped, inputs, values, fired) = made();
+                #[cfg(target_arch = "wasm32")]
+                let took = nsh_core::time::now().saturating_duration_since(started);
                 if interacting.with(|i| i.generation) != generation {
                     // Another source is read meanwhile.
                     break;
@@ -567,6 +574,8 @@ pub fn VectorAnimation(
                     cx.emit(VectorAnimationEvent::Value(value));
                 }
                 interacting.with(|i| i.play = Some(play));
+                #[cfg(target_arch = "wasm32")]
+                timer(took).await;
             }
         });
     };
@@ -1061,12 +1070,20 @@ const RASTER_BYTES: usize = 32 << 20;
 /// for when its time comes again (a loop), within [`RASTER_BYTES`].
 const RASTER_RATE: f64 = 60.0;
 
+/// The share of the time a part that moves may take making its rasters:
+/// one slower than that is made less often, each held a few frames, so
+/// that the rest of the page (and on the web, the page itself) keeps its
+/// time.
+const RASTER_SHARE: f64 = 0.25;
+
 /// The rasters a part made, by frame.
 #[derive(Default)]
 struct Rasters {
     ratio: f64,
     by_frame: HashMap<i64, Option<(Arc<ImageData>, Rect)>>,
     bytes: usize,
+    /// How long one takes to make, in seconds (smoothed).
+    cost: f64,
 }
 
 impl Rasters {
@@ -1084,11 +1101,22 @@ impl Rasters {
                 ..Default::default()
             };
         }
-        let frame = (t * RASTER_RATE).round() as i64;
+        // As often as a share of the time allows, at most each frame.
+        let step = (self.cost / RASTER_SHARE).max(1.0 / RASTER_RATE);
+        let frame = ((t / step).floor() * step * RASTER_RATE).round() as i64;
         if let Some(kept) = self.by_frame.get(&frame) {
             return kept.clone();
         }
+        let started = nsh_core::time::now();
         let made = make(frame as f64 / RASTER_RATE);
+        let took = nsh_core::time::now()
+            .saturating_duration_since(started)
+            .as_secs_f64();
+        self.cost = if self.cost == 0.0 {
+            took
+        } else {
+            0.7 * self.cost + 0.3 * took
+        };
         let size = made.as_ref().map_or(0, |(image, _)| image.bytes.len());
         if self.bytes + size <= RASTER_BYTES {
             self.bytes += size;

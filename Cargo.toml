@@ -42,6 +42,7 @@ miniz_oxide = "0.8.9"
 nsh-core = "0.3"
 nsh-engine = { version = "0.3", default-features = false }
 nsh-testing = { version = "0.3", default-features = false }
+png = "0.18.1"
 roxmltree = "0.21.2"
 rustybuzz = "0.20.1"
 serde = { version = "1.0.229", features = ["derive", "rc"] }

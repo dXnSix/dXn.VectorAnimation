@@ -243,10 +243,33 @@ pub fn raster(view: &Scene, time: f64, ratio: f64) -> Option<(Arc<ImageData>, Re
     Some((
         Arc::new(ImageData {
             mime: "image/png".into(),
-            bytes: pixmap.encode_png().ok()?,
+            bytes: png(&pixmap)?,
         }),
         region,
     ))
+}
+
+/// `pixmap` as a PNG made fast rather than small (`fdeflate`, each row less
+/// the one above): a part that moves is rastered again frame after frame,
+/// each decoded at once.
+fn png(pixmap: &tiny_skia::Pixmap) -> Option<Vec<u8>> {
+    let data: Vec<u8> = pixmap
+        .pixels()
+        .iter()
+        .flat_map(|p| {
+            let c = p.demultiply();
+            [c.red(), c.green(), c.blue(), c.alpha()]
+        })
+        .collect();
+    let mut out = Vec::new();
+    let mut encoder = png::Encoder::new(&mut out, pixmap.width(), pixmap.height());
+    encoder.set_color(png::ColorType::Rgba);
+    encoder.set_depth(png::BitDepth::Eight);
+    encoder.set_compression(png::Compression::Fastest);
+    let mut writer = encoder.write_header().ok()?;
+    writer.write_image_data(&data).ok()?;
+    writer.finish().ok()?;
+    Some(out)
 }
 
 /// How many pixels the deviation of a blur takes, at least, in a raster of

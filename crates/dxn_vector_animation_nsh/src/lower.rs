@@ -2,9 +2,13 @@
 //! `Painter` (graph nodes as animated values the canvas reads), each layer
 //! a view faded or blended as one.
 
-use std::{f64::consts::TAU, sync::Arc};
+use std::{
+    cell::RefCell,
+    f64::consts::TAU,
+    sync::{Arc, Weak},
+};
 
-use dxn_vector_animation::{BlendMode, FillRule, LineCap, LineJoin, TextAnchor};
+use dxn_vector_animation::{BlendMode, FillRule, ImageData, LineCap, LineJoin, TextAnchor};
 use nsh_core::{
     Color,
     animation::{Easing as NshEasing, Extrapolate, Output},
@@ -332,20 +336,12 @@ pub(crate) fn painter(ops: &[Op], nodes: &Nodes) -> Painter {
                     .op(CanvasOp::ShadowBlur(px(*blur as f32 * k)));
                 CanvasOp::ShadowOffset(Point::new(px(offset.0 as f32 * k), px(offset.1 as f32 * k)))
             }
-            Op::Image(data, rect) => {
-                use base64::Engine;
-                let uri = format!(
-                    "data:{};base64,{}",
-                    data.mime,
-                    base64::engine::general_purpose::STANDARD.encode(&data.bytes)
-                );
-                CanvasOp::DrawImage {
-                    image: CanvasImage { uri: uri.into() },
-                    source: None,
-                    dest: [rect.x, rect.y, rect.width, rect.height]
-                        .map(|v| canvas::Num::Const(v as f32)),
-                }
-            }
+            Op::Image(data, rect) => CanvasOp::DrawImage {
+                image: CanvasImage { uri: uri(data) },
+                source: None,
+                dest: [rect.x, rect.y, rect.width, rect.height]
+                    .map(|v| canvas::Num::Const(v as f32)),
+            },
             Op::Text {
                 text,
                 font,
@@ -474,4 +470,40 @@ fn composite(b: BlendMode) -> Composite {
         BlendMode::DestinationIn => Composite::DestinationIn,
         BlendMode::DestinationOut => Composite::DestinationOut,
     }
+}
+
+/// How many images' data URIs are kept.
+const URIS: usize = 256;
+
+thread_local! {
+    /// The data URIs of the images drawn lately: a canvas drawn again (a
+    /// raster held, a scene compiled again after a change) draws the same
+    /// images, which are encoded once.
+    static KEPT: RefCell<Vec<(Weak<ImageData>, Arc<str>)>> = const { RefCell::new(Vec::new()) };
+}
+
+/// `data` as a data URI.
+fn uri(data: &Arc<ImageData>) -> Arc<str> {
+    KEPT.with(|kept| {
+        let mut kept = kept.borrow_mut();
+        if let Some((_, uri)) = kept
+            .iter()
+            .find(|(w, _)| std::ptr::eq(w.as_ptr(), Arc::as_ptr(data)))
+        {
+            return uri.clone();
+        }
+        use base64::Engine;
+        let uri: Arc<str> = format!(
+            "data:{};base64,{}",
+            data.mime,
+            base64::engine::general_purpose::STANDARD.encode(&data.bytes)
+        )
+        .into();
+        kept.retain(|(w, _)| w.strong_count() > 0);
+        if kept.len() >= URIS {
+            kept.remove(0);
+        }
+        kept.push((Arc::downgrade(data), uri.clone()));
+        uri
+    })
 }

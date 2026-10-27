@@ -417,6 +417,7 @@ dependencies = [
  "nsh-core",
  "nsh-engine",
  "nsh-testing",
+ "png",
  "serde_json",
  "tiny-skia",
 ]
