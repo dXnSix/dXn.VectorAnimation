@@ -149,7 +149,8 @@ impl VectorAnimationApi {
 
 /// A scene ready to play: whether the native graph plays it.
 struct Ready {
-    loaded: Loaded,
+    /// The file's scene, shared with what plays it.
+    scene: Rc<Scene>,
     native: bool,
     /// Parts of it are sampled frame by frame, on the engine's clock.
     mixed: bool,
@@ -182,7 +183,7 @@ pub fn VectorAnimation(
             played.set(None);
             return;
         };
-        let scene = &r.loaded.scene;
+        let scene = &r.scene;
         let on = event.get().and_then(|(name, _)| {
             let m = scene.timeline.markers.iter().find(|m| {
                 m.name
@@ -196,7 +197,7 @@ pub fn VectorAnimation(
         });
         played.set(Some(match on {
             Some((scene, duration)) => (scene, Some(duration)),
-            None => (Rc::new(scene.clone()), None),
+            None => (scene.clone(), None),
         }));
     });
     let loading = stored(None::<Spawned<()>>);
@@ -264,7 +265,7 @@ pub fn VectorAnimation(
                         };
                     let info = info(&loaded);
                     ready.set(Some(Rc::new(Ready {
-                        loaded,
+                        scene: Rc::new(loaded.scene),
                         native,
                         mixed,
                         compiled: RefCell::new(compiled),
@@ -428,11 +429,7 @@ pub fn VectorAnimation(
         });
     });
 
-    let natural = move || {
-        ready
-            .get()
-            .map(|r| (r.loaded.scene.width, r.loaded.scene.height))
-    };
+    let natural = move || ready.get().map(|r| (r.scene.width, r.scene.height));
     let mut root = view()
         .relative()
         .overflow_hidden()

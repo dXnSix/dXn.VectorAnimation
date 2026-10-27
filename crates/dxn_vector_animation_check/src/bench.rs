@@ -167,25 +167,20 @@ fn view_size(scene: &Scene, size: f64) -> (f64, f64) {
 fn bench(bytes: &[u8], runs: usize, size: f64, ratio: f64) -> Option<Row> {
     let mut row = Row::default();
     let held = Region::new(GLOBAL);
-    // Time to first frame, as the player goes: read, compiled for the view
-    // (measured by then), the scene played kept, the first rasters and
-    // sampled frames made.
+    // Time to first frame, as the player goes: read, compiled for the view,
+    // the first rasters and sampled frames made.
     let (read, loaded) = measured(runs, || dxn_vector_animation_nsh::source::read(bytes));
     row.read = read;
     let scene = loaded.ok()?.scene;
     let (w, h) = view_size(&scene, size);
     let base = dxn_vector_animation_nsh::fit(&scene, w, h, Default::default());
-    let (compile, compiled) = measured(runs, || {
-        let plan = plan::compile_for(&scene, base, ratio).ok();
-        let played = scene.clone();
-        Some((played, plan))
-    });
+    let (compile, compiled) = measured(runs, || plan::compile_for(&scene, base, ratio).ok());
     row.compile = compile;
     let mut sampled = Vec::new();
     let mut rasters = Vec::new();
     let mut whole = None;
     let plan = match compiled {
-        Some((_, Some(plan))) => {
+        Some(plan) => {
             parts(&plan.units, &mut sampled, &mut rasters, &mut row);
             row.nodes = plan.graph.nodes().len();
             row.breaks = plan

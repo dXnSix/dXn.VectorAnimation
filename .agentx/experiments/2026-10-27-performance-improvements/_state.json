@@ -11,13 +11,13 @@
   "status": "",
   "createdAt": "2026-10-27T20:14:29Z",
   "finishedAt": null,
-  "lastStableCommit": "e874f1ea300affa058ede7612e45657b111b369c",
+  "lastStableCommit": "e5a3555b3b0349beb4812ff42c119f83237332fb",
   "repositories": [
     {
       "name": "main",
       "path": ".",
       "role": "main",
-      "lastStableCommit": "e874f1ea300affa058ede7612e45657b111b369c"
+      "lastStableCommit": "e5a3555b3b0349beb4812ff42c119f83237332fb"
     }
   ],
   "atomicDiscipline": {
@@ -28,8 +28,8 @@
     "successfulAttemptRequiresCommitBeforeNextExperiment": true,
     "rule": "Run exactly the printed hypothesis. If the attempted change fails, degrades, or suggests a different fix, revert to the checkpoint and finish this experiment as failure. Start a new experiment for the next idea."
   },
-  "currentExperimentId": "f299ae61-8c67-4b8d-8991-1c92f7844696",
-  "nextExperimentIndex": 12,
+  "currentExperimentId": "070f8502-af1b-4c28-889b-d017a9051346",
+  "nextExperimentIndex": 13,
   "experiments": [
     {
       "id": "f0287285-7a36-4cb5-8eef-94cdd163e5a7",
@@ -158,6 +158,18 @@
       "name": "One compile on load",
       "path": "2026-10-27-11-one-compile-on-load.json",
       "startedAt": "2026-10-27T20:35:43Z",
+      "finishedAt": "2026-10-27T20:38:22Z",
+      "state": "done",
+      "status": "success",
+      "resultCommit": "e5a3555b3b0349beb4812ff42c119f83237332fb"
+    },
+    {
+      "id": "070f8502-af1b-4c28-889b-d017a9051346",
+      "index": 12,
+      "type": "hypothesis",
+      "name": "Played scene shared, not cloned",
+      "path": "2026-10-27-12-played-scene-shared-not-cloned.json",
+      "startedAt": "2026-10-27T20:38:31Z",
       "finishedAt": null,
       "state": "running",
       "status": ""

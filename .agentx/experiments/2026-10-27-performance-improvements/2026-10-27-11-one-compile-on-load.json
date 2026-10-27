@@ -9,11 +9,11 @@
   "path": "2026-10-27-11-one-compile-on-load.json",
   "createdAt": "2026-10-27T20:35:43Z",
   "startedAt": "2026-10-27T20:35:43Z",
-  "finishedAt": null,
-  "state": "running",
-  "status": "",
+  "finishedAt": "2026-10-27T20:38:22Z",
+  "state": "done",
+  "status": "success",
   "checkpointCommit": "e874f1ea300affa058ede7612e45657b111b369c",
-  "resultCommit": "",
+  "resultCommit": "e5a3555b3b0349beb4812ff42c119f83237332fb",
   "rollbackCommand": "git -C \"/Users/dinko/work-private/projects/dXn/dXn.VectorAnimation\" reset --hard e874f1ea300affa058ede7612e45657b111b369c",
   "repositories": [
     {
@@ -21,12 +21,19 @@
       "path": ".",
       "role": "main",
       "checkpointCommit": "e874f1ea300affa058ede7612e45657b111b369c",
-      "resultCommit": "",
+      "resultCommit": "e5a3555b3b0349beb4812ff42c119f83237332fb",
       "rollbackCommand": "git -C \"/Users/dinko/work-private/projects/dXn/dXn.VectorAnimation\" reset --hard e874f1ea300affa058ede7612e45657b111b369c",
-      "status": ""
+      "status": "success"
     }
   ],
-  "repositoryCommits": [],
+  "repositoryCommits": [
+    {
+      "name": "main",
+      "path": ".",
+      "role": "main",
+      "commit": "e5a3555b3b0349beb4812ff42c119f83237332fb"
+    }
+  ],
   "atomicDiscipline": {
     "oneHypothesisOnly": true,
     "singleImplementationAttempt": true,
@@ -36,17 +43,46 @@
     "rule": "Run exactly the printed hypothesis. If the attempted change fails, degrades, or suggests a different fix, revert to the checkpoint and finish this experiment as failure. Start a new experiment for the next idea."
   },
   "primaryTarget": "wasm/web with headed Playwright and WebGPU enabled",
-  "hypothesisMarkdown": "",
-  "measurementPlanMarkdown": "",
-  "expectedOutcomeMarkdown": "",
+  "hypothesisMarkdown": "## One compile on load Hypothesis\n\nThe component compiled the plan on load at the scene's own size and one pixel a point only to learn whether the graph plays it, then again for the view in its first drawing. It now compiles once on load for the view (as measured, or at the scene's size the view takes before it is measured) at the display's pixels, and the first drawing of the same fit and pixels takes that plan. A scene an event plays, or a fit that changed, compiles as before.\\n\\n**Tested mechanism:** one compile shared by load and first drawing. **Allowed:** `component.rs` load/draw, the bench's model of it. **Forbidden:** plan changes.",
+  "measurementPlanMarkdown": "### Measurement Plan\n\nRelease bench over the 53 corpus files (median of 3 runs, best of 5 each), plus the focused tests of the touched area.",
+  "expectedOutcomeMarkdown": "### Expected Outcome\n\nThe targeted metric improves with identical graph output and passing focused tests.",
   "diagnostics": {
     "playwright": [],
     "rayx": [],
     "counters": [],
     "artifacts": []
   },
-  "measurements": [],
-  "reportMarkdown": "",
-  "decisionMarkdown": "",
+  "measurements": [
+    {
+      "metric": "compile ms (bench models the component)",
+      "before": "89.5 (two compiles)",
+      "after": "36.3 (one)",
+      "delta": "",
+      "source": "scratchpad bench.sh: median of 3 `vector-animation-check bench artifacts-temp/corpus`"
+    },
+    {
+      "metric": "ttff ms",
+      "before": "163.8",
+      "after": "110.4",
+      "delta": "",
+      "source": "scratchpad bench.sh: median of 3 `vector-animation-check bench artifacts-temp/corpus`"
+    },
+    {
+      "metric": "ttff allocations",
+      "before": "1,514,600",
+      "after": "1,323,090",
+      "delta": "",
+      "source": "scratchpad bench.sh: median of 3 `vector-animation-check bench artifacts-temp/corpus`"
+    },
+    {
+      "metric": "ttff MB allocated",
+      "before": "751",
+      "after": "485",
+      "delta": "",
+      "source": "scratchpad bench.sh: median of 3 `vector-animation-check bench artifacts-temp/corpus`"
+    }
+  ],
+  "reportMarkdown": "## One compile on load Finished\n\n**Passed Status**: True\n\n**Attempt Count:** 1. **Out-of-scope changes:** none.\n\nTime to first frame -33%. Headless component test: the first drawing takes the load's plan (probed, 2 of 3 players; the third plays an event). Tests: component, playback, graph_clock, fitting, playback_holds, loop_starts pass; clippy clean. The verdict (graph or sampled whole) is now the view's compile's, which the first drawing used anyway.\n\n| Repo | Path | Checkpoint | Result Commit | Status |\n| --- | --- | --- | --- | --- |\n| main | . | e874f1e | e5a3555 | committed |",
+  "decisionMarkdown": "### Decision\n\nCommitted e5a3555: perf(nsh): compile the plan once on load, for the view, and draw with it",
   "notes": ""
 }
