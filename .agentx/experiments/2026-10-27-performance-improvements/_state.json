@@ -11,13 +11,13 @@
   "status": "",
   "createdAt": "2026-10-27T20:14:29Z",
   "finishedAt": null,
-  "lastStableCommit": "9e9e7ef99563986b23e29ad2442ece210169c648",
+  "lastStableCommit": "e08e517ed0a4c953c27e9007423c8b49d67778f9",
   "repositories": [
     {
       "name": "main",
       "path": ".",
       "role": "main",
-      "lastStableCommit": "9e9e7ef99563986b23e29ad2442ece210169c648"
+      "lastStableCommit": "e08e517ed0a4c953c27e9007423c8b49d67778f9"
     }
   ],
   "atomicDiscipline": {
@@ -28,8 +28,8 @@
     "successfulAttemptRequiresCommitBeforeNextExperiment": true,
     "rule": "Run exactly the printed hypothesis. If the attempted change fails, degrades, or suggests a different fix, revert to the checkpoint and finish this experiment as failure. Start a new experiment for the next idea."
   },
-  "currentExperimentId": "38004177-8ba7-441c-99d6-02f5a62fa760",
-  "nextExperimentIndex": 46,
+  "currentExperimentId": "0e1ef232-aaf7-41f1-9cda-498a93a75c4a",
+  "nextExperimentIndex": 50,
   "experiments": [
     {
       "id": "f0287285-7a36-4cb5-8eef-94cdd163e5a7",
@@ -562,6 +562,51 @@
       "name": "Sampled parts joined without copies",
       "path": "2026-10-27-45-sampled-parts-joined-without-copies.json",
       "startedAt": "2026-10-27T21:59:21Z",
+      "finishedAt": "2026-10-27T22:00:10Z",
+      "state": "done",
+      "status": "success",
+      "resultCommit": "e08e517ed0a4c953c27e9007423c8b49d67778f9"
+    },
+    {
+      "id": "4f87d246-2566-44f1-bb2b-414e557bdcbb",
+      "index": 46,
+      "type": "hypothesis",
+      "name": "Flattened contours keep their buffer",
+      "path": "2026-10-27-46-flattened-contours-keep-their-buffer.json",
+      "startedAt": "2026-10-27T22:01:03Z",
+      "finishedAt": "2026-10-27T22:01:23Z",
+      "state": "done",
+      "status": "failure"
+    },
+    {
+      "id": "7f45e5e2-6057-4abe-82d4-c6a31e8319f6",
+      "index": 47,
+      "type": "hypothesis",
+      "name": "Nodes read by their tag, not buffered",
+      "path": "2026-10-27-47-nodes-read-by-their-tag-not-buffered.json",
+      "startedAt": "2026-10-27T22:03:02Z",
+      "finishedAt": "2026-10-27T22:03:55Z",
+      "state": "done",
+      "status": "failure"
+    },
+    {
+      "id": "ee9b553a-8e44-4f80-878b-46e8eb026e54",
+      "index": 48,
+      "type": "hypothesis",
+      "name": "One-path clips transformed into place",
+      "path": "2026-10-27-48-one-path-clips-transformed-into-place.json",
+      "startedAt": "2026-10-27T22:04:10Z",
+      "finishedAt": "2026-10-27T22:04:52Z",
+      "state": "done",
+      "status": "failure"
+    },
+    {
+      "id": "0e1ef232-aaf7-41f1-9cda-498a93a75c4a",
+      "index": 49,
+      "type": "hypothesis",
+      "name": "Direct compositing without branches",
+      "path": "2026-10-27-49-direct-compositing-without-branches.json",
+      "startedAt": "2026-10-27T22:05:04Z",
       "finishedAt": null,
       "state": "running",
       "status": ""

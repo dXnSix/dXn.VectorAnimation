@@ -1,0 +1,67 @@
+{
+  "schemaVersion": 1,
+  "id": "ee9b553a-8e44-4f80-878b-46e8eb026e54",
+  "loopId": "9e7a8b6d-0104-4e72-a31e-3b168c0b3881",
+  "index": 48,
+  "type": "hypothesis",
+  "name": "One-path clips transformed into place",
+  "slug": "one-path-clips-transformed-into-place",
+  "path": "2026-10-27-48-one-path-clips-transformed-into-place.json",
+  "createdAt": "2026-10-27T22:04:10Z",
+  "startedAt": "2026-10-27T22:04:10Z",
+  "finishedAt": "2026-10-27T22:04:52Z",
+  "state": "done",
+  "status": "failure",
+  "checkpointCommit": "e08e517ed0a4c953c27e9007423c8b49d67778f9",
+  "resultCommit": "",
+  "rollbackCommand": "git -C \"/Users/dinko/work-private/projects/dXn/dXn.VectorAnimation\" reset --hard e08e517ed0a4c953c27e9007423c8b49d67778f9",
+  "repositories": [
+    {
+      "name": "main",
+      "path": ".",
+      "role": "main",
+      "checkpointCommit": "e08e517ed0a4c953c27e9007423c8b49d67778f9",
+      "resultCommit": "",
+      "rollbackCommand": "git -C \"/Users/dinko/work-private/projects/dXn/dXn.VectorAnimation\" reset --hard e08e517ed0a4c953c27e9007423c8b49d67778f9",
+      "status": "failure"
+    }
+  ],
+  "repositoryCommits": [],
+  "atomicDiscipline": {
+    "oneHypothesisOnly": true,
+    "singleImplementationAttempt": true,
+    "noUnplannedFixesInsideExperiment": true,
+    "failedAttemptRequiresImmediateRevert": true,
+    "successfulAttemptRequiresCommitBeforeNextExperiment": true,
+    "rule": "Run exactly the printed hypothesis. If the attempted change fails, degrades, or suggests a different fix, revert to the checkpoint and finish this experiment as failure. Start a new experiment for the next idea."
+  },
+  "primaryTarget": "wasm/web with headed Playwright and WebGPU enabled",
+  "hypothesisMarkdown": "## One-path clips transformed into place Hypothesis\n\nA clip drawn as one path (all its outlines in the frame's space) made a transformed copy of each outline and appended it; it was to append the transformed points directly.\\n\\n**Tested mechanism:** in-place transform of one-path clips. **Allowed:** core `frame.rs`, `geom.rs`. **Forbidden:** other paths.",
+  "measurementPlanMarkdown": "### Measurement Plan\n\nRelease bench over the 53 corpus files (median of 3 runs, best of 5 each), plus the focused tests of the touched area.",
+  "expectedOutcomeMarkdown": "### Expected Outcome\n\nThe targeted metric improves with identical graph output and passing focused tests.",
+  "diagnostics": {
+    "playwright": [],
+    "rayx": [],
+    "counters": [],
+    "artifacts": []
+  },
+  "measurements": [
+    {
+      "metric": "frame_at us/frame",
+      "before": "198.8",
+      "after": "199.8-200.3",
+      "delta": "",
+      "source": "scratchpad bench.sh: median of 3 `vector-animation-check bench artifacts-temp/corpus`"
+    },
+    {
+      "metric": "frame_at allocs/frame",
+      "before": "2908",
+      "after": "2908",
+      "delta": "",
+      "source": "scratchpad bench.sh: median of 3 `vector-animation-check bench artifacts-temp/corpus`"
+    }
+  ],
+  "reportMarkdown": "## One-path clips transformed into place Finished\n\n**Passed Status**: False\n\n**Attempt Count:** 1. **Out-of-scope changes:** none.\n\nFailed: no change; no frame of the corpus has a one-path clip. Reverted.\n\n| Repo | Path | Checkpoint | Result Commit | Status |\n| --- | --- | --- | --- | --- |\n| main | . | e08e517 | none | reverted |",
+  "decisionMarkdown": "### Decision\n\nReverted to e08e517.",
+  "notes": ""
+}

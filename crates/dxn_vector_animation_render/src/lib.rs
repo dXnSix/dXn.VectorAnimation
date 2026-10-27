@@ -875,25 +875,25 @@ fn over(target: &mut sk::Pixmap, layer: &sk::Pixmap, opacity: f32, area: sk::Rec
     let w = target.width() as usize;
     let (x0, x1) = (area.left() as usize, (area.right() as usize).min(w));
     let (y0, y1) = (area.top() as usize, area.bottom() as usize);
-    let to = target.pixels_mut();
-    let from = layer.pixels();
-    for y in y0..y1.min(from.len() / w.max(1)) {
-        let row = y * w;
-        for (t, s) in to[row + x0..row + x1]
+    let rows = (layer.data().len() / (w * 4).max(1)).min(y1);
+    let (to, from) = (target.data_mut(), layer.data());
+    // Byte by byte, clear pixels too (they leave what is under them as it
+    // is): no channel comes out above its alpha.
+    for y in y0..rows {
+        let span = (y * w + x0) * 4..(y * w + x1) * 4;
+        for (t, s) in to[span.clone()]
+            .as_chunks_mut::<4>()
+            .0
             .iter_mut()
-            .zip(&from[row + x0..row + x1])
+            .zip(from[span].as_chunks::<4>().0)
         {
-            if s.alpha() == 0 {
-                continue;
-            }
-            let inv = 1.0 - fade(s.alpha());
-            *t = sk::PremultipliedColorU8::from_rgba(
-                channel(t.red(), s.red(), inv),
-                channel(t.green(), s.green(), inv),
-                channel(t.blue(), s.blue(), inv),
-                channel(t.alpha(), s.alpha(), inv),
-            )
-            .unwrap_or(*t);
+            let inv = 1.0 - fade(s[3]);
+            *t = [
+                channel(t[0], s[0], inv),
+                channel(t[1], s[1], inv),
+                channel(t[2], s[2], inv),
+                channel(t[3], s[3], inv),
+            ];
         }
     }
 }
