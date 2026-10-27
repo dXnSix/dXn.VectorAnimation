@@ -240,14 +240,11 @@ pub fn raster(view: &Scene, time: f64, ratio: f64) -> Option<(Arc<ImageData>, Re
 /// each decoded at once, and the images a plan holds are made before its
 /// first frame.
 fn png(pixmap: &tiny_skia::Pixmap) -> Option<Vec<u8>> {
-    let data: Vec<u8> = pixmap
-        .pixels()
-        .iter()
-        .flat_map(|p| {
-            let c = p.demultiply();
-            [c.red(), c.green(), c.blue(), c.alpha()]
-        })
-        .collect();
+    let mut data = Vec::with_capacity(pixmap.data().len());
+    for p in pixmap.pixels() {
+        let c = p.demultiply();
+        data.extend_from_slice(&[c.red(), c.green(), c.blue(), c.alpha()]);
+    }
     let mut out = Vec::new();
     let mut encoder = png::Encoder::new(&mut out, pixmap.width(), pixmap.height());
     encoder.set_color(png::ColorType::Rgba);

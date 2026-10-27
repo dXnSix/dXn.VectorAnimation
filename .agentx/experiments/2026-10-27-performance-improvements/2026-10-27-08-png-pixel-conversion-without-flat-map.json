@@ -1,0 +1,52 @@
+{
+  "schemaVersion": 1,
+  "id": "234a3018-52e9-460d-aac6-e8679f7c3b10",
+  "loopId": "9e7a8b6d-0104-4e72-a31e-3b168c0b3881",
+  "index": 8,
+  "type": "hypothesis",
+  "name": "PNG pixel conversion without flat_map",
+  "slug": "png-pixel-conversion-without-flat-map",
+  "path": "2026-10-27-08-png-pixel-conversion-without-flat-map.json",
+  "createdAt": "2026-10-27T20:30:03Z",
+  "startedAt": "2026-10-27T20:30:03Z",
+  "finishedAt": null,
+  "state": "running",
+  "status": "",
+  "checkpointCommit": "cc740576475de7e5d1e220167e50484346dab128",
+  "resultCommit": "",
+  "rollbackCommand": "git -C \"/Users/dinko/work-private/projects/dXn/dXn.VectorAnimation\" reset --hard cc740576475de7e5d1e220167e50484346dab128",
+  "repositories": [
+    {
+      "name": "main",
+      "path": ".",
+      "role": "main",
+      "checkpointCommit": "cc740576475de7e5d1e220167e50484346dab128",
+      "resultCommit": "",
+      "rollbackCommand": "git -C \"/Users/dinko/work-private/projects/dXn/dXn.VectorAnimation\" reset --hard cc740576475de7e5d1e220167e50484346dab128",
+      "status": ""
+    }
+  ],
+  "repositoryCommits": [],
+  "atomicDiscipline": {
+    "oneHypothesisOnly": true,
+    "singleImplementationAttempt": true,
+    "noUnplannedFixesInsideExperiment": true,
+    "failedAttemptRequiresImmediateRevert": true,
+    "successfulAttemptRequiresCommitBeforeNextExperiment": true,
+    "rule": "Run exactly the printed hypothesis. If the attempted change fails, degrades, or suggests a different fix, revert to the checkpoint and finish this experiment as failure. Start a new experiment for the next idea."
+  },
+  "primaryTarget": "wasm/web with headed Playwright and WebGPU enabled",
+  "hypothesisMarkdown": "",
+  "measurementPlanMarkdown": "",
+  "expectedOutcomeMarkdown": "",
+  "diagnostics": {
+    "playwright": [],
+    "rayx": [],
+    "counters": [],
+    "artifacts": []
+  },
+  "measurements": [],
+  "reportMarkdown": "",
+  "decisionMarkdown": "",
+  "notes": ""
+}

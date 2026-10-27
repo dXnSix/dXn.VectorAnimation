@@ -11,13 +11,13 @@
   "status": "",
   "createdAt": "2026-10-27T20:14:29Z",
   "finishedAt": null,
-  "lastStableCommit": "32fe684557a7e3a4e0a7309dac595c9209481796",
+  "lastStableCommit": "cc740576475de7e5d1e220167e50484346dab128",
   "repositories": [
     {
       "name": "main",
       "path": ".",
       "role": "main",
-      "lastStableCommit": "32fe684557a7e3a4e0a7309dac595c9209481796"
+      "lastStableCommit": "cc740576475de7e5d1e220167e50484346dab128"
     }
   ],
   "atomicDiscipline": {
@@ -28,8 +28,8 @@
     "successfulAttemptRequiresCommitBeforeNextExperiment": true,
     "rule": "Run exactly the printed hypothesis. If the attempted change fails, degrades, or suggests a different fix, revert to the checkpoint and finish this experiment as failure. Start a new experiment for the next idea."
   },
-  "currentExperimentId": "2c1c691b-43e7-4be4-aec4-ceffae81518c",
-  "nextExperimentIndex": 8,
+  "currentExperimentId": "234a3018-52e9-460d-aac6-e8679f7c3b10",
+  "nextExperimentIndex": 9,
   "experiments": [
     {
       "id": "f0287285-7a36-4cb5-8eef-94cdd163e5a7",
@@ -110,6 +110,18 @@
       "name": "Switch times from the easing alone",
       "path": "2026-10-27-07-switch-times-from-the-easing-alone.json",
       "startedAt": "2026-10-27T20:28:42Z",
+      "finishedAt": "2026-10-27T20:29:54Z",
+      "state": "done",
+      "status": "success",
+      "resultCommit": "cc740576475de7e5d1e220167e50484346dab128"
+    },
+    {
+      "id": "234a3018-52e9-460d-aac6-e8679f7c3b10",
+      "index": 8,
+      "type": "hypothesis",
+      "name": "PNG pixel conversion without flat_map",
+      "path": "2026-10-27-08-png-pixel-conversion-without-flat-map.json",
+      "startedAt": "2026-10-27T20:30:03Z",
       "finishedAt": null,
       "state": "running",
       "status": ""
