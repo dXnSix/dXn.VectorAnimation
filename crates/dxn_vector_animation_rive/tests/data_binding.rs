@@ -9,7 +9,7 @@ mod common;
 
 use common::{Riv, V, color_at, inked, key, scene, ty};
 use dxn_vector_animation::Limits;
-use dxn_vector_animation_rive::{Options, read_options};
+use dxn_vector_animation_rive::{Options, PropertyValue, ValueChange, read_options};
 
 const RED: [u8; 3] = [255, 0, 0];
 const BLUE: [u8; 3] = [0, 0, 255];
@@ -43,6 +43,12 @@ mod dt {
     pub const TO_STRING_FLAGS: u16 = 764;
     pub const TO_STRING_DECIMALS: u16 = 765;
     pub const IS_VISIBLE: u16 = 41;
+    pub const VM_TRIGGER: u16 = 502;
+    pub const VM_INSTANCE_TRIGGER: u16 = 501;
+    pub const BINDABLE_TRIGGER: u16 = 503;
+    pub const VALUE_TRIGGER_COMPARATOR: u16 = 505;
+    pub const SELF_COMPARATOR: u16 = 593;
+    pub const BINDABLE_TRIGGER_VALUE: u16 = 686;
 }
 
 /// A view model with a number "level" (property 0) and a color "tint"
@@ -454,4 +460,142 @@ fn nested_view_models_bind_their_instances_values() {
     let s = scene(&riv);
     assert_eq!(color_at(&s, 0.0, 70, 30), RED);
     assert_eq!(color_at(&s, 0.0, 10, 30), WHITE);
+}
+
+/// `riv` read with the view model changes `values` (path, value) made at
+/// their times.
+fn changed(riv: &Riv, values: &[(f64, &str, PropertyValue)]) -> dxn_vector_animation::Scene {
+    let options = Options {
+        values: values
+            .iter()
+            .map(|(time, path, value)| ValueChange {
+                time: *time,
+                path: (*path).into(),
+                value: value.clone(),
+            })
+            .collect(),
+        ..Options::default()
+    };
+    // Written for Rive's runtime to replay too.
+    let _ = scene(riv);
+    read_options(&riv.bytes(), &Limits::default(), &options)
+        .unwrap()
+        .scene
+}
+
+#[test]
+fn values_changed_over_time_change_what_they_are_bound_to() {
+    // Green from 0.5 s; "level" 5 from 1 s sends the square right.
+    let s = changed(
+        &bound(1.0),
+        &[
+            (0.5, "tint", PropertyValue::Color(0xFF00_FF00)),
+            (1.0, "level", PropertyValue::Number(5.0)),
+        ],
+    );
+    assert_eq!(color_at(&s, 0.25, 10, 25), BLUE);
+    assert_eq!(color_at(&s, 0.75, 10, 25), [0, 255, 0]);
+    assert_eq!(color_at(&s, 1.25, 10, 25), WHITE);
+    assert_eq!(color_at(&s, 1.25, 70, 25), [0, 255, 0]);
+}
+
+/// The scene of `bound` with a trigger "go" (property 2) and a number
+/// "count" (property 3), its machine going from "left" to "right" when
+/// "go" is fired and back to "left" when "count" changes.
+fn triggered() -> Riv {
+    let riv = Riv::new()
+        .obj(ty::VIEW_MODEL, &[(key::VM_NAME, V::S("Game"))])
+        .obj(ty::VM_NUMBER, &[(key::VM_NAME, V::S("level"))])
+        .obj(ty::VM_COLOR, &[(key::VM_NAME, V::S("tint"))])
+        .obj(dt::VM_TRIGGER, &[(key::VM_NAME, V::S("go"))])
+        .obj(ty::VM_NUMBER, &[(key::VM_NAME, V::S("count"))])
+        .obj(ty::VM_INSTANCE, &[(key::VM_INSTANCE_VM, V::U(0))])
+        .obj(
+            dt::VM_INSTANCE_TRIGGER,
+            &[(key::VM_VALUE_PROPERTY, V::U(2))],
+        )
+        .obj(ty::VM_INSTANCE_NUMBER, &[(key::VM_VALUE_PROPERTY, V::U(3))]);
+    let mut riv = bound_artboard(riv).rect_shape(0, 10.0, 25.0, 10.0, 10.0, 0xFFFF_0000);
+    for (name, x) in [("left", 10.0), ("right", 70.0)] {
+        riv = riv
+            .obj(
+                ty::LINEAR_ANIMATION,
+                &[
+                    (key::ANIMATION_NAME, V::S(name)),
+                    (key::FPS, V::U(10)),
+                    (key::DURATION, V::U(1)),
+                ],
+            )
+            .obj(ty::KEYED_OBJECT, &[(key::OBJECT_ID, V::U(1))])
+            .obj(
+                ty::KEYED_PROPERTY,
+                &[(key::PROPERTY_KEY, V::U(u64::from(key::X)))],
+            )
+            .obj(
+                ty::KEY_FRAME_DOUBLE,
+                &[(key::FRAME, V::U(0)), (key::VALUE, V::D(x))],
+            );
+    }
+    riv.obj(
+        ty::STATE_MACHINE,
+        &[(key::ANIMATION_NAME, V::S("State Machine 1"))],
+    )
+    .obj(ty::STATE_MACHINE_LAYER, &[])
+    .obj(ty::ENTRY_STATE, &[])
+    .obj(ty::STATE_TRANSITION, &[(key::STATE_TO_ID, V::U(3))])
+    .obj(ty::ANY_STATE, &[])
+    .obj(ty::EXIT_STATE, &[])
+    .obj(ty::ANIMATION_STATE, &[(key::ANIMATION_ID, V::U(0))])
+    .obj(ty::STATE_TRANSITION, &[(key::STATE_TO_ID, V::U(4))])
+    .obj(ty::VM_CONDITION, &[])
+    .obj(dt::BINDABLE_TRIGGER, &[])
+    .obj(
+        ty::DATA_BIND_CONTEXT,
+        &[
+            (
+                key::BIND_PROPERTY_KEY,
+                V::U(u64::from(dt::BINDABLE_TRIGGER_VALUE)),
+            ),
+            (key::BIND_PATH, V::Bytes(vec![0, 2])),
+        ],
+    )
+    .obj(ty::VM_PROPERTY_COMPARATOR, &[])
+    .obj(dt::VALUE_TRIGGER_COMPARATOR, &[])
+    .obj(ty::ANIMATION_STATE, &[(key::ANIMATION_ID, V::U(1))])
+    .obj(ty::STATE_TRANSITION, &[(key::STATE_TO_ID, V::U(3))])
+    .obj(ty::VM_CONDITION, &[])
+    .obj(ty::BINDABLE_NUMBER, &[])
+    .obj(
+        ty::DATA_BIND_CONTEXT,
+        &[
+            (key::BIND_PROPERTY_KEY, V::U(636)),
+            (key::BIND_PATH, V::Bytes(vec![0, 3])),
+        ],
+    )
+    .obj(ty::VM_PROPERTY_COMPARATOR, &[])
+    .obj(dt::SELF_COMPARATOR, &[])
+}
+
+#[test]
+fn triggers_and_changing_values_hold_in_the_frame_they_change() {
+    let riv = triggered();
+    // Nothing fired: it stays left.
+    let s = changed(&riv, &[]);
+    assert_eq!(color_at(&s, 1.0, 10, 25), RED);
+    // Fired at 0.5 s: right; "count" changed at 1 s: left again; set to
+    // what it holds at 1.5 s: it stays.
+    let s = changed(
+        &riv,
+        &[
+            (0.5, "go", PropertyValue::Trigger),
+            (1.0, "count", PropertyValue::Number(2.0)),
+            (1.5, "go", PropertyValue::Trigger),
+            (2.0, "count", PropertyValue::Number(2.0)),
+        ],
+    );
+    assert_eq!(color_at(&s, 0.25, 10, 25), RED);
+    assert_eq!(color_at(&s, 0.75, 70, 25), RED);
+    assert_eq!(color_at(&s, 1.25, 10, 25), RED);
+    assert_eq!(color_at(&s, 1.75, 70, 25), RED);
+    assert_eq!(color_at(&s, 2.25, 70, 25), RED);
 }

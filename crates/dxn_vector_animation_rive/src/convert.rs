@@ -209,6 +209,9 @@ struct Machine {
     inputs: Vec<Option<f64>>,
     /// Each input's name.
     names: Vec<String>,
+    /// Changes the view model instance bound makes to what its conditions
+    /// read, past its inputs (frame, input, value; `None` fires).
+    changes: Vec<(usize, usize, Option<f64>)>,
 }
 
 /// A nested artboard's state machine, as its parent plays it: the layer of
@@ -520,7 +523,9 @@ impl<'a> Converter<'a> {
             };
         }
         Timeline {
-            duration: first.map_or(0.0, |s| s.duration),
+            // Without animations, until the last change a view model
+            // instance bound makes.
+            duration: first.map_or_else(|| self.last_bound_frame() as f64 * DT, |s| s.duration),
             frame_rate: first.map(|s| s.fps),
             loop_start: 0.0,
             loop_mode: first.map_or(LoopMode::Once, |s| s.loop_mode),
@@ -591,10 +596,17 @@ impl<'a> Converter<'a> {
             fps,
             inputs,
             names,
+            changes: bound,
         } = self.machine(index)?;
         // The changes made, each at the first frame at or after its time:
         // (frame, input, value; `None` fires a trigger).
-        let mut changes: Vec<(usize, usize, Option<f64>)> = Vec::new();
+        let last_bound = bound
+            .iter()
+            .map(|c| c.0)
+            .max()
+            .unwrap_or(0)
+            .max(self.last_bound_frame());
+        let mut changes: Vec<(usize, usize, Option<f64>)> = bound;
         for c in self
             .changes
             .clone()
@@ -660,7 +672,8 @@ impl<'a> Converter<'a> {
                     .map(|a| ((a.time.max(0.0) / DT - 1e-6).ceil() as usize).min(MAX_FRAMES)),
             )
             .max()
-            .unwrap_or(0);
+            .unwrap_or(0)
+            .max(last_bound);
         let horizon = last_change + 30 * 60;
         let (mut played, mut fired) = play(horizon.min(MAX_FRAMES));
         let (mut settled, mut periods, mut steady) = settle(&played, &anims);
@@ -775,7 +788,7 @@ impl<'a> Converter<'a> {
                     .collect(),
             })
             .collect();
-        let inputs: Vec<Option<f64>> = sm
+        let mut inputs: Vec<Option<f64>> = sm
             .inputs
             .iter()
             .map(|i| {
@@ -788,6 +801,36 @@ impl<'a> Converter<'a> {
                 }
             })
             .collect();
+        // What the view model instance bound changes over time: its
+        // bindable properties as they are from each change on, and the
+        // frames the values bound to each change in.
+        let frame = |t: f64| ((t.max(0.0) / DT - 1e-6).ceil() as usize).min(MAX_FRAMES);
+        let bound = &self.file.bound;
+        let at = self.file.artboards.iter().position(|a| std::ptr::eq(a, ab));
+        let changed_of = |b: usize| at.and_then(|a| bound.changed.get(&(a, index, b)));
+        let mut times: Vec<f64> = bound
+            .bindables
+            .iter()
+            .filter(|((a, m, _), _)| Some(*a) == at && *m == index)
+            .flat_map(|(_, l)| l.iter().map(|c| c.0))
+            .collect();
+        times.sort_by(f64::total_cmp);
+        times.dedup();
+        let epochs: Vec<(usize, Vec<Object>)> = times
+            .iter()
+            .map(|&time| {
+                let mut b = sm.bindables.clone();
+                for (k, o) in b.iter_mut().enumerate() {
+                    let list = at.and_then(|a| bound.bindables.get(&(a, index, k)));
+                    for (_, key, v) in list.into_iter().flatten().filter(|c| c.0 <= time) {
+                        o.set(*key, v.clone());
+                    }
+                }
+                (frame(time), b)
+            })
+            .collect();
+        // Inputs past the machine's own for what changes with them.
+        let mut virtual_changes: Vec<(usize, usize, Option<f64>)> = Vec::new();
         let mut unread: BTreeSet<&'static str> = BTreeSet::new();
         let mut layers: Vec<Vec<machine::State>> = Vec::new();
         for layer in &sm.layers {
@@ -826,13 +869,43 @@ impl<'a> Converter<'a> {
                                 conditions.push(machine::Cond::Fixed(false));
                                 break;
                             };
-                            conditions.push(machine::Cond::Fixed(view_model_holds(
-                                &sm.bindables,
-                                c.uint(p::TRANSITION_VIEW_MODEL_CONDITION_OP_VALUE),
-                                left,
-                                right,
-                                &mut unread,
-                            )));
+                            let op = c.uint(p::TRANSITION_VIEW_MODEL_CONDITION_OP_VALUE);
+                            // A value changing, or a trigger fired: on in
+                            // the frames the value bound changes in.
+                            if is_change(&sm.bindables, left, right) {
+                                let b = left.uint(crate::file::BINDABLE_INDEX) as usize;
+                                match changed_of(b) {
+                                    Some(times) if !times.is_empty() => {
+                                        let slot = inputs.len();
+                                        inputs.push(Some(0.0));
+                                        virtual_changes
+                                            .extend(times.iter().map(|&t| (frame(t), slot, None)));
+                                        conditions.push(machine::Cond::Trigger(slot));
+                                    }
+                                    _ => conditions.push(machine::Cond::Fixed(false)),
+                                }
+                                continue;
+                            }
+                            let first =
+                                view_model_holds(&sm.bindables, op, left, right, &mut unread);
+                            let later: Vec<(usize, f64)> = epochs
+                                .iter()
+                                .map(|(f, b)| {
+                                    let holds = view_model_holds(b, op, left, right, &mut unread);
+                                    (*f, f64::from(u8::from(holds)))
+                                })
+                                .collect();
+                            if later.iter().all(|(_, h)| (*h != 0.0) == first) {
+                                conditions.push(machine::Cond::Fixed(first));
+                            } else {
+                                let slot = slot_over(
+                                    &mut inputs,
+                                    &mut virtual_changes,
+                                    f64::from(u8::from(first)),
+                                    later,
+                                );
+                                conditions.push(machine::Cond::Bool(slot, true));
+                            }
                             continue;
                         }
                         let input = c
@@ -921,13 +994,25 @@ impl<'a> Converter<'a> {
                             machine::By::Direct
                         } else if let Some(o) = o.filter(|o| o.ty == t::BLEND_STATE1_D_VIEW_MODEL) {
                             // At the value bound to its bindable property.
-                            machine::By::Value(
-                                sm.bindables
-                                    .get(o.uint(crate::file::BINDABLE_INDEX) as usize)
-                                    .map_or(0.0, |b| {
-                                        b.num(p::BINDABLE_PROPERTY_NUMBER_PROPERTY_VALUE)
-                                    }),
-                            )
+                            let b = o.uint(crate::file::BINDABLE_INDEX) as usize;
+                            let value = |bindables: &[Object]| {
+                                bindables.get(b).map_or(0.0, |b| {
+                                    b.num(p::BINDABLE_PROPERTY_NUMBER_PROPERTY_VALUE)
+                                })
+                            };
+                            let first = value(&sm.bindables);
+                            let later: Vec<(usize, f64)> =
+                                epochs.iter().map(|(f, b)| (*f, value(b))).collect();
+                            if later.iter().all(|(_, v)| *v == first) {
+                                machine::By::Value(first)
+                            } else {
+                                machine::By::OneD(Some(slot_over(
+                                    &mut inputs,
+                                    &mut virtual_changes,
+                                    first,
+                                    later,
+                                )))
+                            }
                         } else {
                             machine::By::OneD(
                                 o.and_then(|o| o.id(p::BLEND_STATE1_D_INPUT_INPUT_ID)),
@@ -966,6 +1051,7 @@ impl<'a> Converter<'a> {
             fps: specs.iter().map(|s| s.fps).collect(),
             anims,
             inputs,
+            changes: virtual_changes,
         })
     }
 
@@ -1530,21 +1616,103 @@ impl<'a> Converter<'a> {
         let setup = self
             .object(i)
             .map_or_else(|| defs::initial(key).unwrap_or(0.0), |o| o.num(key));
-        self.curve(i, key, setup, |k| match k.ty {
+        let curve = self.curve(i, key, setup, |k| match k.ty {
             t::KEY_FRAME_DOUBLE => Some(k.num(p::KEY_FRAME_DOUBLE_VALUE)),
             t::KEY_FRAME_BOOL => Some(k.num(p::KEY_FRAME_BOOL_VALUE)),
             t::KEY_FRAME_ID => Some(k.num(p::KEY_FRAME_ID_VALUE)),
             t::KEY_FRAME_UINT => Some(k.num(p::KEY_FRAME_UINT_VALUE)),
             _ => None,
-        })
+        });
+        let changes = self.bound_changes(i, key, |o| o.num(key));
+        self.with_bound(curve, changes)
     }
 
     /// A color property.
     fn color_curve(&mut self, i: usize, key: u16) -> Curve<Color> {
         let setup = argb(self.object(i).map_or(0, |o| o.color(key)));
-        self.curve(i, key, setup, |k| {
+        let curve = self.curve(i, key, setup, |k| {
             (k.ty == t::KEY_FRAME_COLOR).then(|| argb(k.color(p::KEY_FRAME_COLOR_VALUE)))
-        })
+        });
+        let changes = self.bound_changes(i, key, |o| argb(o.color(key)));
+        self.with_bound(curve, changes)
+    }
+
+    /// This artboard's index in the file.
+    fn ab_index(&self) -> Option<usize> {
+        self.file
+            .artboards
+            .iter()
+            .position(|a| std::ptr::eq(a, self.ab))
+    }
+
+    /// The changes the view model instance bound makes over time to
+    /// property `key` of object `i`, each at the frame Rive applies it in
+    /// and as `value` reads it off the object.
+    fn bound_changes<T>(&self, i: usize, key: u16, value: impl Fn(&Object) -> T) -> Vec<(f64, T)> {
+        let list = self
+            .ab_index()
+            .and_then(|a| self.file.bound.objects.get(&(a, i, key)));
+        let (Some(list), Some(o)) = (list, self.object(i)) else {
+            return Vec::new();
+        };
+        list.iter()
+            .map(|(t, v)| {
+                let mut o = o.clone();
+                o.set(key, v.clone());
+                let frame = ((t.max(0.0) / DT - 1e-6).ceil() as usize).min(MAX_FRAMES);
+                (frame as f64 * DT, value(&o))
+            })
+            .collect()
+    }
+
+    /// The frame of the last change the view model instance bound makes to
+    /// what this artboard binds.
+    fn last_bound_frame(&self) -> usize {
+        let Some(a) = self.ab_index() else {
+            return 0;
+        };
+        let b = &self.file.bound;
+        b.objects
+            .iter()
+            .filter(|((x, _, _), _)| *x == a)
+            .flat_map(|(_, l)| l.iter().map(|c| c.0))
+            .chain(
+                b.bindables
+                    .iter()
+                    .filter(|((x, _, _), _)| *x == a)
+                    .flat_map(|(_, l)| l.iter().map(|c| c.0)),
+            )
+            .map(|t| ((t.max(0.0) / DT - 1e-6).ceil() as usize).min(MAX_FRAMES))
+            .max()
+            .unwrap_or(0)
+    }
+
+    /// `curve` held at each of `changes` from its time: where no animation
+    /// keys the property (where one does, it keys it).
+    fn with_bound<T: Keyed>(&mut self, curve: Curve<T>, changes: Vec<(f64, T)>) -> Curve<T> {
+        if changes.is_empty() {
+            return curve;
+        }
+        if !curve.keys.is_empty() {
+            self.warn(
+                "view model changes: properties animations key change as the animations key them",
+            );
+            return curve;
+        }
+        let mut keys = vec![Key {
+            t: 0.0,
+            value: curve.setup.clone(),
+            interp: Interp::Hold,
+        }];
+        keys.extend(changes.into_iter().map(|(t, value)| Key {
+            t,
+            value,
+            interp: Interp::Hold,
+        }));
+        Curve {
+            setup: curve.setup,
+            keys,
+        }
     }
 
     /// A number property as the scene animates it, times `scale`.
@@ -3533,6 +3701,12 @@ impl<'a> Converter<'a> {
                 }
             }
         }
+        let bound = self.bound_changes(i, key, |o| o.string(key));
+        for (_, v) in &bound {
+            if !table.contains(v) {
+                table.push(v.clone());
+            }
+        }
         let lookup = table.clone();
         let curve = self.curve(i, key, 0.0, |k| {
             (k.ty == t::KEY_FRAME_STRING)
@@ -3544,7 +3718,11 @@ impl<'a> Converter<'a> {
                 .flatten()
                 .map(|v| v as f64)
         });
-        (curve, table)
+        let bound = bound
+            .into_iter()
+            .map(|(t, v)| (t, table.iter().position(|s| *s == v).unwrap_or(0) as f64))
+            .collect();
+        (self.with_bound(curve, bound), table)
     }
 
     /// Nested artboard `i`: the artboard it shows, converted on its own and
@@ -3679,6 +3857,7 @@ impl<'a> Converter<'a> {
                     })
                 })
                 .collect(),
+            values: Vec::new(),
         };
         let changed = !options.inputs.is_empty() || !options.aligned.is_empty();
         let alike = !changed
@@ -4691,6 +4870,32 @@ fn settle(played: &[Vec<machine::Applied>], anims: &[machine::Anim]) -> (usize, 
         }
     }
     (settled, periods, steady)
+}
+
+/// A new input of `inputs` holding `first`, then from each frame of `later`
+/// its value there (in `changes`).
+fn slot_over(
+    inputs: &mut Vec<Option<f64>>,
+    changes: &mut Vec<(usize, usize, Option<f64>)>,
+    first: f64,
+    later: Vec<(usize, f64)>,
+) -> usize {
+    let slot = inputs.len();
+    inputs.push(Some(first));
+    changes.extend(later.into_iter().map(|(f, v)| (f, slot, Some(v))));
+    slot
+}
+
+/// Whether a view model condition comparing `left` with `right` holds as
+/// a value changes (`ConditionComparisonSelf`): a value with itself, or a
+/// trigger bound with a trigger.
+fn is_change(bindables: &[Object], left: &Object, right: &Object) -> bool {
+    left.ty == t::TRANSITION_PROPERTY_VIEW_MODEL_COMPARATOR
+        && (right.ty == t::TRANSITION_SELF_COMPARATOR
+            || right.ty == t::TRANSITION_VALUE_TRIGGER_COMPARATOR
+                && bindables
+                    .get(left.uint(crate::file::BINDABLE_INDEX) as usize)
+                    .is_some_and(|b| b.ty == t::BINDABLE_PROPERTY_TRIGGER))
 }
 
 /// A comparand of a view model condition as the instance bound holds it.

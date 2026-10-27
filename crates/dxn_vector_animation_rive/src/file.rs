@@ -159,6 +159,8 @@ pub(crate) struct File {
     pub interpolators: Vec<Object>,
     /// Its data bindings, each with what it binds.
     pub binds: Vec<Bind>,
+    /// What changes to the view model instance bound set over time.
+    pub bound: Bound,
     /// Objects of types the runtime of the tables' tag does not know, by
     /// type key.
     pub unknown: BTreeMap<u64, usize>,
@@ -170,6 +172,22 @@ pub(crate) struct ViewModel {
     pub object: Object,
     pub properties: Vec<Object>,
     pub instances: Vec<Instance>,
+}
+
+/// A state machine's bindable property: its artboard, machine and index.
+pub(crate) type BindableAt = (usize, usize, usize);
+
+/// What changes made to a bound view model instance over time set
+/// (`data::bind_default`): each a time and a value, in time order.
+#[derive(Debug, Default)]
+pub(crate) struct Bound {
+    /// Objects' properties, by artboard, object and property.
+    pub objects: HashMap<(usize, usize, u16), Vec<(f64, Value)>>,
+    /// State machines' bindable properties (with the property set).
+    pub bindables: HashMap<BindableAt, Vec<(f64, u16, Value)>>,
+    /// The times the values bound to bindable properties change (what
+    /// conditions on a value changing hold for).
+    pub changed: HashMap<BindableAt, Vec<f64>>,
 }
 
 /// A data converter and, for a group, its items' converters (indices of
@@ -195,7 +213,7 @@ pub(crate) struct Bind {
 }
 
 /// What a binding binds.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(crate) enum BindTarget {
     /// An artboard's object, by index.
     Object { artboard: usize, index: usize },

@@ -8,12 +8,12 @@
 //! machine's bindable property (what view model conditions and blends
 //! read).
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeSet, HashMap};
 
 use crate::{
     convert::interpolator,
     defs::{self, Field, props as p, types as t},
-    file::{BindTarget, File, Instance, Object, Value, is_a},
+    file::{BindTarget, Converter, File, Instance, Object, Value, is_a},
 };
 
 /// Directions and kinds of a binding (`DataBindFlags`).
@@ -161,18 +161,28 @@ pub(crate) fn view_model(file: &File, artboard: usize) -> Option<ViewModel> {
     })
 }
 
+/// A view model property's value in an instance: its view model, the
+/// instance (an index of the view model's instances; `None`, a new one of
+/// initial values) and the property's index.
+type Slot = (usize, Option<usize>, usize);
+
+/// What a binding sets: its target, property and value (`None`: nothing),
+/// and the value it reads.
+type Set = (BindTarget, u16, Option<Value>, Slot);
+
 /// Binds the default instance of artboard `artboard`'s view model into the
-/// file's objects; what it cannot bind, as warnings.
-pub(crate) fn bind_default(file: &mut File, artboard: usize) -> BTreeSet<String> {
+/// file's objects, then makes `changes` to it over time: what they set and
+/// when goes to `File::bound`. What it cannot bind, as warnings.
+pub(crate) fn bind_default(
+    file: &mut File,
+    artboard: usize,
+    changes: &[crate::ValueChange],
+) -> BTreeSet<String> {
     let mut warnings = BTreeSet::new();
-    let ours = |target: &BindTarget| match *target {
-        BindTarget::Object { artboard: a, .. } | BindTarget::Bindable { artboard: a, .. } => {
-            a == artboard
+    if !file.binds.iter().any(|b| ours(b.target, artboard)) {
+        if !changes.is_empty() {
+            warnings.insert("view model changes: nothing in the artboard is bound".into());
         }
-        BindTarget::Converter { .. } => true,
-        BindTarget::Other => false,
-    };
-    if !file.binds.iter().any(|b| ours(&b.target)) {
         return warnings;
     }
     let Some(vm) = file
@@ -184,33 +194,186 @@ pub(crate) fn bind_default(file: &mut File, artboard: usize) -> BTreeSet<String>
         warnings.insert("data bindings: the artboard has no view model; left unbound".into());
         return warnings;
     };
+    let instance = (!file.view_models[vm].instances.is_empty()).then_some(0);
+    let empty = HashMap::new();
+    let (converters, sets) = evaluate(file, artboard, vm, instance, &empty, &mut warnings);
+    file.converters = converters;
+    let mut previous: HashMap<(BindTarget, u16), Value> = HashMap::new();
+    for (target, key, value, _) in sets {
+        if let Some(value) = value {
+            if let Some(object) = target_mut(file, target) {
+                object.set(key, value.clone());
+            }
+            previous.insert((target, key), value);
+        }
+    }
+    // The changes, each time they are made at in turn.
+    let mut changes: Vec<&crate::ValueChange> =
+        changes.iter().filter(|c| c.time.is_finite()).collect();
+    changes.sort_by(|a, b| a.time.total_cmp(&b.time));
+    let mut overlay: HashMap<Slot, Data> = HashMap::new();
+    let mut k = 0;
+    while k < changes.len() {
+        let time = changes[k].time.max(0.0);
+        let mut changed: BTreeSet<Slot> = BTreeSet::new();
+        while k < changes.len() && changes[k].time.max(0.0) == time {
+            let c = changes[k];
+            k += 1;
+            let binder = Binder {
+                file,
+                converters: &file.converters,
+                vm,
+                instance,
+                overlay: &overlay,
+            };
+            let Some(slot) = binder.named(&c.path) else {
+                warnings.insert(format!("view model changes: no property {:?}", c.path));
+                continue;
+            };
+            let now = binder.slot_value(slot);
+            let Some(value) = changed_to(file, &c.value, &now) else {
+                warnings.insert(format!(
+                    "view model changes: {:?} cannot be set to {:?}",
+                    c.path, c.value
+                ));
+                continue;
+            };
+            if value != now {
+                overlay.insert(slot, value);
+                changed.insert(slot);
+            }
+        }
+        if changed.is_empty() {
+            continue;
+        }
+        let mut ignored = BTreeSet::new();
+        let (_, sets) = evaluate(file, artboard, vm, instance, &overlay, &mut ignored);
+        for (target, key, value, slot) in sets {
+            let at = match target {
+                BindTarget::Object { artboard, index } => Some((artboard, index, usize::MAX)),
+                BindTarget::Bindable {
+                    artboard,
+                    machine,
+                    index,
+                } => Some((artboard, machine, index)),
+                BindTarget::Converter { .. } | BindTarget::Other => None,
+            };
+            let Some(at) = at else { continue };
+            if changed.contains(&slot) && at.2 != usize::MAX {
+                file.bound.changed.entry(at).or_default().push(time);
+            }
+            let Some(value) = value else { continue };
+            if previous.get(&(target, key)) == Some(&value) {
+                continue;
+            }
+            previous.insert((target, key), value.clone());
+            if at.2 == usize::MAX {
+                file.bound
+                    .objects
+                    .entry((at.0, at.1, key))
+                    .or_default()
+                    .push((time, value));
+            } else {
+                file.bound
+                    .bindables
+                    .entry(at)
+                    .or_default()
+                    .push((time, key, value));
+            }
+        }
+    }
+    warnings
+}
+
+/// Whether binding target `target` is in artboard `artboard` (or the file's,
+/// a converter).
+fn ours(target: BindTarget, artboard: usize) -> bool {
+    match target {
+        BindTarget::Object { artboard: a, .. } | BindTarget::Bindable { artboard: a, .. } => {
+            a == artboard
+        }
+        BindTarget::Converter { .. } => true,
+        BindTarget::Other => false,
+    }
+}
+
+/// What the bindings of artboard `artboard` set with view model `vm`'s
+/// instance `instance` holding the values `overlay` changes: the
+/// converters as their own bindings set them, and the sets (theirs
+/// first).
+fn evaluate(
+    file: &File,
+    artboard: usize,
+    vm: usize,
+    instance: Option<usize>,
+    overlay: &HashMap<Slot, Data>,
+    warnings: &mut BTreeSet<String>,
+) -> (Vec<Converter>, Vec<Set>) {
+    let mut converters = file.converters.clone();
+    let mut all = Vec::new();
     // The converters' own bindings first, as what the others convert
     // with.
-    for converters in [true, false] {
+    for of_converters in [true, false] {
         let binder = Binder {
             file,
+            converters: &converters,
             vm,
-            instance: file.view_models[vm].instances.first(),
+            instance,
+            overlay,
         };
-        let mut sets: Vec<(BindTarget, u16, Value)> = Vec::new();
+        let mut sets = Vec::new();
         for bind in file.binds.iter().filter(|b| {
-            ours(&b.target) && matches!(b.target, BindTarget::Converter { .. }) == converters
+            ours(b.target, artboard)
+                && matches!(b.target, BindTarget::Converter { .. }) == of_converters
         }) {
             match binder.bound(&bind.object, bind.target) {
-                Ok(Some((key, value))) => sets.push((bind.target, key, value)),
+                Ok(Some(set)) => sets.push(set),
                 Ok(None) => {}
                 Err(warning) => {
                     warnings.insert(warning);
                 }
             }
         }
-        for (target, key, value) in sets {
-            if let Some(object) = target_mut(file, target) {
-                object.set(key, value);
+        if of_converters {
+            for (target, key, value, _) in &sets {
+                if let (BindTarget::Converter { index }, Some(value)) = (target, value)
+                    && let Some(c) = converters.get_mut(*index)
+                {
+                    c.object.set(*key, value.clone());
+                }
             }
         }
+        all.extend(sets);
     }
-    warnings
+    (converters, all)
+}
+
+/// The value change `value` makes to a property holding `now` (a trigger
+/// fired counts once more; an enum's value is by index or name); `None`
+/// when it is of another kind.
+fn changed_to(file: &File, value: &PropertyValue, now: &Data) -> Option<Data> {
+    Some(match (value, now) {
+        (PropertyValue::Number(v), Data::Enum(_, e)) if *v >= 0.0 && v.fract() == 0.0 => {
+            Data::Enum(*v as u32, *e)
+        }
+        (PropertyValue::Text(s), Data::Enum(_, e)) => {
+            let values = e.and_then(|e| file.enums.get(e))?;
+            let i = values.iter().position(|v| {
+                v.string(p::DATA_ENUM_VALUE_KEY) == *s || v.string(p::DATA_ENUM_VALUE_VALUE) == *s
+            })?;
+            Data::Enum(i as u32, *e)
+        }
+        (PropertyValue::Number(v), Data::Number(_)) => Data::Number(*v as f32),
+        (PropertyValue::Bool(b), Data::Bool(_)) => Data::Bool(*b),
+        (PropertyValue::Color(c), Data::Color(_)) => Data::Color(*c),
+        (PropertyValue::Text(s), Data::Text(_)) => Data::Text(s.clone()),
+        (PropertyValue::Enum(i), Data::Enum(_, e)) => Data::Enum(
+            i.map_or(u32::MAX, |i| u32::try_from(i).unwrap_or(u32::MAX)),
+            *e,
+        ),
+        (PropertyValue::Trigger, Data::Trigger(n)) => Data::Trigger(n.wrapping_add(1)),
+        _ => return None,
+    })
 }
 
 /// The object binding target `target` names.
@@ -262,14 +425,19 @@ fn target_mut(file: &mut File, target: BindTarget) -> Option<&mut Object> {
 /// What bindings read: a view model's instance in a file.
 struct Binder<'a> {
     file: &'a File,
+    /// The file's converters, as bindings to them set them.
+    converters: &'a [Converter],
     vm: usize,
-    instance: Option<&'a Instance>,
+    /// The instance bound (an index of the view model's instances).
+    instance: Option<usize>,
+    /// Values changed from the instances'.
+    overlay: &'a HashMap<Slot, Data>,
 }
 
 impl Binder<'_> {
-    /// The property and value binding `bind` sets on `target`, if any; a
+    /// What binding `bind` sets on `target`, if it reads a value; a
     /// warning for what it cannot bind.
-    fn bound(&self, bind: &Object, target: BindTarget) -> Result<Option<(u16, Value)>, String> {
+    fn bound(&self, bind: &Object, target: BindTarget) -> Result<Option<Set>, String> {
         let flags = bind.uint(p::DATA_BIND_FLAGS);
         if flags & NAME_BASED != 0 {
             return Err("data bindings: bindings by name left unbound".into());
@@ -281,18 +449,23 @@ impl Binder<'_> {
         // The main direction to the target converts, else the reverse.
         let main = flags & TO_SOURCE == 0;
         let path = varuints(bind.bytes(p::DATA_BIND_CONTEXT_SOURCE_PATH_IDS));
-        let Some(source) = self.resolve(&path) else {
+        let Some(slot) = self.resolve(&path) else {
             return Ok(None);
         };
+        let Ok(key) = u16::try_from(bind.uint(p::DATA_BIND_PROPERTY_KEY)) else {
+            return Ok(None);
+        };
+        let key = defs::canonical(key);
+        let source = self.slot_value(slot);
         let converter = bind
             .id(p::DATA_BIND_CONVERTER_ID)
-            .filter(|&c| c < self.file.converters.len());
+            .filter(|&c| c < self.converters.len());
         let kind = match converter.map(|c| self.output(c, 0)) {
             None | Some(Kind::Input) => source.kind(),
             Some(kind) => kind,
         };
         if kind == Kind::Other {
-            return Ok(None);
+            return Ok(Some((target, key, None, slot)));
         }
         let value = match converter {
             Some(c) => self.convert(c, source, main, flags, 0)?,
@@ -303,16 +476,12 @@ impl Binder<'_> {
         } else {
             Data::initial(kind)
         };
-        let Ok(key) = u16::try_from(bind.uint(p::DATA_BIND_PROPERTY_KEY)) else {
-            return Ok(None);
-        };
-        let key = defs::canonical(key);
-        Ok(self.applied(value, key, target).map(|v| (key, v)))
+        Ok(Some((target, key, self.applied(value, key, target), slot)))
     }
 
-    /// The value of the property source path `path` names: the view
-    /// model's index, then property indices, through nested view models.
-    fn resolve(&self, path: &[u64]) -> Option<Data> {
+    /// The property source path `path` names: the view model's index, then
+    /// property indices, through nested view models.
+    fn resolve(&self, path: &[u64]) -> Option<Slot> {
         let (&first, rest) = path.split_first()?;
         if usize::try_from(first).ok()? != self.vm {
             return None;
@@ -320,29 +489,92 @@ impl Binder<'_> {
         let (&last, through) = rest.split_last()?;
         let (mut vm, mut instance) = (self.vm, self.instance);
         for &k in through {
-            let k = usize::try_from(k).ok()?;
-            let property = self.file.view_models.get(vm)?.properties.get(k)?;
-            if property.ty != t::VIEW_MODEL_PROPERTY_VIEW_MODEL {
-                return None;
-            }
-            let next = property.id(p::VIEW_MODEL_PROPERTY_VIEW_MODEL_VIEW_MODEL_REFERENCE_ID)?;
-            let model = self.file.view_models.get(next)?;
-            // The instance its value refers to, by index; without one, a
-            // new instance's (its properties' initial values).
-            instance = instance
-                .and_then(|i| value_in(i, k))
-                .and_then(|v| v.id(p::VIEW_MODEL_INSTANCE_VIEW_MODEL_PROPERTY_VALUE))
-                .and_then(|i| model.instances.get(i));
-            vm = next;
+            (vm, instance) = self.nested(vm, instance, usize::try_from(k).ok()?)?;
         }
-        let last = usize::try_from(last).ok()?;
-        let property = self.file.view_models.get(vm)?.properties.get(last)?;
-        Some(data_of(property, instance.and_then(|i| value_in(i, last))))
+        let slot = (vm, instance, usize::try_from(last).ok()?);
+        self.exists(slot).then_some(slot)
+    }
+
+    /// The property named by `path` (property names, nested view models'
+    /// first, `/` between).
+    fn named(&self, path: &str) -> Option<Slot> {
+        let names: Vec<&str> = path.split('/').collect();
+        let (last, through) = names.split_last()?;
+        let (mut vm, mut instance) = (self.vm, self.instance);
+        let index = |vm: usize, name: &str| {
+            self.file
+                .view_models
+                .get(vm)?
+                .properties
+                .iter()
+                .position(|p| p.string(defs::props::VIEW_MODEL_COMPONENT_NAME) == name)
+        };
+        for name in through {
+            (vm, instance) = self.nested(vm, instance, index(vm, name)?)?;
+        }
+        let slot = (vm, instance, index(vm, last)?);
+        self.exists(slot).then_some(slot)
+    }
+
+    /// The view model and instance nested view model property `k` of view
+    /// model `vm`'s instance `instance` refers to (`None` within a new
+    /// instance: a new one of initial values).
+    fn nested(
+        &self,
+        vm: usize,
+        instance: Option<usize>,
+        k: usize,
+    ) -> Option<(usize, Option<usize>)> {
+        let property = self.file.view_models.get(vm)?.properties.get(k)?;
+        if property.ty != t::VIEW_MODEL_PROPERTY_VIEW_MODEL || !self.exists((vm, instance, k)) {
+            return None;
+        }
+        let next = property.id(p::VIEW_MODEL_PROPERTY_VIEW_MODEL_VIEW_MODEL_REFERENCE_ID)?;
+        let model = self.file.view_models.get(next)?;
+        let Some(i) = instance else {
+            return Some((next, None));
+        };
+        let i = value_in(&self.file.view_models[vm].instances[i], k)?
+            .id(p::VIEW_MODEL_INSTANCE_VIEW_MODEL_PROPERTY_VALUE)
+            .filter(|&i| i < model.instances.len())?;
+        Some((next, Some(i)))
+    }
+
+    /// Whether the instance of slot `slot` has its property: a new
+    /// instance has each; one of the file's, those it writes a value of
+    /// (as Rive copies it).
+    fn exists(&self, (vm, instance, k): Slot) -> bool {
+        let Some(model) = self.file.view_models.get(vm) else {
+            return false;
+        };
+        k < model.properties.len()
+            && instance.is_none_or(|i| {
+                model
+                    .instances
+                    .get(i)
+                    .is_some_and(|i| value_in(i, k).is_some())
+            })
+    }
+
+    /// The value slot `slot` holds.
+    fn slot_value(&self, slot: Slot) -> Data {
+        if let Some(v) = self.overlay.get(&slot) {
+            return v.clone();
+        }
+        let (vm, instance, k) = slot;
+        let model = &self.file.view_models[vm];
+        let set = instance
+            .and_then(|i| model.instances.get(i))
+            .and_then(|i| value_in(i, k));
+        model
+            .properties
+            .get(k)
+            .map_or(Data::Other, |property| data_of(property, set))
     }
 
     /// What converter `c` puts out (`DataConverter::outputType`).
     fn output(&self, c: usize, depth: usize) -> Kind {
-        let Some(converter) = self.file.converters.get(c) else {
+        let Some(converter) = self.converters.get(c) else {
             return Kind::Input;
         };
         match converter.object.ty {
@@ -383,7 +615,7 @@ impl Binder<'_> {
         flags: u64,
         depth: usize,
     ) -> Result<Data, String> {
-        let Some(converter) = self.file.converters.get(c) else {
+        let Some(converter) = self.converters.get(c) else {
             return Ok(input);
         };
         let o = &converter.object;
@@ -421,7 +653,7 @@ impl Binder<'_> {
             t::DATA_CONVERTER_OPERATION_VIEW_MODEL => {
                 let path =
                     varuints(o.bytes(p::DATA_CONVERTER_OPERATION_VIEW_MODEL_SOURCE_PATH_IDS));
-                let value = match self.resolve(&path) {
+                let value = match self.resolve(&path).map(|slot| self.slot_value(slot)) {
                     Some(Data::Number(v)) => v,
                     _ => 0.0,
                 };

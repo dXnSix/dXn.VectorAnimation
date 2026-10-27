@@ -104,6 +104,24 @@ pub struct Options {
     /// model's first instance is bound, as Rive's editor and players that
     /// bind automatically do.
     pub unbound: bool,
+    /// Changes made to the view model instance bound, in time order (what
+    /// an app sets through Rive's view model instance API): what they are
+    /// bound to changes with them, and the state machine's conditions on
+    /// them hold as they compare.
+    pub values: Vec<ValueChange>,
+}
+
+/// A change made to a property of the view model instance bound at a time.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ValueChange {
+    /// The timeline's seconds it is made at.
+    pub time: f64,
+    /// The property, by name: the names of the nested view model
+    /// properties it is in first, `/` between (Rive's property paths).
+    pub path: String,
+    /// What it is set to, of the property's kind:
+    /// [`PropertyValue::Trigger`] fires a trigger.
+    pub value: PropertyValue,
 }
 
 /// A node a listener moved to the pointer at a time (Rive's
@@ -185,7 +203,7 @@ pub fn read_options(data: &[u8], limits: &Limits, options: &Options) -> Result<I
             None => Some(0),
         };
         if let Some(index) = index.filter(|&i| i < file.artboards.len()) {
-            bound = data::bind_default(&mut file, index);
+            bound = data::bind_default(&mut file, index, &options.values);
         }
     }
     let (scene, mut warnings) = convert::Converter::run(&file, options, *limits)?;
