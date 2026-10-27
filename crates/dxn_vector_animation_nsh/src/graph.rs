@@ -562,7 +562,14 @@ impl Graph {
             }
         }
         inputs.push(*times.last().unwrap_or(&0.0));
-        let outputs = inputs.iter().map(|&t| f(t)).collect();
+        let outputs: Vec<f64> = inputs.iter().map(|&t| f(t)).collect();
+        // Without the samples a line between their neighbors stands for,
+        // within what single precision (the native graph's) tells apart.
+        let tolerance = outputs.iter().fold(0.0, |m: f64, v| m.max(v.abs())) * 1e-7;
+        let (inputs, outputs) = crate::plan::simplified(&inputs, &outputs, tolerance);
+        if let [one] = outputs.as_slice() {
+            return Num::Const(*one);
+        }
         Num::Node(self.add(Expr::Interp {
             input: time,
             inputs,

@@ -11,13 +11,13 @@
   "status": "",
   "createdAt": "2026-10-27T20:14:29Z",
   "finishedAt": null,
-  "lastStableCommit": "e254a8376575699bc479d53ff05c1aa43c101d66",
+  "lastStableCommit": "066cc567f67e5cf8e1b16a451f96461d3a68a05f",
   "repositories": [
     {
       "name": "main",
       "path": ".",
       "role": "main",
-      "lastStableCommit": "e254a8376575699bc479d53ff05c1aa43c101d66"
+      "lastStableCommit": "066cc567f67e5cf8e1b16a451f96461d3a68a05f"
     }
   ],
   "atomicDiscipline": {
@@ -28,8 +28,8 @@
     "successfulAttemptRequiresCommitBeforeNextExperiment": true,
     "rule": "Run exactly the printed hypothesis. If the attempted change fails, degrades, or suggests a different fix, revert to the checkpoint and finish this experiment as failure. Start a new experiment for the next idea."
   },
-  "currentExperimentId": "1f82a788-e6e0-4361-aed7-0d2c6ee5cfb0",
-  "nextExperimentIndex": 22,
+  "currentExperimentId": "35bb1688-e81e-43c4-96eb-6d5fd1a25549",
+  "nextExperimentIndex": 23,
   "experiments": [
     {
       "id": "f0287285-7a36-4cb5-8eef-94cdd163e5a7",
@@ -278,6 +278,18 @@
       "name": "Baked paths moved into their keyframes",
       "path": "2026-10-27-21-baked-paths-moved-into-their-keyframes.json",
       "startedAt": "2026-10-27T21:02:35Z",
+      "finishedAt": "2026-10-27T21:03:25Z",
+      "state": "done",
+      "status": "success",
+      "resultCommit": "066cc567f67e5cf8e1b16a451f96461d3a68a05f"
+    },
+    {
+      "id": "35bb1688-e81e-43c4-96eb-6d5fd1a25549",
+      "index": 22,
+      "type": "hypothesis",
+      "name": "Sampled graph values thinned to their shape",
+      "path": "2026-10-27-22-sampled-graph-values-thinned-to-their-shape.json",
+      "startedAt": "2026-10-27T21:04:28Z",
       "finishedAt": null,
       "state": "running",
       "status": ""

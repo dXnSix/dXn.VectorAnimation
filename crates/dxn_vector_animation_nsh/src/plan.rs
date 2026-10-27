@@ -456,7 +456,7 @@ fn outline_times(keys: &[f64]) -> Vec<f64> {
 /// their neighbors kept stands for within `tolerance`: in one pass, the
 /// slopes from the last sample kept that pass every sample since within
 /// the tolerance narrowing as it goes.
-fn simplified(times: &[f64], values: &[f64], tolerance: f64) -> (Vec<f64>, Vec<f64>) {
+pub(crate) fn simplified(times: &[f64], values: &[f64], tolerance: f64) -> (Vec<f64>, Vec<f64>) {
     let n = times.len();
     if values.iter().all(|v| (v - values[0]).abs() <= tolerance) {
         return (vec![times[0]], vec![values[0]]);
