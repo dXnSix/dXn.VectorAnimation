@@ -1614,14 +1614,22 @@ impl<'a> Converter<'a> {
             paths = paths.into_iter().step_by(stride).collect();
             paths.extend(end);
         }
-        let mut frames = Vec::with_capacity(paths.len());
-        for k in 0..paths.len() {
-            let easing = match paths.get(k + 1) {
-                Some((_, next)) if !paths[k].1.same_structure(next) => Easing::Hold,
-                _ => Easing::Linear,
-            };
-            frames.push(Keyframe::new(paths[k].0, paths[k].1.clone(), easing));
-        }
+        let holds: Vec<bool> = paths
+            .windows(2)
+            .map(|w| !w[0].1.same_structure(&w[1].1))
+            .collect();
+        let frames: Vec<Keyframe<Path>> = paths
+            .into_iter()
+            .enumerate()
+            .map(|(k, (t, path))| {
+                let easing = if holds.get(k).copied().unwrap_or(false) {
+                    Easing::Hold
+                } else {
+                    Easing::Linear
+                };
+                Keyframe::new(t, path, easing)
+            })
+            .collect();
         let path = Animated::from_keyframes(frames, Path::new());
         if self.charge(&path) {
             return Some(path);
