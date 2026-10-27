@@ -9,7 +9,7 @@ Every animation takes the same path: an importer reads the file into a `Scene`, 
 
 ```mermaid
 flowchart TB
-    file["SVG, Lottie, dotLottie or Rive file"] --> importer["importer<br/>dxn_vector_animation_svg / _lottie / _rive"]
+    file["SVG, Lottie or dotLottie file"] --> importer["importer<br/>dxn_vector_animation_svg / _lottie"]
     importer --> scene["Scene<br/>groups, shapes, paints, tracks, timeline"]
     compiled[".vector-animation.json"] -- "compiled::from_json" --> scene
     scene -- "Scene::frame_at(t)" --> frame["Frame<br/>flat display list"]
@@ -19,7 +19,7 @@ flowchart TB
 
 ## Importers
 
-The importers have the same three functions:
+Both importers have the same three functions:
 
 | Function | Does |
 |---|---|
@@ -27,17 +27,13 @@ The importers have the same three functions:
 | `read(data) -> Result<Import, Error>` | Reads with the default `Limits` |
 | `read_with(data, &limits) -> Result<Import, Error>` | Reads within your `Limits` |
 
-A program that takes any file sniffs first. This is the order the CLI and the NSH player use, a Rive file first (its binary fingerprint), then a compiled scene:
+A program that takes any file sniffs first. This is the order the CLI and the NSH player use, a compiled scene first:
 
 ```rust
 use dxn_vector_animation::{Error, Import, Limits, compiled};
 
-/// Reads a Rive file, a compiled scene, a Lottie file or an SVG, whichever
-/// `data` is.
+/// Reads a compiled scene, a Lottie file or an SVG, whichever `data` is.
 fn import(data: &[u8], limits: &Limits) -> Result<Import, Error> {
-    if dxn_vector_animation_rive::sniff(data) {
-        return dxn_vector_animation_rive::read_with(data, limits);
-    }
     if compiled::sniff(data) {
         let scene = compiled::from_json(data, limits)?;
         return Ok(Import { scene, warnings: Vec::new() });
@@ -48,7 +44,7 @@ fn import(data: &[u8], limits: &Limits) -> Result<Import, Error> {
     if dxn_vector_animation_svg::sniff(data) {
         return dxn_vector_animation_svg::read_with(data, limits);
     }
-    Err(Error::Invalid("neither SVG, Lottie, Rive nor a compiled scene".into()))
+    Err(Error::Invalid("neither SVG, Lottie nor a compiled scene".into()))
 }
 ```
 
@@ -119,15 +115,15 @@ The NSH player in this repository works this way: it compiles a scene into canva
 The core and both importers build for `wasm32-unknown-unknown`: they use no threads, files or system fonts, and take bytes, not paths. CI checks it on every pull request and push to `main`:
 
 ```bash
-cargo check -p dxn_vector_animation -p dxn_vector_animation_svg -p dxn_vector_animation_lottie -p dxn_vector_animation_rive --target wasm32-unknown-unknown
+cargo check -p dxn_vector_animation -p dxn_vector_animation_svg -p dxn_vector_animation_lottie --target wasm32-unknown-unknown
 ```
 
 A web player that only loads [compiled scenes](./compiled-scenes.md) needs the core alone, with `serde`: the SVG and Lottie readers, the CSS and expression interpreters stay out of the bundle. The reference renderer is not part of that check; it sets text in the system's fonts, which a WebAssembly build does not have.
 
 ## The boundaries
 
-- The core crates (`dxn_vector_animation`, `_svg`, `_lottie`, `_rive`, `_render`, `_cli`) depend on no UI framework. CI fails when any of them pulls in an NSH crate, and a plain `cargo build` in the repository builds no NSH.
+- The core crates (`dxn_vector_animation`, `_svg`, `_lottie`, `_render`, `_cli`) depend on no UI framework. CI fails when any of them pulls in an NSH crate, and a plain `cargo build` in the repository builds no NSH.
 - Importers read untrusted documents: every size, count and depth they take is bounded by `Limits`.
 - A player maps scenes and holds no format code: what it needs from a format is added to the scene model, so every player gets it.
 
-Next: [The scene model](./scene-model.md), or the inputs: [SVG](./svg.md), [Lottie](./lottie.md) and [Rive](./rive.md).
+Next: [The scene model](./scene-model.md), or the inputs: [SVG](./svg.md) and [Lottie](./lottie.md).

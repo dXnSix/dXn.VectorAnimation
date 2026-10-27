@@ -151,7 +151,6 @@ fn masked(
             loop_start: 0.0,
             loop_mode: LoopMode::Loop,
             markers: vec![],
-            cues: Vec::new(),
         },
         root: group(vec![
             filled(rect(0.0, 0.0, 100.0, 100.0), Paint::solid(WHITE), 1.0),

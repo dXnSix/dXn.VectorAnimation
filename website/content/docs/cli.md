@@ -1,6 +1,6 @@
 ---
 title: The vector-animation CLI
-description: The vector-animation command - inspect, validate, compile and render animated SVG, Lottie, dotLottie, Rive and compiled scenes - with every flag, its output and exit codes.
+description: The vector-animation command - inspect, validate, compile and render animated SVG, Lottie, dotLottie and compiled scenes - with every flag, its output and exit codes.
 group: Tools
 order: 140
 ---
@@ -21,7 +21,7 @@ From a checkout, `cargo run -p dxn_vector_animation_cli -- <command>` runs it wi
 | `compile [-o <OUTPUT>] [--pretty] <FILE>` | Writes the scene as a compiled `.vector-animation.json` |
 | `render [OPTIONS] <FILE>` | Renders frames as PNG images |
 
-Every command takes an animated SVG, a Lottie JSON, a dotLottie archive, a Rive file or a compiled scene, and tells them apart by their content, not their extension: a Rive file first (by its `RIVE` fingerprint), then a compiled scene, then Lottie (a ZIP archive, or JSON that is not SVG), then SVG. `--artboard <NAME>` reads another artboard of a Rive file than its first. Files are read with the default [limits](./limits.md).
+Every command takes an animated SVG, a Lottie JSON, a dotLottie archive or a compiled scene, and tells them apart by their content, not their extension: a compiled scene first, then Lottie (a ZIP archive, or JSON that is not SVG), then SVG. Files are read with the default [limits](./limits.md).
 
 ## inspect
 
@@ -48,9 +48,6 @@ lottie-motion.json
 | `timeline` | Duration, frame rate when the file has one, and `once`, `loops` or `ping-pong`, with `from <seconds>` when the loop starts over after the start (`1.400 s, loops from 0.400 s` for a staggered loader) |
 | `marker` | Each named marker: start and duration |
 | `event` | Each event the file plays something on, and the `render` flag that plays it |
-| `cue` | Each cue of the timeline (a Rive event): its time, name, link and properties |
-| `view model` | A Rive file's bound view model: its name, its instance's and each property's value |
-| `machine`, `input`, `listener` | A Rive file's default state machine and those its nested artboards play (at their paths): their inputs with their values at first, their listeners (what they act on, pointer events or Rive events, the shapes they listen on and where those are at 0 s, what they do), and the `render` flags that change them |
 | `nodes`, `animation`, `path points` | The scene's [`Stats`](./limits.md#checking-a-scene) |
 | `left out` | Each warning, or `nothing` |
 
@@ -131,15 +128,11 @@ shots/lottie-motion-0001.png  t=1.000s
 |---|---|---|
 | `-t`, `--time <TIMES>` | `0` | A time to render, in seconds; repeat it for several |
 | `--fps <FPS>` | | Renders the timeline from 0 to its end every 1/FPS seconds (at most 100,001 frames); cannot be combined with `--time` |
-| `--marker <MARKER>` | | Renders a marker's span instead of the timeline (a Rive animation's): `--fps` all of it, `--time` seconds into it |
 | `--width <WIDTH>` | | Pixels wide; the height keeps the aspect unless given |
 | `--height <HEIGHT>` | | Pixels high |
 | `--scale <SCALE>` | `1` | Pixels per user unit when no size is given |
 | `--background <BACKGROUND>` | transparent | `#rrggbb`, `#rrggbbaa`, `white`, `black` or `transparent` |
 | `--event <EVENTS>` | | An event that happened, `name=seconds`; repeat it for several. What the file plays on it plays from then |
-| `--input <INPUTS>` | | A Rive state machine's input changed, `name=value@seconds` (`true`, `false` or a number), or a trigger fired, `name@seconds`, a nested artboard's machine's with its path before (`#7/hover=true@1`); repeat it for several |
-| `--value <VALUES>` | | A property of the view model bound to a Rive artboard changed, `path=value@seconds` (`true`, `false`, a number, `#rrggbb` or `#aarrggbb`, an enum's value, else text), or a trigger fired, `path@seconds`; nested view models' property names first, `/` between (`player/score=3@1`); repeat it for several |
-| `--pointer <POINTERS>` | | A pointer over a Rive file, `down:x,y@seconds` (or `up:`, `move:`, `exit:` leaving, `lift:` a finger lifted) in the scene's units; repeat it for several. The state machines' listeners (nested artboards' too) act on it as Rive's runtime has them act, and what they change is printed on stderr |
 | `-o`, `--output <OUTPUT>` | Next to the file | A PNG file for one frame, or a directory for several |
 
 Without `-o`, one frame goes to `<stem>.png` next to the file and several to a `<stem>-frames/` directory there. An `-o` ending in `.png` is the file for a single frame; any other `-o` is a directory, created when missing. Frames in a directory are named `<stem>-0000.png`, `<stem>-0001.png` and so on. Each line printed is a file and the time it shows.

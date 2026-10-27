@@ -142,7 +142,7 @@ A `Color` is sRGB with straight alpha, four `f64` channels from 0 to 1 (`Color::
 
 Lengths are in the group's space. Effects apply in turn; consecutive shadows are all cast by the drawing as it is before them, drop shadows under it and inner shadows over it. `ColorOp` covers CSS's filter functions (`Saturate`, `HueRotate`, `Grayscale`, `Sepia`, `Invert`, `Opacity`, `Brightness`, `Contrast`), SVG's `Matrix`, `Transfer` and `LuminanceToAlpha`, and Lottie's `Tint`, `Fill`, `Overlay` and `GradientMap`, each amount animated.
 
-A `Clip` is the union of its `shapes` (each a `Geometry`, a transform and a fill rule), or, with `one_path`, the area of their outlines as one path under the first shape's rule (Rive's clips: two outlines even-odd make a ring). A clip does not set its group apart: blend modes inside it mix with what is under the group, as under a Canvas 2D `clip()`. A `Mask`'s `content` is a `Group` drawn in the masked group's space; its `kind` (`MaskKind::Alpha` or `Luminance`) decides how much shows, `inverted` or not.
+A `Clip` is the union of its `shapes` (each a `Geometry`, a transform and a fill rule), or, with `one_path`, the area of their outlines as one path under the first shape's rule (two outlines even-odd make a ring). A clip does not set its group apart: blend modes inside it mix with what is under the group, as under a Canvas 2D `clip()`. A `Mask`'s `content` is a `Group` drawn in the masked group's space; its `kind` (`MaskKind::Alpha` or `Luminance`) decides how much shows, `inverted` or not.
 
 ## Animated values
 
@@ -269,8 +269,7 @@ The constructors `TransformOp::translate`, `scale`, `rotate` and `matrix` make c
 | `frame_rate` | The rate the animation was made at, when the file says (Lottie's `fr`); a hint, not a grid |
 | `loop_start` | Where repeating starts over, from 0 (default: the whole timeline) to `duration`: what comes before it plays once, the loop repeats from it to the end. The SVG importer sets it after [delays](./svg.md#the-loop) |
 | `loop_mode` | `LoopMode::Once` (default: plays and holds its last frame), `Loop` (to the end, then from the loop start, over and over), `PingPong` (to the end, back to the loop start, and on) |
-| `markers` | Named times or spans: `Marker::new(name, start, duration)`, a duration of 0 for a point in time; `loop_mode`, when set, is how the span repeats when it plays on its own (a [Rive](./rive.md) animation's loop) |
-| `cues` | Moments playback reports as it passes them, in time order: a `Cue`'s `time`, `name`, the link it opens (`url`: the address and `_blank`, `_parent`, `_self` or `_top`) and named values it carries (`properties`: numbers, strings, booleans). A [Rive](./rive.md#events) file's events are cues; a cue in the loop is passed again each time round |
+| `markers` | Named times or spans: `Marker::new(name, start, duration)`, a duration of 0 for a point in time; `loop_mode`, when set, is how the span repeats when it plays on its own |
 
 `Scene::frame_at(t)` does not wrap `t`: looping is the player's. To play on a clock, map the elapsed time to scene time first with `Timeline::time_at`:
 
@@ -314,17 +313,6 @@ println!("{:.2} {:.2}", opacity(&scene, 1.65), opacity(&clicked, 1.65)); // 1.00
 ```
 
 Events the scene has nothing for change nothing.
-
-### Hit tests
-
-`Scene::hit(id, point, time)` says whether a point (in the scene's coordinates) falls in the outlines of the
-shapes in the group with that id at a time: the group nearest the root of those with it, under its
-transforms and group times, its shapes' paths filled under the non-zero rule (strokes, clips and opacity
-aside, painted or not). `Scene::hit_bounds(id, time)` is the box around those outlines. A player hit-tests
-what a pointer is over with them, as the Rive importer's [listeners](./rive.md#inputs-and-listeners) do.
-Each searches the scene for the group; a `HitIndex` made of the scene once finds them at once
-(`Scene::hit_rect_indexed`), and gives the order the scene draws its groups in (`HitIndex::order`), for
-hit-testing a pointer's every move over many targets.
 
 ## Group time
 

@@ -586,7 +586,7 @@ impl Compiler {
     /// [`probe_times`], and on both sides of where it jumps (a held
     /// keyframe), found between them.
     pub(super) fn chain_samples(&self, g: &Group) -> (Vec<f64>, Vec<Matrix>) {
-        let times = probe_times(super::played(&self.stage.timeline));
+        let times = probe_times(self.stage.timeline.duration);
         let matrices = self.chain_matrices(g, &times);
         let parts = |m: &Matrix| [m.a, m.b, m.c, m.d, m.e, m.f];
         let apart = |a: &Matrix, b: &Matrix| {
@@ -751,7 +751,7 @@ impl Compiler {
         match self.still_linear(g) {
             Some(m) => scale(m),
             None => {
-                let times = probe_times(super::played(&self.stage.timeline));
+                let times = probe_times(self.stage.timeline.duration);
                 self.chain_matrices(g, &times)
                     .into_iter()
                     .map(scale)
@@ -909,7 +909,7 @@ impl Compiler {
     /// Whether drawing `ops` leaves anything see-through where it draws
     /// (its edges aside): a fainter alpha, color or stop, or an image.
     fn see_through(&self, ops: &[Op]) -> bool {
-        let times = probe_times(super::played(&self.stage.timeline));
+        let times = probe_times(self.stage.timeline.duration);
         let faint = |a: f64| a > 0.001 && a < 0.999;
         let low = |n: Num| match n {
             Num::Const(c) => faint(c),
@@ -1343,7 +1343,7 @@ impl Compiler {
             .chain(ops.iter().flat_map(op_nums))
             .any(|n| matches!(n, Num::Node(_)));
         let times = if moves {
-            probe_times(super::played(&self.stage.timeline))
+            probe_times(self.stage.timeline.duration)
         } else {
             vec![0.0]
         };

@@ -48,7 +48,6 @@ fn scene(keys: usize) -> Scene {
             loop_start: 0.0,
             loop_mode: LoopMode::Loop,
             markers: vec![],
-            cues: Vec::new(),
         },
         root: Group {
             children: vec![Node::shape(Shape {

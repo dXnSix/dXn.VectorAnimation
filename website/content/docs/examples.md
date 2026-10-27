@@ -1,13 +1,12 @@
 ---
 title: Examples
-description: A gallery of free animations, Rive files played live, and every check scene of the NSH player, in the browser, and how the examples app is built.
+description: A gallery of free animations and every check scene of the NSH player, live in the browser, and how the examples app is built.
 group: Examples
 order: 150
 ---
 
 Live examples of the player in the browser: free animations from LottieFiles, played from each of the formats the
-player reads, Rive files played as they are (their state machines, listeners, events and view models live), and
-below them the scenes the player is checked with on every platform.
+player reads, and below them the scenes the player is checked with on every platform.
 
 ## Animations from the wild
 
@@ -49,66 +48,6 @@ caption: Animated SVG files as Figma Motion and LottieFiles write them, each in 
 | `alphabet-a` | JSON, dotLottie, SVG | A letter with moving eyes and gradient shading, three seconds |
 | `navigation-bar-selection` | JSON, dotLottie, SVG | A navigation bar's selection moving between four tabs, one marker each |
 | `boxer` | JSON, SVG | A character animation from After Effects (Lottie 4.8, 30 frames a second) |
-
-## Rive files
-
-Rive files the player reads as they are, not compiled ahead: their state machine plays as Rive's runtime plays it,
-the pointer reaches its listeners, its events come back as cues, and the app sets its inputs and its view model's
-values. They are built by the importer's tests (`crates/dxn_vector_animation_rive/tests/docs_examples.rs`, written to
-`fixtures/docs/`) and checked against Rive's own runtime frame by frame. See [Rive](./rive.md).
-
-### A switch: a listener and an input
-
-```example
-demo: rive-switch
-height: 260
-caption: A click on the switch toggles its state machine's bool input "on" (a listener); the button sets it with `setInput`, and `onInput` reports each change.
-```
-
-### A ball: events
-
-```example
-demo: rive-events
-height: 220
-caption: The ball fires "started", then "left" and "right" as it reaches each side; `onCue` reports them as playback passes them.
-```
-
-### A progress bar: data binding
-
-```example
-demo: rive-progress
-height: 320
-caption: The bar's view model sets its width (through an interpolating converter and a range mapper), its label (to text) and its color; `setValue` changes "value" and "tint", `fireValue` fires "celebrate", which its state machine pulses on.
-```
-
-| File | What it shows |
-|---|---|
-| `switch.riv` | A state machine with a bool input, eased transitions and a click listener toggling it |
-| `travel.riv` | An animation keying events, and a state firing one as it is entered |
-| `progress.riv` | A view model bound through converters (interpolator, range mapper, to-string), a color eased, a trigger a transition waits on |
-
-### Files from the Rive community
-
-Files from the [Rive community](https://rive.app/community/), each on a page of its own in the Rive group, playing its
-artboard's default state machine with its view model bound, as Rive's players binding automatically do; a pointer
-over one reaches its listeners. They are fetched from beside the examples app and read in the browser (the largest
-take a few seconds). Their names leave out the community's ids; the files are in
-[`examples/gallery/animations-rive/`](https://github.com/dXnSix/dXn.VectorAnimation/tree/main/examples/gallery/animations-rive).
-
-| File | What it exercises |
-|---|---|
-| [Weather app](./rive-files/weather-app-concept.md) | Nested artboards, inner feathers, hover listeners |
-| [Subscribe button](./rive-files/glowing-subscribe-button.md) | Hover and click listeners firing events, layers looping over different lengths |
-| [Tab bar](./rive-files/tabbar-animation.md) | Clicks on nested tabs, Rive events reaching listeners |
-| [Dress-up owl](./rive-files/dress-up.md) | Images, a click on a nested artboard setting its inputs |
-| [Posture](./rive-files/posture-animation.md) | Hundreds of images, hover and click listeners |
-| [Boopkin kill count](./rive-files/boopkin-kill-count.md) | Images, a view model counter bound through converters |
-| [Icon set](./rive-files/interactive-icon-set.md) | Hover listeners on nested icons |
-| [Slot machine](./rive-files/slot-machine-game-with-scripting.md) | Luau scripting and layout, left out: it draws little of what it should |
-| [StudioRun](./rive-files/studiorun-a-cosmic-game-by-thelittlelabs.md) | Thousands of shapes, blend states, nested artboards' state machines |
-| [Driving dashboard](./rive-files/futuristic-driving-ui-concept.md) | Bindings by name and nested view models; layout is left out, so it is drawn where the file puts it |
-| [Snake](./rive-files/snake-raster-animation.md) | Hundreds of raster images |
-| [Sobo](./rive-files/sobo.md) | A nested artboard's tap firing a view model trigger |
 
 ## The scenes
 
@@ -153,26 +92,19 @@ caption: The check scenes, each in a tile.
 | `moving-layers` | A badge turning and growing along a path, a card fading: layers the platform moves |
 | `clear-stops` | A gradient whose middle stop fades in from clear as it moves, then out again |
 
-The two examples of [Playback](./playback.md), `playback` and `events`, and the Rive files' three, `rive-switch`,
-`rive-events` and `rive-progress`, belong to the examples app itself; `rive-file-<name>` plays a community file.
+The two examples of [Playback](./playback.md), `playback` and `events`, belong to the examples app itself.
 
 ## How the examples are built
 
 The examples are an NSH app in the repository, `examples/docs`, on the player. The site's workflow builds the
-dXnSix fork of NSH, writes the scenes (the small Rive files as their bytes, the community files' names and URLs),
-publishes the app for the web into the site and puts the community files beside it:
+dXnSix fork of NSH, writes the scenes and publishes the app for the web into the site:
 
 ```bash
-cargo run --release -p dxn_vector_animation_check -- scenes examples/docs --gallery fixtures/gallery --rive fixtures/docs --rive-files examples/gallery/animations-rive
+cargo run --release -p dxn_vector_animation_check -- scenes examples/docs --gallery fixtures/gallery
 cd examples/docs
 nsh package "$PWD/App.tsx" --target web --out /tmp/examples   # /tmp/examples/Vector Animation Examples/
 cp -R "/tmp/examples/Vector Animation Examples" ../../website/public/examples
-mkdir -p ../../website/public/examples/rive && cp ../gallery/animations-rive/*.riv ../../website/public/examples/rive/
 ```
-
-The app fetches the community files by URL: the page's host makes each absolute (its `url` function, as the engine
-checks a fetch's URL against the app's capabilities as it is given), and `nsh.json` grants the site's host (and
-`localhost` for a local build) under `capabilities.network`.
 
 The app reads which example to show from the page's address, `examples/index.html?demo=<name>`, through NSH's web host
 (`host.js`, named by `web.host` in its `nsh.json`); without a name it shows them all. Each page embeds one in an

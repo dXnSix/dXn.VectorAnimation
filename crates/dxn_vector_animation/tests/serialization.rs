@@ -3,8 +3,8 @@
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use dxn_vector_animation::{
-    Animated, Color, Cue, CueValue, Easing, Fill, Geometry, Group, Keyframe, LoopMode, Node, Paint,
-    Path, Point, Scene, Shape, ShapePath, Timeline, Track, TransformOp,
+    Animated, Color, Easing, Fill, Geometry, Group, Keyframe, LoopMode, Node, Paint, Path, Point,
+    Scene, Shape, ShapePath, Timeline, Track, TransformOp,
 };
 
 #[test]
@@ -26,16 +26,6 @@ fn scenes_round_trip_through_json() {
             loop_start: 0.0,
             loop_mode: LoopMode::PingPong,
             markers: vec![],
-            cues: vec![Cue {
-                time: 0.75,
-                name: "score".into(),
-                url: Some(("https://example.com".into(), "_blank".into())),
-                properties: vec![
-                    ("points".into(), CueValue::Number(3.0)),
-                    ("who".into(), CueValue::Text("me".into())),
-                    ("won".into(), CueValue::Bool(true)),
-                ],
-            }],
         },
         root: Group {
             transform: vec![TransformOp::Rotate {

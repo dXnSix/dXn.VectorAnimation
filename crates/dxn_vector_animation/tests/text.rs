@@ -18,7 +18,6 @@ fn scene(spans: Vec<TextSpan>) -> Scene {
             loop_start: 0.0,
             loop_mode: LoopMode::Once,
             markers: vec![],
-            cues: Vec::new(),
         },
         root: Group {
             children: vec![Node::Text(Box::new(Text {

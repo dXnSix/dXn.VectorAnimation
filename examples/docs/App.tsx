@@ -7,19 +7,11 @@
 // `playback` and `events`. The gallery's files, compiled ahead, show as grids:
 // `lottie-files`, `dotlottie-files` and `svg-files`; `file-<group>-<name>`
 // plays one of them alone on the page's background (the home page's hero).
-// The Rive files (`--rive fixtures/docs`, written as their bytes) play live:
-// `rive-switch` (a listener), `rive-events` (the cues it fires) and
-// `rive-progress` (a view model set from the page). The Rive community files
-// are fetched from beside the app (`rive/`, `--rive-files`): `rive-file-<name>`
-// plays one with its name under it, `rive-hero-<name>` plays it alone on the
-// page's background (the home page's hero).
 import { host, mount, Scroll, signal, Text, View } from "nsh";
 import { Button } from "nsh/base";
 import { VectorAnimation, type VectorAnimationRef } from "dxn-vector-animation";
 import { scenes } from "./animations/index";
 import { gallery } from "./animations/gallery";
-import { rive } from "./animations/rive";
-import { riveFiles } from "./animations/rive-files";
 
 // Every example plays under reduced motion too (`ignoreReduceMotion`): a reader whose system turns
 // animation effects off, as Windows' setting does, would otherwise see only the first frame. An app
@@ -158,149 +150,6 @@ function Events() {
   );
 }
 
-const riveDemos = new Map<string, Uint8Array>(rive);
-
-/** A Rive switch: a click on it toggles its state machine's input "on", as does a button here. */
-function RiveSwitch() {
-  let player: VectorAnimationRef | undefined;
-  const on = signal(false);
-  return (
-    <View style={{ flex: 1, padding: 10, gap: 8 }}>
-      <View style={{ flex: 1 }}>
-        <VectorAnimation
-          ignoreReduceMotion
-          src={riveDemos.get("switch") as never}
-          style={{ width: "100%", height: "100%" }}
-          ref={(r: VectorAnimationRef) => (player = r)}
-          onLoad={ready}
-          onInput={(i) => on.set(i.value === 1)}
-          accessibilityLabel="A switch that turns on and off when clicked"
-        />
-      </View>
-      <View style={BAR}>
-        <Control
-          title={on() ? 'setInput("on", false)' : 'setInput("on", true)'}
-          onPress={() => {
-            player?.setInput("on", !on());
-            on.set(!on());
-          }}
-        />
-        <Text style={{ fontSize: 12, opacity: 0.6, alignSelf: "center" }}>{`on: ${on()}`}</Text>
-      </View>
-    </View>
-  );
-}
-
-/** A Rive ball firing events as it travels: the cues playback passes, newest first. */
-function RiveEvents() {
-  const cues = signal<string[]>([]);
-  return (
-    <View style={{ flex: 1, padding: 10, gap: 8 }}>
-      <View style={{ flex: 1 }}>
-        <VectorAnimation
-          ignoreReduceMotion
-          src={riveDemos.get("travel") as never}
-          style={{ width: "100%", height: "100%" }}
-          onLoad={ready}
-          onCue={(c) => cues.set([`${c.name} at ${c.time.toFixed(2)} s`, ...cues()].slice(0, 4))}
-          accessibilityLabel="A ball crossing back and forth"
-        />
-      </View>
-      <View style={BAR}>
-        <Text style={{ fontSize: 12, opacity: 0.6 }}>{`onCue: ${cues().join(" · ") || "…"}`}</Text>
-      </View>
-    </View>
-  );
-}
-
-const TINTS: [string, string][] = [
-  ["blue", "#3b82f6"],
-  ["green", "#22c55e"],
-  ["orange", "#f97316"],
-];
-
-/** A Rive progress bar bound to a view model: its value, tint and trigger set from here. */
-function RiveProgress() {
-  let player: VectorAnimationRef | undefined;
-  const value = signal(30);
-  const tint = signal("blue");
-  const last = signal("");
-  return (
-    <View style={{ flex: 1, padding: 10, gap: 8 }}>
-      <View style={{ flex: 1 }}>
-        <VectorAnimation
-          ignoreReduceMotion
-          src={riveDemos.get("progress") as never}
-          style={{ width: "100%", height: "100%" }}
-          ref={(r: VectorAnimationRef) => (player = r)}
-          onLoad={(info) => {
-            last.set(info.values.map((v) => `${v.path}: ${v.kind}`).join(", "));
-            ready();
-          }}
-          onValue={(v) => last.set(`onValue ${v.path} ${v.value === null ? "fired" : v.value}`)}
-          accessibilityLabel="A progress bar"
-        />
-      </View>
-      <View style={BAR}>
-        {[10, 50, 90, 100].map((v) => (
-          <Control
-            title={`value ${v}`}
-            selected={value() === v}
-            onPress={() => {
-              value.set(v);
-              player?.setValue("value", v);
-            }}
-          />
-        ))}
-      </View>
-      <View style={BAR}>
-        {TINTS.map(([name, hex]) => (
-          <Control
-            title={name}
-            selected={tint() === name}
-            onPress={() => {
-              tint.set(name);
-              player?.setValue("tint", hex);
-            }}
-          />
-        ))}
-        <Control title={'fireValue("celebrate")'} onPress={() => player?.fireValue("celebrate")} />
-      </View>
-      <Text style={{ fontSize: 12, opacity: 0.6, textAlign: "center" }}>{last()}</Text>
-    </View>
-  );
-}
-
-/**
- * One Rive community file filling the frame, fetched from beside the app;
- * `bare`, alone on the page's background, else with its name under it.
- */
-function RiveFile(props: { name: string; url: string; bare?: boolean }) {
-  const src = signal<string | undefined>(undefined);
-  const error = signal("");
-  host
-    .call("url", props.url)
-    .then((u) => src.set(String(u)))
-    .catch(() => error.set("no URL"));
-  return (
-    <View style={{ flex: 1, padding: props.bare ? 0 : 10, gap: 8 }}>
-      <View style={{ flex: 1 }}>
-        <VectorAnimation
-          ignoreReduceMotion
-          src={src()}
-          style={{ width: "100%", height: "100%" }}
-          accessibilityLabel={props.name}
-          onLoad={ready}
-          onError={(e) => error.set(e)}
-        />
-      </View>
-      {props.bare && !error() ? null : (
-        <Text style={{ fontSize: 12, opacity: 0.6, textAlign: "center" }}>{error() || props.name}</Text>
-      )}
-    </View>
-  );
-}
-
 const GALLERY = {
   "lottie-files": "lottie",
   "dotlottie-files": "dotlottie",
@@ -393,7 +242,7 @@ function App() {
     .then((d) => demo.set(typeof d === "string" ? d : ""))
     .catch(() => demo.set(""));
   return (
-    <View style={{ flex: 1, backgroundColor: /^(file|rive-hero)-/.test(demo() ?? "") ? "transparent" : "#ffffff" }}>
+    <View style={{ flex: 1, backgroundColor: demo()?.startsWith("file-") ? "transparent" : "#ffffff" }}>
       {(() => {
         const d = demo();
         if (d === undefined) return null;
@@ -401,11 +250,6 @@ function App() {
         if (file) return <Bare src={file[1]} name={file[0]} />;
         if (d === "playback") return <Playback />;
         if (d === "events") return <Events />;
-        if (d === "rive-switch") return <RiveSwitch />;
-        if (d === "rive-events") return <RiveEvents />;
-        if (d === "rive-progress") return <RiveProgress />;
-        const riveFile = riveFiles.find(([name]) => `rive-file-${name}` === d || `rive-hero-${name}` === d);
-        if (riveFile) return <RiveFile name={riveFile[0]} url={riveFile[1]} bare={d.startsWith("rive-hero-")} />;
         if (d in GALLERY) return <Files group={GALLERY[d as keyof typeof GALLERY]} />;
         const src = named.get(d);
         if (src !== undefined) return <Single src={src} name={d} />;

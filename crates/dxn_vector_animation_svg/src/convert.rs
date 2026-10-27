@@ -377,7 +377,6 @@ impl<'a, 'input> Converter<'a, 'input> {
                         Marker::new(format!("{EVENT_PREFIX}{name}"), *start, *duration)
                     })
                     .collect(),
-                cues: Vec::new(),
             },
             root: root_group,
         };

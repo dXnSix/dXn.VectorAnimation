@@ -1,15 +1,14 @@
 # dXn.VectorAnimation contributor guidance
 
-Animated vector graphics independent of any renderer or UI framework (the scene model, the SVG, Lottie and Rive
-importers, the reference renderer and the CLI: `dxn_vector_animation`, `_svg`, `_lottie`, `_rive`, `_render`,
-`_cli`),
+Animated vector graphics independent of any renderer or UI framework (the scene model, the SVG and Lottie
+importers, the reference renderer and the CLI: `dxn_vector_animation`, `_svg`, `_lottie`, `_render`, `_cli`),
 and the NSH player built on them (`dxn_vector_animation_nsh`, a UI set with the `VectorAnimation` component, and
 `dxn_vector_animation_check`, its device check tool). What it reads, how the scene works and how the player plays
 it is in `README.md`.
 
 ## Boundaries
 
-- The core crates (`dxn_vector_animation`, `_svg`, `_lottie`, `_rive`, `_render`, `_cli`) depend on no UI framework: not
+- The core crates (`dxn_vector_animation`, `_svg`, `_lottie`, `_render`, `_cli`) depend on no UI framework: not
   NSH, not GPUI. CI fails when any of them (dev-dependencies included) pulls in an `nsh-*` crate. The NSH crates
   consume the core and never the other way round; they are left out of `default-members`, so a plain `cargo
   build` or `cargo test` builds no NSH.
@@ -37,7 +36,7 @@ The core:
 cargo fmt --check
 cargo clippy --workspace --exclude dxn_vector_animation_nsh --exclude dxn_vector_animation_check --all-targets --all-features -- -D warnings
 cargo test --all-features
-cargo check -p dxn_vector_animation -p dxn_vector_animation_svg -p dxn_vector_animation_lottie -p dxn_vector_animation_rive --target wasm32-unknown-unknown
+cargo check -p dxn_vector_animation -p dxn_vector_animation_svg -p dxn_vector_animation_lottie --target wasm32-unknown-unknown
 ```
 
 The NSH player:
@@ -53,10 +52,6 @@ file (or a test in the file of its feature) and runs only that group while itera
 it touches (the core's, the player's, or both) runs once before committing. The player's `component.rs` runs
 the component on a headless engine; the example apps' TSX tests run with an `nsh` CLI (`nsh test
 examples/gallery`, and `examples/check` on devices: `README.md`, "Device checks").
-
-The Rive importer's type and property tables (`src/defs.rs`) are generated from rive-runtime's `dev/defs` at
-one tag: `python3 tools/defs.py <rive-runtime checkout> <tag> > src/defs.rs` in its crate. Its design and
-phases are `docs/design/rive.md`.
 
 ## Documentation
 

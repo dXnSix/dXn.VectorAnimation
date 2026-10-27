@@ -20,7 +20,6 @@ fn scene(opacity: Animated<f64>) -> Scene {
                 Marker::new("intro", 0.0, 1.0),
                 Marker::new("on:tap", 1.0e6, 1.0),
             ],
-            cues: Vec::new(),
         },
         root: Group {
             opacity,

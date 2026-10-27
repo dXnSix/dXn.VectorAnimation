@@ -40,7 +40,6 @@ fn scene() -> Scene {
             loop_start: 0.0,
             loop_mode: LoopMode::Once,
             markers: vec![],
-            cues: Vec::new(),
         },
         root: Group {
             effects: vec![Effect::Blur(Blur { radius })],

@@ -1,4 +1,4 @@
-//! Animated SVG, Lottie and Rive in NSH apps: the `VectorAnimation` component.
+//! Animated SVG and Lottie in NSH apps: the `VectorAnimation` component.
 //!
 //! A file is read with [dXn.VectorAnimation](https://github.com/dXnSix/dXn.VectorAnimation)
 //! into a scene, the scene compiled into canvases whose numbers and colors
@@ -20,12 +20,12 @@ use nsh_core::prelude::*;
 
 pub use crate::{
     component::{
-        AnimationCue, AnimationInfo, AnimationInput, AnimationMarker, AnimationSize,
-        AnimationValue, POINTER_TEST_ID, ResizeMode, VectorAnimation, VectorAnimationApi,
-        VectorAnimationElement, VectorAnimationEvent, VectorAnimationProps, fit, vector_animation,
+        AnimationInfo, AnimationMarker, AnimationSize, ResizeMode, VectorAnimation,
+        VectorAnimationApi, VectorAnimationElement, VectorAnimationEvent, VectorAnimationProps,
+        fit, vector_animation,
     },
     playback::Direction,
-    source::{At, InputSetting, PosterFrame, Repeat, Segment, Source, ValueSetting},
+    source::{At, PosterFrame, Repeat, Segment, Source},
 };
 
 /// The crate's UI set: what TSX imports from `dxn-vector-animation`.

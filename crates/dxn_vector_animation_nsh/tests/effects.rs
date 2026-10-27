@@ -103,7 +103,6 @@ fn scene(effects: Vec<Effect>, opacity: f64) -> Scene {
             loop_start: 0.0,
             loop_mode: LoopMode::Loop,
             markers: vec![],
-            cues: Vec::new(),
         },
         root: Group {
             children: vec![

@@ -502,7 +502,7 @@ impl Compiler {
             }));
         };
         let setup = self.transform(&root.transform, local)?;
-        let moves = super::probe_scale(&root.transform, super::played(&self.stage.timeline));
+        let moves = super::probe_scale(&root.transform, self.stage.timeline.duration);
         let mut k = self.pixels * self.largest_scale(g).max(1e-6) * moves;
         let area = bounds.width * bounds.height * k * k;
         if area > MASK_IMAGE_PIXELS {

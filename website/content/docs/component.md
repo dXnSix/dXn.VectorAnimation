@@ -28,7 +28,7 @@ it ends; its ref moves playback and triggers what a file plays on events.
 | `repeat` | `boolean` or `number` | the file's loop mode | `true` forever, a number of times in all, `false` once |
 | `direction` | `"normal"`, `"reverse"`, `"alternate"` | `"normal"` | Which way it plays; `alternate` goes there and back |
 | `rate` | `number` | `1` | Playback speed |
-| `segment` | marker name or `[start, end]` | all of it | What part plays, in seconds or by a marker of the file (a Rive animation plays as its loop says unless `repeat` is set) |
+| `segment` | marker name or `[start, end]` | all of it | What part plays, in seconds or by a marker of the file |
 | `resizeMode` | `"contain"`, `"cover"`, `"stretch"`, `"center"` | `"contain"` | How the scene fits the view |
 | `progress` | `number` from 0 to 1 | none | The frame shown, set by the app (scrubbing); stops playback while set |
 | `posterFrame` | `"first"`, `"last"`, seconds or a marker | `"first"` | What shows when the user reduces motion |
@@ -44,9 +44,6 @@ says.
 |---|---|---|
 | `onLoad` | `AnimationInfo` | The file was read |
 | `onEnd` | none | Playback reached its end; never while repeating forever |
-| `onCue` | `{ name, time, url, target, properties }` | Playback passed a cue: an event a Rive file's state machine fired, or a listener fired as the pointer acted; `properties` is an object of its custom properties |
-| `onInput` | `{ name, path, kind, value }` | An input of a Rive file's state machine changed: a listener under the pointer, `setInput` or `fire` changed it (a bool's value is 0 or 1, a trigger fired 1) |
-| `onValue` | `{ path, kind, value }` | A property of the view model bound to a Rive file's artboard changed: a listener under the pointer, `setValue` or `fireValue` changed it (a trigger fired is `null`) |
 | `onError` | `string` | The file could not be loaded or read |
 
 `AnimationInfo`:
@@ -55,10 +52,8 @@ says.
 |---|---|---|
 | `duration` | `number` | Seconds one play-through lasts |
 | `size` | `{ width, height }` | The animation's own size, in points |
-| `markers` | `{ name, start, duration }[]` | Its markers: Lottie's, a Rive file's animations, and the segments it plays on events (`on:btn.click`) |
+| `markers` | `{ name, start, duration }[]` | Its markers: Lottie's, and the segments it plays on events (`on:btn.click`) |
 | `events` | `string[]` | The events it has something to play on, such as `btn.click` |
-| `inputs` | `{ name, path, kind, value }[]` | A Rive file's state machines' inputs, its nested artboards' too (`path` names those: `#` and each nested artboard's index, `/` between; empty for the file's own): `kind` is `"bool"`, `"number"` or `"trigger"`, `value` the value at first |
-| `values` | `{ path, kind, value }[]` | The properties of the view model bound to a Rive file's artboard, with its instance's values: `kind` is `"number"`, `"boolean"`, `"color"` (ARGB), `"string"`, `"enum"` (an index), `"trigger"` or `"other"` (a list, a nested view model) |
 | `warnings` | `string[]` | What the file holds that the scene leaves out |
 
 ## Ref methods
@@ -67,17 +62,6 @@ says.
 |---|---|
 | `seek(seconds)` | Moves to a time on the timeline; playback goes on from there unless paused |
 | `trigger(event)` | Plays what the file has for an event once from its start and holds its end |
-| `setInput(name, value)` | Sets a Rive file's state machine input (a boolean or a number) now; the machine plays on from here as Rive plays it with the change |
-| `fire(name)` | Fires a Rive file's state machine trigger now |
-| `setInputAt(path, name, value)`, `fireAt(path, name)` | The same for the state machine a nested artboard plays, at its path (as `onLoad`'s `inputs` gives it) |
-| `setValue(path, value)` | Sets a property of the view model bound to a Rive file's artboard now (a boolean, a number, or a string; an enum by index or value, a color by ARGB or `#rrggbb`), nested view models' property names first in `path`, `/` between: what is bound to it and the state machine's conditions on it follow as in Rive |
-| `fireValue(path)` | Fires a view model trigger now |
-
-A Rive file whose state machine has listeners hears the pointer over it as Rive's web runtime does: a finger
-or a button going down presses, moving moves, lifting releases and leaves; the mouse moving over it moves,
-leaving it leaves. The view over it that hears the pointer has the test id `vector-animation-pointer`
-(`POINTER_TEST_ID`). Each change reads the file again off the engine thread; playback goes on in the new
-scene from where it is. See [Rive](./rive.md#inputs-and-listeners).
 
 ```tsx
 import { VectorAnimation, type VectorAnimationRef } from "dxn-vector-animation";
