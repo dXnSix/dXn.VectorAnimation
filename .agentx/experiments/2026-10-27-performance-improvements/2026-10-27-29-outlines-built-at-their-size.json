@@ -9,11 +9,11 @@
   "path": "2026-10-27-29-outlines-built-at-their-size.json",
   "createdAt": "2026-10-27T21:24:06Z",
   "startedAt": "2026-10-27T21:24:06Z",
-  "finishedAt": null,
-  "state": "running",
-  "status": "",
+  "finishedAt": "2026-10-27T21:25:21Z",
+  "state": "done",
+  "status": "success",
   "checkpointCommit": "270d269a24998119afdf2cb84b9bae8c40d9e6cf",
-  "resultCommit": "",
+  "resultCommit": "05baeed4d963581e9a0be2c7d43f9afdc7299ff0",
   "rollbackCommand": "git -C \"/Users/dinko/work-private/projects/dXn/dXn.VectorAnimation\" reset --hard 270d269a24998119afdf2cb84b9bae8c40d9e6cf",
   "repositories": [
     {
@@ -21,12 +21,19 @@
       "path": ".",
       "role": "main",
       "checkpointCommit": "270d269a24998119afdf2cb84b9bae8c40d9e6cf",
-      "resultCommit": "",
+      "resultCommit": "05baeed4d963581e9a0be2c7d43f9afdc7299ff0",
       "rollbackCommand": "git -C \"/Users/dinko/work-private/projects/dXn/dXn.VectorAnimation\" reset --hard 270d269a24998119afdf2cb84b9bae8c40d9e6cf",
-      "status": ""
+      "status": "success"
     }
   ],
-  "repositoryCommits": [],
+  "repositoryCommits": [
+    {
+      "name": "main",
+      "path": ".",
+      "role": "main",
+      "commit": "05baeed4d963581e9a0be2c7d43f9afdc7299ff0"
+    }
+  ],
   "atomicDiscipline": {
     "oneHypothesisOnly": true,
     "singleImplementationAttempt": true,
@@ -36,17 +43,53 @@
     "rule": "Run exactly the printed hypothesis. If the attempted change fails, degrades, or suggests a different fix, revert to the checkpoint and finish this experiment as failure. Start a new experiment for the next idea."
   },
   "primaryTarget": "wasm/web with headed Playwright and WebGPU enabled",
-  "hypothesisMarkdown": "",
-  "measurementPlanMarkdown": "",
-  "expectedOutcomeMarkdown": "",
+  "hypothesisMarkdown": "## Outlines built at their size Hypothesis\n\nRectangles, ellipses and stars, sampled every frame, built their outlines element by element into a growing path (a star of five points: four reallocations). Their element counts are known: each path is allocated once.\\n\\n**Tested mechanism:** preallocated outline paths. **Allowed:** core `outline.rs` rect_path, ellipse_path, star_path. **Forbidden:** outline geometry.",
+  "measurementPlanMarkdown": "### Measurement Plan\n\nRelease bench over the 53 corpus files (median of 3 runs, best of 5 each), plus the focused tests of the touched area.",
+  "expectedOutcomeMarkdown": "### Expected Outcome\n\nThe targeted metric improves with identical graph output and passing focused tests.",
   "diagnostics": {
     "playwright": [],
     "rayx": [],
     "counters": [],
     "artifacts": []
   },
-  "measurements": [],
-  "reportMarkdown": "",
-  "decisionMarkdown": "",
+  "measurements": [
+    {
+      "metric": "frame_at us/frame",
+      "before": "231.9",
+      "after": "199.4",
+      "delta": "",
+      "source": "scratchpad bench.sh: median of 3 `vector-animation-check bench artifacts-temp/corpus`"
+    },
+    {
+      "metric": "frame_at allocs/frame",
+      "before": "3952",
+      "after": "2908",
+      "delta": "",
+      "source": "scratchpad bench.sh: median of 3 `vector-animation-check bench artifacts-temp/corpus`"
+    },
+    {
+      "metric": "ttff allocations",
+      "before": "869,281",
+      "after": "853,099",
+      "delta": "",
+      "source": "scratchpad bench.sh: median of 3 `vector-animation-check bench artifacts-temp/corpus`"
+    },
+    {
+      "metric": "reference frames",
+      "before": "identical",
+      "after": "identical",
+      "delta": "",
+      "source": "scratchpad bench.sh: median of 3 `vector-animation-check bench artifacts-temp/corpus`"
+    },
+    {
+      "metric": "compiled scenes",
+      "before": "identical",
+      "after": "identical",
+      "delta": "",
+      "source": "scratchpad bench.sh: median of 3 `vector-animation-check bench artifacts-temp/corpus`"
+    }
+  ],
+  "reportMarkdown": "## Outlines built at their size Finished\n\n**Passed Status**: True\n\n**Attempt Count:** 1. **Out-of-scope changes:** none.\n\nframe_at -14% time and -26% allocations a frame. Reference PNG and compiled scene hashes identical; core tests pass; clippy clean.\n\n| Repo | Path | Checkpoint | Result Commit | Status |\n| --- | --- | --- | --- | --- |\n| main | . | 270d269 | 05baeed | committed |",
+  "decisionMarkdown": "### Decision\n\nCommitted 05baeed: perf(core): build rectangles', ellipses' and stars' outlines at their size",
   "notes": ""
 }

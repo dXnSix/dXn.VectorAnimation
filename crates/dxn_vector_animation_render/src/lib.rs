@@ -480,14 +480,38 @@ impl Renderer {
             blend_mode: sk_blend(layer.blend),
             quality: sk::FilterQuality::Nearest,
         };
-        target.draw_pixmap(
-            0,
-            0,
-            pixmap.as_ref(),
-            &paint,
-            sk::Transform::identity(),
-            None,
-        );
+        // Where it is clear it leaves what is under it, but where it takes
+        // that away: only where it draws is drawn (as `draw_pixmap` draws).
+        if matches!(
+            layer.blend,
+            BlendMode::DestinationIn | BlendMode::DestinationOut
+        ) {
+            target.draw_pixmap(
+                0,
+                0,
+                pixmap.as_ref(),
+                &paint,
+                sk::Transform::identity(),
+                None,
+            );
+            return;
+        }
+        let Some(area) = drawn(pixmap) else {
+            return;
+        };
+        let pattern = sk::Paint {
+            shader: sk::Pattern::new(
+                pixmap.as_ref(),
+                sk::SpreadMode::Pad,
+                paint.quality,
+                paint.opacity,
+                sk::Transform::identity(),
+            ),
+            blend_mode: paint.blend_mode,
+            anti_alias: false,
+            ..sk::Paint::default()
+        };
+        target.fill_rect(area, &pattern, sk::Transform::identity(), None);
     }
 
     /// `run` applied to `pixmap`: a blur, a color change, or shadows all
@@ -825,6 +849,24 @@ fn sk_stroke(style: &StrokeStyle) -> sk::Stroke {
             sk::StrokeDash::new(array.iter().map(|d| *d as f32).collect(), *offset as f32)
         }),
     }
+}
+
+/// The rectangle of `pixmap`'s pixels that are not clear, in whole pixels.
+fn drawn(pixmap: &sk::Pixmap) -> Option<sk::Rect> {
+    let w = pixmap.width() as usize;
+    let (mut x0, mut x1, mut y0, mut y1) = (usize::MAX, 0, usize::MAX, 0);
+    for (y, row) in pixmap.pixels().chunks_exact(w.max(1)).enumerate() {
+        let Some(first) = row.iter().position(|p| p.alpha() > 0) else {
+            continue;
+        };
+        let last = row.iter().rposition(|p| p.alpha() > 0).unwrap_or(first);
+        (x0, x1) = (x0.min(first), x1.max(last + 1));
+        (y0, y1) = (y0.min(y), y + 1);
+    }
+    if x0 >= x1 {
+        return None;
+    }
+    sk::Rect::from_ltrb(x0 as f32, y0 as f32, x1 as f32, y1 as f32)
 }
 
 fn sk_blend(b: BlendMode) -> sk::BlendMode {
