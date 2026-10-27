@@ -1008,7 +1008,7 @@ fn rastered(
     let view = plan::in_view(scene, base, size.0, size.1);
     let still = plan::still(scene);
     let empty = Graph::default();
-    let made = RefCell::new(Rasters::default());
+    let made = RefCell::new(Rasters::new(!still, 0.0));
     let held = RefCell::new(Held::default());
     canvas(move || {
         let t = if still { 0.0 } else { clock.get() };
@@ -1070,23 +1070,49 @@ const RASTER_BYTES: usize = 32 << 20;
 /// for when its time comes again (a loop), within [`RASTER_BYTES`].
 const RASTER_RATE: f64 = 60.0;
 
-/// The share of the time a part that moves may take making its rasters:
-/// one slower than that is made less often, each held a few frames, so
-/// that the rest of the page (and on the web, the page itself) keeps its
-/// time.
+/// The share of the time the parts that move may take making their rasters,
+/// all together: slower than that, each is made less often, held a few
+/// frames, so that the rest of the page (and on the web, the page itself)
+/// keeps its time.
 const RASTER_SHARE: f64 = 0.25;
 
+thread_local! {
+    /// How long a raster of each part that moves takes, summed over the
+    /// parts (in seconds).
+    static RASTER_COST: Cell<f64> = const { Cell::new(0.0) };
+}
+
 /// The rasters a part made, by frame.
-#[derive(Default)]
 struct Rasters {
     ratio: f64,
     by_frame: HashMap<i64, Option<(Arc<ImageData>, Rect)>>,
     bytes: usize,
     /// How long one takes to make, in seconds (smoothed).
     cost: f64,
+    /// It moves: what it costs counts in [`RASTER_COST`].
+    moving: bool,
+}
+
+impl Drop for Rasters {
+    fn drop(&mut self) {
+        if self.moving {
+            RASTER_COST.with(|c| c.set((c.get() - self.cost).max(0.0)));
+        }
+    }
 }
 
 impl Rasters {
+    /// None yet, of a part that moves or not, at `ratio`.
+    fn new(moving: bool, ratio: f64) -> Rasters {
+        Rasters {
+            ratio,
+            by_frame: HashMap::new(),
+            bytes: 0,
+            cost: 0.0,
+            moving,
+        }
+    }
+
     /// The raster at `t` (to the nearest frame) at `ratio`, made by `make`
     /// if it is not kept.
     fn get(
@@ -1096,13 +1122,13 @@ impl Rasters {
         make: impl FnOnce(f64) -> Option<(Arc<ImageData>, Rect)>,
     ) -> Option<(Arc<ImageData>, Rect)> {
         if ratio != self.ratio {
-            *self = Rasters {
-                ratio,
-                ..Default::default()
-            };
+            *self = Rasters::new(self.moving, ratio);
         }
-        // As often as a share of the time allows, at most each frame.
-        let step = (self.cost / RASTER_SHARE).max(1.0 / RASTER_RATE);
+        // As often as the parts' share of the time allows, at most each
+        // frame.
+        let all = RASTER_COST.with(Cell::get).max(self.cost);
+        let all = if self.moving { all } else { self.cost };
+        let step = (all / RASTER_SHARE).max(1.0 / RASTER_RATE);
         let frame = ((t / step).floor() * step * RASTER_RATE).round() as i64;
         if let Some(kept) = self.by_frame.get(&frame) {
             return kept.clone();
@@ -1112,11 +1138,15 @@ impl Rasters {
         let took = nsh_core::time::now()
             .saturating_duration_since(started)
             .as_secs_f64();
-        self.cost = if self.cost == 0.0 {
+        let cost = if self.cost == 0.0 {
             took
         } else {
             0.7 * self.cost + 0.3 * took
         };
+        if self.moving {
+            RASTER_COST.with(|c| c.set((c.get() + cost - self.cost).max(0.0)));
+        }
+        self.cost = cost;
         let size = made.as_ref().map_or(0, |(image, _)| image.bytes.len());
         if self.bytes + size <= RASTER_BYTES {
             self.bytes += size;
@@ -1288,7 +1318,7 @@ mod tests {
     #[test]
     fn rasters_are_made_once_a_frame_and_kept() {
         let made = Cell::new(0);
-        let mut rasters = Rasters::default();
+        let mut rasters = Rasters::new(true, 0.0);
         let make = |_| {
             made.set(made.get() + 1);
             image(10)
@@ -1327,7 +1357,7 @@ mod tests {
     #[test]
     fn rasters_past_the_budget_are_not_kept() {
         let made = Cell::new(0);
-        let mut rasters = Rasters::default();
+        let mut rasters = Rasters::new(true, 0.0);
         let make = |_| {
             made.set(made.get() + 1);
             image(RASTER_BYTES / 2 + 1)
