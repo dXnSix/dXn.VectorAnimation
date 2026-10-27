@@ -25,6 +25,8 @@ struct Cli {
     artboard: Option<String>,
 }
 
+// Parsed once: the render command's many options are no cost.
+#[allow(clippy::large_enum_variant)]
 #[derive(Subcommand)]
 enum Command {
     /// Prints a file's size, timeline, contents and what it leaves out.
@@ -96,6 +98,14 @@ enum Command {
         /// (`#12/hover=true@1`; repeatable; `inspect` lists the inputs).
         #[arg(long = "input")]
         inputs: Vec<String>,
+        /// A change to a property of the view model instance bound to a
+        /// Rive artboard, `path=value@seconds` (`true`, `false`, a number,
+        /// `#rrggbb` or `#aarrggbb`, an enum's value, else text), or
+        /// `path@seconds` to fire a trigger; nested view models' property
+        /// names first in the path, `/` between (`player/score=3@1`;
+        /// repeatable; `inspect` lists the properties).
+        #[arg(long = "value")]
+        values: Vec<String>,
         /// A pointer over a Rive file, `down:x,y@seconds` (or `up:`,
         /// `move:`, `exit:` for leaving, `lift:` for a finger lifted; the
         /// scene's units, repeatable): the state machine's listeners act on
@@ -140,6 +150,7 @@ fn read(
     file: &Path,
     artboard: Option<&str>,
     inputs: &[dxn_vector_animation_rive::InputChange],
+    values: &[dxn_vector_animation_rive::ValueChange],
 ) -> Result<(Format, Import), String> {
     let data = std::fs::read(file).map_err(|e| format!("{}: {e}", file.display()))?;
     let limits = Limits::default();
@@ -148,6 +159,7 @@ fn read(
         let options = dxn_vector_animation_rive::Options {
             artboard: artboard.map(str::to_owned),
             inputs: inputs.to_vec(),
+            values: values.to_vec(),
             ..Default::default()
         };
         return dxn_vector_animation_rive::read_options(&data, &limits, &options)
@@ -187,7 +199,7 @@ fn read(
 fn run(command: Command, artboard: Option<&str>) -> Result<ExitCode, String> {
     match command {
         Command::Inspect { file } => {
-            let (format, import) = read(&file, artboard, &[])?;
+            let (format, import) = read(&file, artboard, &[], &[])?;
             print!("{}", describe(&file, format, &import));
             if format == Format::Rive {
                 print!("{}", describe_machine(&file, artboard, &import.scene)?);
@@ -195,7 +207,7 @@ fn run(command: Command, artboard: Option<&str>) -> Result<ExitCode, String> {
             Ok(ExitCode::SUCCESS)
         }
         Command::Validate { file, strict } => {
-            let (format, import) = read(&file, artboard, &[])?;
+            let (format, import) = read(&file, artboard, &[], &[])?;
             for w in &import.warnings {
                 println!("warning: {w}");
             }
@@ -211,7 +223,7 @@ fn run(command: Command, artboard: Option<&str>) -> Result<ExitCode, String> {
             output,
             pretty,
         } => {
-            let (_, import) = read(&file, artboard, &[])?;
+            let (_, import) = read(&file, artboard, &[], &[])?;
             for w in &import.warnings {
                 eprintln!("warning: {w}");
             }
@@ -238,16 +250,21 @@ fn run(command: Command, artboard: Option<&str>) -> Result<ExitCode, String> {
             background,
             events,
             inputs,
+            values,
             pointers,
         } => {
             let inputs = inputs
                 .iter()
                 .map(|i| parse_input(i))
                 .collect::<Result<Vec<_>, _>>()?;
+            let values = values
+                .iter()
+                .map(|v| parse_value(v))
+                .collect::<Result<Vec<_>, _>>()?;
             let (_, import) = if pointers.is_empty() {
-                read(&file, artboard, &inputs)?
+                read(&file, artboard, &inputs, &values)?
             } else {
-                point(&file, artboard, &inputs, &pointers)?
+                point(&file, artboard, &inputs, &values, &pointers)?
             };
             let mut happened: Vec<(&str, f64)> = Vec::new();
             for e in &events {
@@ -349,6 +366,7 @@ fn point(
     file: &Path,
     artboard: Option<&str>,
     inputs: &[dxn_vector_animation_rive::InputChange],
+    values: &[dxn_vector_animation_rive::ValueChange],
     pointers: &[String],
 ) -> Result<(Format, Import), String> {
     use dxn_vector_animation_rive::{Interaction, Options, Pointer};
@@ -382,6 +400,7 @@ fn point(
     let options = Options {
         artboard: artboard.map(str::to_owned),
         inputs: inputs.to_vec(),
+        values: values.to_vec(),
         ..Options::default()
     };
     let mut play = Interaction::new(data, Limits::default(), options).map_err(fail)?;
@@ -431,6 +450,38 @@ fn parse_input(text: &str) -> Result<dxn_vector_animation_rive::InputChange, Str
         time,
         path: path.to_owned(),
         input: input.to_owned(),
+        value,
+    })
+}
+
+/// A view model property's change: `path=value@seconds`, or `path@seconds`
+/// firing a trigger.
+fn parse_value(text: &str) -> Result<dxn_vector_animation_rive::ValueChange, String> {
+    use dxn_vector_animation_rive::{PropertyValue, ValueChange};
+    let bad = || format!("--value `{text}` is not `path=value@seconds` or `path@seconds`");
+    let (what, time) = text.rsplit_once('@').ok_or_else(bad)?;
+    let time = time.trim().parse::<f64>().map_err(|_| bad())?;
+    let (path, value) = match what.split_once('=') {
+        None => (what, PropertyValue::Trigger),
+        Some((path, "true")) => (path, PropertyValue::Bool(true)),
+        Some((path, "false")) => (path, PropertyValue::Bool(false)),
+        Some((path, v)) => {
+            let hex = v
+                .strip_prefix('#')
+                .filter(|h| matches!(h.len(), 6 | 8))
+                .and_then(|h| u32::from_str_radix(h, 16).ok().map(|c| (h.len(), c)));
+            let value = match (hex, v.trim().parse::<f64>()) {
+                (Some((6, c)), _) => PropertyValue::Color(0xFF00_0000 | c),
+                (Some((_, c)), _) => PropertyValue::Color(c),
+                (None, Ok(n)) => PropertyValue::Number(n),
+                (None, Err(_)) => PropertyValue::Text(v.to_owned()),
+            };
+            (path, value)
+        }
+    };
+    Ok(ValueChange {
+        time,
+        path: path.to_owned(),
         value,
     })
 }
