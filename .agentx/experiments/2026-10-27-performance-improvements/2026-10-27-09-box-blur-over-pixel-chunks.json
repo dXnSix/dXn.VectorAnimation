@@ -9,11 +9,11 @@
   "path": "2026-10-27-09-box-blur-over-pixel-chunks.json",
   "createdAt": "2026-10-27T20:31:10Z",
   "startedAt": "2026-10-27T20:31:10Z",
-  "finishedAt": null,
-  "state": "running",
-  "status": "",
+  "finishedAt": "2026-10-27T20:33:06Z",
+  "state": "done",
+  "status": "success",
   "checkpointCommit": "bfa8a505e6684e576aee31d7df106ba219547910",
-  "resultCommit": "",
+  "resultCommit": "50f02d725e32b93faa403dde457e73f6b5045a05",
   "rollbackCommand": "git -C \"/Users/dinko/work-private/projects/dXn/dXn.VectorAnimation\" reset --hard bfa8a505e6684e576aee31d7df106ba219547910",
   "repositories": [
     {
@@ -21,12 +21,19 @@
       "path": ".",
       "role": "main",
       "checkpointCommit": "bfa8a505e6684e576aee31d7df106ba219547910",
-      "resultCommit": "",
+      "resultCommit": "50f02d725e32b93faa403dde457e73f6b5045a05",
       "rollbackCommand": "git -C \"/Users/dinko/work-private/projects/dXn/dXn.VectorAnimation\" reset --hard bfa8a505e6684e576aee31d7df106ba219547910",
-      "status": ""
+      "status": "success"
     }
   ],
-  "repositoryCommits": [],
+  "repositoryCommits": [
+    {
+      "name": "main",
+      "path": ".",
+      "role": "main",
+      "commit": "50f02d725e32b93faa403dde457e73f6b5045a05"
+    }
+  ],
   "atomicDiscipline": {
     "oneHypothesisOnly": true,
     "singleImplementationAttempt": true,
@@ -36,17 +43,46 @@
     "rule": "Run exactly the printed hypothesis. If the attempted change fails, degrades, or suggests a different fix, revert to the checkpoint and finish this experiment as failure. Start a new experiment for the next idea."
   },
   "primaryTarget": "wasm/web with headed Playwright and WebGPU enabled",
-  "hypothesisMarkdown": "",
-  "measurementPlanMarkdown": "",
-  "expectedOutcomeMarkdown": "",
+  "hypothesisMarkdown": "## Box blur over pixel chunks Hypothesis\n\nThe box blur indexed each channel through an `Option`-returning closure and bounds-checked slices; over `[f32; 4]` chunks with checked index arithmetic it does the same additions, divisions and subtractions in the same order (identical floats) with far less overhead. Moving blur rasters (the engine thread's work) and blurred plan images are its callers.\\n\\n**Tested mechanism:** chunked box blur. **Allowed:** `dxn_vector_animation_render` box_blur. **Forbidden:** blur math, gaussian.",
+  "measurementPlanMarkdown": "### Measurement Plan\n\nRelease bench over the 53 corpus files (median of 3 runs, best of 5 each), plus the focused tests of the touched area.",
+  "expectedOutcomeMarkdown": "### Expected Outcome\n\nThe targeted metric improves with identical graph output and passing focused tests.",
   "diagnostics": {
     "playwright": [],
     "rayx": [],
     "counters": [],
     "artifacts": []
   },
-  "measurements": [],
-  "reportMarkdown": "",
-  "decisionMarkdown": "",
+  "measurements": [
+    {
+      "metric": "engine us/frame",
+      "before": "823",
+      "after": "696",
+      "delta": "",
+      "source": "scratchpad bench.sh: median of 3 `vector-animation-check bench artifacts-temp/corpus`"
+    },
+    {
+      "metric": "compile ms",
+      "before": "95.1",
+      "after": "92.6",
+      "delta": "",
+      "source": "scratchpad bench.sh: median of 3 `vector-animation-check bench artifacts-temp/corpus`"
+    },
+    {
+      "metric": "reference frames (4629 PNGs, corpus at 4 fps)",
+      "before": "md5 at a9eba8e",
+      "after": "identical",
+      "delta": "",
+      "source": "scratchpad bench.sh: median of 3 `vector-animation-check bench artifacts-temp/corpus`"
+    },
+    {
+      "metric": "corpus fidelity",
+      "before": "identical",
+      "after": "identical",
+      "delta": "",
+      "source": "scratchpad bench.sh: median of 3 `vector-animation-check bench artifacts-temp/corpus`"
+    }
+  ],
+  "reportMarkdown": "## Box blur over pixel chunks Finished\n\n**Passed Status**: True\n\n**Attempt Count:** 1. **Out-of-scope changes:** none.\n\nEngine thread -15% a frame (onboarding's moving blurs). Tests: render crate, nsh blur_rasters, effects pass; reference PNG hashes identical to the loop's start; clippy clean.\n\n| Repo | Path | Checkpoint | Result Commit | Status |\n| --- | --- | --- | --- | --- |\n| main | . | bfa8a50 | 50f02d7 | committed |",
+  "decisionMarkdown": "### Decision\n\nCommitted 50f02d7: perf(render): box blur over pixel chunks",
   "notes": ""
 }

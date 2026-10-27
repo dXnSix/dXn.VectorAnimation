@@ -958,7 +958,7 @@ fn blur(pixmap: &mut sk::Pixmap, sx: f64, sy: f64) {
         blur_axis(&mut data, w, h, 4, w * 4, sx);
     }
     if sy > 0.0 {
-        blur_axis(&mut data, h, w, w * 4, 4, sy);
+        blur_columns(&mut data, w * 4, sy);
     }
     let out = pixmap.data_mut();
     for (px, v) in out
@@ -1011,6 +1011,88 @@ fn blur_axis(data: &mut [f32], len: usize, count: usize, step: usize, stride: us
         for x in 0..len {
             let at = start + x * step;
             data[at..at + 4].copy_from_slice(&line[x * 4..x * 4 + 4]);
+        }
+    }
+}
+
+/// Blurs the columns of `data`, rows of `row` values, with standard
+/// deviation `sigma`: as [`blur_axis`] blurs each, a whole row at a time.
+fn blur_columns(data: &mut Vec<f32>, row: usize, sigma: f64) {
+    if row == 0 {
+        return;
+    }
+    let len = data.len() / row;
+    let mut tmp = vec![0.0f32; data.len()];
+    if sigma < 2.0 {
+        gaussian_rows(data, &mut tmp, row, sigma);
+        std::mem::swap(data, &mut tmp);
+    } else {
+        let d = (sigma * 3.0 * (2.0 * std::f64::consts::PI).sqrt() / 4.0 + 0.5).floor() as usize;
+        let d = d.clamp(1, len.max(1) * 2);
+        if d % 2 == 1 {
+            for _ in 0..3 {
+                box_rows(data, &mut tmp, row, d, (d - 1) / 2);
+                std::mem::swap(data, &mut tmp);
+            }
+        } else {
+            box_rows(data, &mut tmp, row, d, d / 2);
+            box_rows(&tmp, data, row, d, d / 2 - 1);
+            box_rows(data, &mut tmp, row, d + 1, d / 2);
+            std::mem::swap(data, &mut tmp);
+        }
+    }
+}
+
+/// [`box_blur`] down every column of `src` (rows of `row` values) at once.
+fn box_rows(src: &[f32], dst: &mut [f32], row: usize, size: usize, before: usize) {
+    let len = src.len() / row;
+    let line = |i: usize| &src[i * row..(i + 1) * row];
+    let mut sum = vec![0.0f32; row];
+    for i in 0..size.saturating_sub(before).min(len) {
+        for (s, v) in sum.iter_mut().zip(line(i)) {
+            *s += v;
+        }
+    }
+    let n = size as f32;
+    for (y, out) in dst.chunks_exact_mut(row).enumerate().take(len) {
+        for (o, s) in out.iter_mut().zip(&sum) {
+            *o = s / n;
+        }
+        if let Some(i) = (y + size).checked_sub(before).filter(|i| *i < len) {
+            for (s, v) in sum.iter_mut().zip(line(i)) {
+                *s += v;
+            }
+        }
+        if let Some(i) = y.checked_sub(before).filter(|i| *i < len) {
+            for (s, v) in sum.iter_mut().zip(line(i)) {
+                *s -= v;
+            }
+        }
+    }
+}
+
+/// [`gaussian`] down every column of `src` (rows of `row` values) at once.
+fn gaussian_rows(src: &[f32], dst: &mut [f32], row: usize, sigma: f64) {
+    let len = (src.len() / row) as isize;
+    let r = (sigma * 3.0).ceil() as isize;
+    let weights: Vec<f32> = (-r..=r)
+        .map(|k| (-(k * k) as f64 / (2.0 * sigma * sigma)).exp() as f32)
+        .collect();
+    let total: f32 = weights.iter().sum();
+    let mut acc = vec![0.0f32; row];
+    for (y, out) in dst.chunks_exact_mut(row).enumerate() {
+        acc.fill(0.0);
+        for (k, w) in (-r..=r).zip(&weights) {
+            let i = y as isize + k;
+            if i >= 0 && i < len {
+                let i = i as usize;
+                for (a, v) in acc.iter_mut().zip(&src[i * row..(i + 1) * row]) {
+                    *a += v * w;
+                }
+            }
+        }
+        for (o, a) in out.iter_mut().zip(&acc) {
+            *o = a / total;
         }
     }
 }
