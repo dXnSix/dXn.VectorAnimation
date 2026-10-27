@@ -343,7 +343,10 @@ pub(crate) struct KeyframeBlock {
 }
 
 /// `text` without its comments.
-fn strip_comments(text: &str) -> String {
+fn strip_comments(text: &str) -> std::borrow::Cow<'_, str> {
+    if !text.contains("/*") {
+        return std::borrow::Cow::Borrowed(text);
+    }
     let mut out = String::with_capacity(text.len());
     let mut rest = text;
     while let Some(start) = rest.find("/*") {
@@ -354,7 +357,7 @@ fn strip_comments(text: &str) -> String {
         };
     }
     out.push_str(rest);
-    out
+    std::borrow::Cow::Owned(out)
 }
 
 /// Splits `text` at `sep` where it is outside strings, parentheses and
@@ -396,7 +399,11 @@ pub(crate) fn parse_declarations(text: &str) -> Vec<Declaration> {
             let name = name.trim().to_ascii_lowercase();
             let mut value = value.trim();
             let mut important = false;
-            if let Some(i) = value.to_ascii_lowercase().rfind("!important") {
+            if let Some(i) = value
+                .as_bytes()
+                .windows(10)
+                .rposition(|w| w.eq_ignore_ascii_case(b"!important"))
+            {
                 value = value[..i].trim_end();
                 important = true;
             }

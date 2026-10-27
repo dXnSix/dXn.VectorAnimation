@@ -149,3 +149,16 @@ fn rules_apply_in_order_whatever_an_element_is_matched_by() {
     );
     assert_eq!(fills(&import), vec![BLUE, BLUE, BLUE, RED]);
 }
+
+#[test]
+fn important_declarations_win_however_written() {
+    // `!important` in any case, after comments, wins over a later rule and
+    // the `style` attribute; the last of two in a value is the one.
+    let css = "rect { fill: blue !IMPORTANT } /* note */ rect { fill: red } \
+               circle { fill: red /* x */ ! important } circle { fill: blue !Important }";
+    let import = read(
+        css,
+        r#"<rect width="1" height="1" style="fill: red"/><circle r="1"/>"#,
+    );
+    assert_eq!(fills(&import), vec![BLUE, BLUE]);
+}
