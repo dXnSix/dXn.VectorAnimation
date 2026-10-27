@@ -672,6 +672,7 @@ fn describe_machine(file: &Path, artboard: Option<&str>, scene: &Scene) -> Resul
                         Change::Toggle => format!("toggles {path}{input}"),
                     },
                     Action::Fire { event } => format!("fires event {event}"),
+                    Action::Value { property, .. } => format!("sets view model {property}"),
                     Action::Align { node, keep_offset } => format!(
                         "moves node {node} to the pointer{}",
                         if *keep_offset {
