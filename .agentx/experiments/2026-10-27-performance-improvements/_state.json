@@ -1,0 +1,58 @@
+{
+  "schemaVersion": 1,
+  "id": "9e7a8b6d-0104-4e72-a31e-3b168c0b3881",
+  "name": "Performance improvements",
+  "objective": "Maximally improve playback performance, reduce memory and allocation cost, and reduce time to first frame of the scene model, importers, renderer and NSH player",
+  "metric": "corpus bench: playback ms/frame and graph size, allocations/bytes, time to first frame (read + compile + first rasters)",
+  "target": "maximal improvement without behavior change (all focused tests pass)",
+  "maxIterations": 50,
+  "maxExperiments": 50,
+  "state": "running",
+  "status": "",
+  "createdAt": "2026-10-27T20:14:29Z",
+  "finishedAt": null,
+  "lastStableCommit": "a9eba8e8fb24625468974d341186c970ecfdad3c",
+  "repositories": [
+    {
+      "name": "main",
+      "path": ".",
+      "role": "main",
+      "lastStableCommit": "a9eba8e8fb24625468974d341186c970ecfdad3c"
+    }
+  ],
+  "atomicDiscipline": {
+    "oneHypothesisOnly": true,
+    "singleImplementationAttempt": true,
+    "noUnplannedFixesInsideExperiment": true,
+    "failedAttemptRequiresImmediateRevert": true,
+    "successfulAttemptRequiresCommitBeforeNextExperiment": true,
+    "rule": "Run exactly the printed hypothesis. If the attempted change fails, degrades, or suggests a different fix, revert to the checkpoint and finish this experiment as failure. Start a new experiment for the next idea."
+  },
+  "currentExperimentId": "08798e18-46c1-499e-bcbb-9ac3dd3b826f",
+  "nextExperimentIndex": 3,
+  "experiments": [
+    {
+      "id": "f0287285-7a36-4cb5-8eef-94cdd163e5a7",
+      "index": 1,
+      "type": "baseline",
+      "name": "Baseline discovery",
+      "path": "2026-10-27-01-baseline-discovery.json",
+      "startedAt": "2026-10-27T20:14:29Z",
+      "finishedAt": "2026-10-27T20:16:00Z",
+      "state": "done",
+      "status": "success",
+      "resultCommit": "a9eba8e8fb24625468974d341186c970ecfdad3c"
+    },
+    {
+      "id": "08798e18-46c1-499e-bcbb-9ac3dd3b826f",
+      "index": 2,
+      "type": "hypothesis",
+      "name": "Corpus bench harness",
+      "path": "2026-10-27-02-corpus-bench-harness.json",
+      "startedAt": "2026-10-27T20:16:05Z",
+      "finishedAt": null,
+      "state": "running",
+      "status": ""
+    }
+  ]
+}

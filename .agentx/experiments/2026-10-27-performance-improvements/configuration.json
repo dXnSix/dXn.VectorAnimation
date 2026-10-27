@@ -1,0 +1,21 @@
+{
+  "schemaVersion": 1,
+  "maxIterations": 50,
+  "instructions": "Measure with release builds over artifacts-temp/corpus (53 files). Correctness: the crate's focused tests for the touched area (core, svg, lottie, render, nsh plans) must pass. One mechanism per experiment.",
+  "repositories": [
+    {
+      "name": "main",
+      "path": ".",
+      "role": "main",
+      "lastStableCommit": "a9eba8e8fb24625468974d341186c970ecfdad3c"
+    }
+  ],
+  "atomicDiscipline": {
+    "oneHypothesisOnly": true,
+    "singleImplementationAttempt": true,
+    "noUnplannedFixesInsideExperiment": true,
+    "failedAttemptRequiresImmediateRevert": true,
+    "successfulAttemptRequiresCommitBeforeNextExperiment": true,
+    "rule": "Run exactly the printed hypothesis. If the attempted change fails, degrades, or suggests a different fix, revert to the checkpoint and finish this experiment as failure. Start a new experiment for the next idea."
+  }
+}

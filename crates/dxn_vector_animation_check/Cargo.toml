@@ -21,6 +21,7 @@ dxn_vector_animation_render.workspace = true
 dxn_vector_animation_svg.workspace = true
 serde_json.workspace = true
 tiny-skia = { workspace = true, features = ["png-format"] }
+stats_alloc = "0.1.10"
 
 [lints]
 workspace = true
