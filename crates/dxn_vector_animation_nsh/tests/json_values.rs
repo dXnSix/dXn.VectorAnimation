@@ -44,3 +44,26 @@ fn a_value_that_is_neither_is_refused() {
         assert_eq!(read_json(&v).unwrap_err(), read(&text).unwrap_err());
     }
 }
+
+#[test]
+fn a_lottie_value_with_expressions_reads_as_its_text() {
+    // A square moved by an expression, baked into the value read.
+    let doc = serde_json::json!({ "v": "5.7.0", "fr": 10, "ip": 0, "op": 20, "w": 100, "h": 80,
+        "layers": [{ "ty": 4, "ind": 1, "ip": 0, "op": 20, "st": 0,
+            "ks": { "p": { "a": 0, "k": [10, 10, 0], "x": "[time * 30, 10]" } },
+            "shapes": [{ "ty": "rc", "p": { "a": 0, "k": [0, 0] }, "s": { "a": 0, "k": [10, 10] }, "r": { "a": 0, "k": 0 } },
+                       { "ty": "fl", "c": { "a": 0, "k": [1, 0, 0, 1] }, "o": { "a": 0, "k": 100 } }] }] });
+    let text = serde_json::to_vec(&doc).unwrap();
+    let (text, value) = (read(&text).unwrap(), read_json(&doc).unwrap());
+    assert!(
+        text.scene
+            .root
+            .children
+            .iter()
+            .any(|n| matches!(n, dxn_vector_animation::Node::Group(g)
+            if g.transform.iter().any(dxn_vector_animation::TransformOp::is_animated))),
+        "the expression is baked"
+    );
+    assert_eq!(text.scene, value.scene);
+    assert_eq!(text.warnings, value.warnings);
+}

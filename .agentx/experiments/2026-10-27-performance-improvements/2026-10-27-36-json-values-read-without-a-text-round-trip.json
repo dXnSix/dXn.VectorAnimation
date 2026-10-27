@@ -9,11 +9,11 @@
   "path": "2026-10-27-36-json-values-read-without-a-text-round-trip.json",
   "createdAt": "2026-10-27T21:39:58Z",
   "startedAt": "2026-10-27T21:39:58Z",
-  "finishedAt": null,
-  "state": "running",
-  "status": "",
+  "finishedAt": "2026-10-27T21:42:54Z",
+  "state": "done",
+  "status": "success",
   "checkpointCommit": "5ffa2cb824841715904a3d1c5570720e7896ef8e",
-  "resultCommit": "",
+  "resultCommit": "f0f22b4bfb0e6befeca40c2a4372a878b368e98f",
   "rollbackCommand": "git -C \"/Users/dinko/work-private/projects/dXn/dXn.VectorAnimation\" reset --hard 5ffa2cb824841715904a3d1c5570720e7896ef8e",
   "repositories": [
     {
@@ -21,12 +21,19 @@
       "path": ".",
       "role": "main",
       "checkpointCommit": "5ffa2cb824841715904a3d1c5570720e7896ef8e",
-      "resultCommit": "",
+      "resultCommit": "f0f22b4bfb0e6befeca40c2a4372a878b368e98f",
       "rollbackCommand": "git -C \"/Users/dinko/work-private/projects/dXn/dXn.VectorAnimation\" reset --hard 5ffa2cb824841715904a3d1c5570720e7896ef8e",
-      "status": ""
+      "status": "success"
     }
   ],
-  "repositoryCommits": [],
+  "repositoryCommits": [
+    {
+      "name": "main",
+      "path": ".",
+      "role": "main",
+      "commit": "f0f22b4bfb0e6befeca40c2a4372a878b368e98f"
+    }
+  ],
   "atomicDiscipline": {
     "oneHypothesisOnly": true,
     "singleImplementationAttempt": true,
@@ -36,17 +43,39 @@
     "rule": "Run exactly the printed hypothesis. If the attempted change fails, degrades, or suggests a different fix, revert to the checkpoint and finish this experiment as failure. Start a new experiment for the next idea."
   },
   "primaryTarget": "wasm/web with headed Playwright and WebGPU enabled",
-  "hypothesisMarkdown": "",
-  "measurementPlanMarkdown": "",
-  "expectedOutcomeMarkdown": "",
+  "hypothesisMarkdown": "## JSON values read without a text round trip Hypothesis\n\nAn app's import of a compiled scene or a Lottie file reaches the player as a JSON value (`Source::Json`), which was written back to text and parsed again. A compiled scene is now deserialized from the value (`compiled::from_value`, the same checks in the same order), a Lottie document converted from a copy of it (`dxn_vector_animation_lottie::read_value`); other values are refused as their text was.\\n\\n**Tested mechanism:** reading values directly. **Allowed:** core `compiled.rs`, lottie `lib.rs`, nsh `source::read_json`, a test group, docs. **Forbidden:** the converters.",
+  "measurementPlanMarkdown": "### Measurement Plan\n\nRelease bench over the 53 corpus files (median of 3 runs, best of 5 each), plus the focused tests of the touched area.",
+  "expectedOutcomeMarkdown": "### Expected Outcome\n\nThe targeted metric improves with identical graph output and passing focused tests.",
   "diagnostics": {
     "playwright": [],
     "rayx": [],
     "counters": [],
     "artifacts": []
   },
-  "measurements": [],
-  "reportMarkdown": "",
-  "decisionMarkdown": "",
+  "measurements": [
+    {
+      "metric": "read ms, compiled corpus as values",
+      "before": "57.5",
+      "after": "40.4",
+      "delta": "",
+      "source": "scratchpad bench.sh: median of 3 `vector-animation-check bench artifacts-temp/corpus`"
+    },
+    {
+      "metric": "read ms, Lottie files (28) as values",
+      "before": "53.9",
+      "after": "48.3",
+      "delta": "",
+      "source": "scratchpad bench.sh: median of 3 `vector-animation-check bench artifacts-temp/corpus`"
+    },
+    {
+      "metric": "read ms, the corpus as bytes",
+      "before": "64.8",
+      "after": "64.7 (unchanged)",
+      "delta": "",
+      "source": "scratchpad bench.sh: median of 3 `vector-animation-check bench artifacts-temp/corpus`"
+    }
+  ],
+  "reportMarkdown": "## JSON values read without a text round trip Finished\n\n**Passed Status**: True\n\n**Attempt Count:** 1. **Out-of-scope changes:** none.\n\nReading an imported compiled scene -30% (now faster than reading its bytes), an imported Lottie -10%. New test group `tests/json_values.rs` (values read to the scenes and warnings their text reads to; newer versions and other values refused alike); core, lottie, dotlottie, component tests pass; wasm check and clippy clean; compiled-scenes and how-it-works pages updated.\n\n| Repo | Path | Checkpoint | Result Commit | Status |\n| --- | --- | --- | --- | --- |\n| main | . | 5ffa2cb | f0f22b4 | committed |",
+  "decisionMarkdown": "### Decision\n\nCommitted f0f22b4: perf: read an imported JSON value as it is, not as text again",
   "notes": ""
 }

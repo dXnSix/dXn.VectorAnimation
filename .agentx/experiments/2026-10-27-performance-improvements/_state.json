@@ -11,13 +11,13 @@
   "status": "",
   "createdAt": "2026-10-27T20:14:29Z",
   "finishedAt": null,
-  "lastStableCommit": "5ffa2cb824841715904a3d1c5570720e7896ef8e",
+  "lastStableCommit": "f0f22b4bfb0e6befeca40c2a4372a878b368e98f",
   "repositories": [
     {
       "name": "main",
       "path": ".",
       "role": "main",
-      "lastStableCommit": "5ffa2cb824841715904a3d1c5570720e7896ef8e"
+      "lastStableCommit": "f0f22b4bfb0e6befeca40c2a4372a878b368e98f"
     }
   ],
   "atomicDiscipline": {
@@ -28,8 +28,8 @@
     "successfulAttemptRequiresCommitBeforeNextExperiment": true,
     "rule": "Run exactly the printed hypothesis. If the attempted change fails, degrades, or suggests a different fix, revert to the checkpoint and finish this experiment as failure. Start a new experiment for the next idea."
   },
-  "currentExperimentId": "df7a2d72-c606-4319-afc2-a677d41357e6",
-  "nextExperimentIndex": 37,
+  "currentExperimentId": "5758b4dd-98df-41c6-9a83-a1e7e839bcba",
+  "nextExperimentIndex": 38,
   "experiments": [
     {
       "id": "f0287285-7a36-4cb5-8eef-94cdd163e5a7",
@@ -455,6 +455,18 @@
       "name": "JSON values read without a text round trip",
       "path": "2026-10-27-36-json-values-read-without-a-text-round-trip.json",
       "startedAt": "2026-10-27T21:39:58Z",
+      "finishedAt": "2026-10-27T21:42:54Z",
+      "state": "done",
+      "status": "success",
+      "resultCommit": "f0f22b4bfb0e6befeca40c2a4372a878b368e98f"
+    },
+    {
+      "id": "5758b4dd-98df-41c6-9a83-a1e7e839bcba",
+      "index": 37,
+      "type": "hypothesis",
+      "name": "Lottie values copied only to bake expressions",
+      "path": "2026-10-27-37-lottie-values-copied-only-to-bake-expressions.json",
+      "startedAt": "2026-10-27T21:43:33Z",
       "finishedAt": null,
       "state": "running",
       "status": ""

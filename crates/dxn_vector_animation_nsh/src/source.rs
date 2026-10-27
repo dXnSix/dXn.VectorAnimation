@@ -127,7 +127,7 @@ pub fn read_json(value: &serde_json::Value) -> Result<Loaded, String> {
     if !value.is_object() {
         return Err("neither SVG, Lottie nor a compiled scene".into());
     }
-    dxn_vector_animation_lottie::read_value(value.clone(), &limits)
+    dxn_vector_animation_lottie::read_value(value, &limits)
         .map(|i| Loaded {
             scene: i.scene,
             warnings: i.warnings,
