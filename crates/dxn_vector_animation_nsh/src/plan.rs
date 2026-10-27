@@ -930,7 +930,48 @@ fn closed(mut ops: Vec<Op>) -> Vec<Op> {
         _ => depth,
     });
     ops.extend(std::iter::repeat_n(Op::Restore, open));
-    ops
+    unsaved(ops)
+}
+
+/// `ops` without the saves that keep nothing: one restored at once, and
+/// one right inside another and restored right before it (the state it
+/// keeps, the outer keeps).
+fn unsaved(mut ops: Vec<Op>) -> Vec<Op> {
+    loop {
+        // The restore of each save.
+        let mut restore = vec![usize::MAX; ops.len()];
+        let mut open = Vec::new();
+        for (i, op) in ops.iter().enumerate() {
+            match op {
+                Op::Save => open.push(i),
+                Op::Restore => {
+                    if let Some(s) = open.pop() {
+                        restore[s] = i;
+                    }
+                }
+                _ => {}
+            }
+        }
+        let mut keep = vec![true; ops.len()];
+        let mut fewer = false;
+        for i in 0..ops.len() {
+            let r = restore[i];
+            if r == usize::MAX {
+                continue;
+            }
+            let at_once = r == i + 1;
+            let inside = i > 0 && keep[i - 1] && restore[i - 1] == r + 1;
+            if at_once || inside {
+                (keep[i], keep[r]) = (false, false);
+                fewer = true;
+            }
+        }
+        if !fewer {
+            return ops;
+        }
+        let mut k = keep.into_iter();
+        ops.retain(|_| k.next().unwrap_or(true));
+    }
 }
 
 fn frame_items(items: &[Item], base: Matrix, alpha: &mut Vec<f64>, ops: &mut Vec<Op>) {

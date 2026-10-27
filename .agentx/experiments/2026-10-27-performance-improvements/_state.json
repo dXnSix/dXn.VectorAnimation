@@ -11,13 +11,13 @@
   "status": "",
   "createdAt": "2026-10-27T20:14:29Z",
   "finishedAt": null,
-  "lastStableCommit": "97511e7d643ec46bd479fdce4d157e87dfd5cdda",
+  "lastStableCommit": "d3355eb5d6d46b7f539cab039db5775b38ada22e",
   "repositories": [
     {
       "name": "main",
       "path": ".",
       "role": "main",
-      "lastStableCommit": "97511e7d643ec46bd479fdce4d157e87dfd5cdda"
+      "lastStableCommit": "d3355eb5d6d46b7f539cab039db5775b38ada22e"
     }
   ],
   "atomicDiscipline": {
@@ -28,8 +28,8 @@
     "successfulAttemptRequiresCommitBeforeNextExperiment": true,
     "rule": "Run exactly the printed hypothesis. If the attempted change fails, degrades, or suggests a different fix, revert to the checkpoint and finish this experiment as failure. Start a new experiment for the next idea."
   },
-  "currentExperimentId": "61bfd65d-1a7a-434b-8f80-24324db9170a",
-  "nextExperimentIndex": 26,
+  "currentExperimentId": "39288c71-3919-452b-adca-7c700404cd33",
+  "nextExperimentIndex": 27,
   "experiments": [
     {
       "id": "f0287285-7a36-4cb5-8eef-94cdd163e5a7",
@@ -326,6 +326,18 @@
       "name": "Interpolations of one value are constants",
       "path": "2026-10-27-25-interpolations-of-one-value-are-constants.json",
       "startedAt": "2026-10-27T21:11:24Z",
+      "finishedAt": "2026-10-27T21:14:24Z",
+      "state": "done",
+      "status": "success",
+      "resultCommit": "d3355eb5d6d46b7f539cab039db5775b38ada22e"
+    },
+    {
+      "id": "39288c71-3919-452b-adca-7c700404cd33",
+      "index": 26,
+      "type": "hypothesis",
+      "name": "Canvases without saves that keep nothing",
+      "path": "2026-10-27-26-canvases-without-saves-that-keep-nothing.json",
+      "startedAt": "2026-10-27T21:15:13Z",
       "finishedAt": null,
       "state": "running",
       "status": ""
