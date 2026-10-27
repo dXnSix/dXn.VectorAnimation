@@ -57,6 +57,10 @@ mod dt {
     pub const LISTENER_VIEW_MODEL_CHANGE: u16 = 487;
     pub const NESTED_DATA_BIND_PATH: u16 = 582;
     pub const MANIFEST_ASSET: u16 = 642;
+    pub const DATA_BIND_PATH: u16 = 643;
+    pub const DATA_BIND_PATH_PATH: u16 = 920;
+    pub const DATA_BIND_PATH_RELATIVE: u16 = 921;
+    pub const FIRE_TRIGGER: u16 = 614;
 }
 
 /// A view model with a number "level" (property 0) and a color "tint"
@@ -930,4 +934,115 @@ fn bindings_by_name_read_the_properties_their_names_name() {
     let s = scene(&riv);
     assert_eq!(color_at(&s, 0.0, 40, 30), BLUE);
     assert_eq!(color_at(&s, 0.0, 10, 30), WHITE);
+}
+
+/// A view model with a trigger "go", a red square (shape 1) at (10, 25)
+/// and a state machine of two layers: one waits 0.5 s and, leaving, fires
+/// "go" (by name, as a path relative to the instance); the other sends the
+/// square right (to 70) on it. The firing layer first, or second.
+fn firing(first: bool) -> Riv {
+    let riv = Riv::new()
+        .obj(dt::MANIFEST_ASSET, &[(key::NAME, V::S("manifest"))])
+        .obj(
+            ty::FILE_ASSET_CONTENTS,
+            &[(key::BYTES, V::Bytes(manifest(&[(1, "go")], &[(3, &[1])])))],
+        )
+        .obj(ty::VIEW_MODEL, &[(key::VM_NAME, V::S("Game"))])
+        .obj(dt::VM_TRIGGER, &[(key::VM_NAME, V::S("go"))])
+        .obj(ty::VM_INSTANCE, &[(key::VM_INSTANCE_VM, V::U(0))])
+        .obj(
+            dt::VM_INSTANCE_TRIGGER,
+            &[(key::VM_VALUE_PROPERTY, V::U(0))],
+        );
+    let mut riv = bound_artboard(riv).rect_shape(0, 10.0, 25.0, 10.0, 10.0, 0xFFFF_0000);
+    // "wait" keys the square's rotation, still.
+    for (name, key, value, frames) in [
+        ("left", key::X, 10.0, 1),
+        ("right", key::X, 70.0, 1),
+        ("wait", key::ROTATION, 0.0, 5),
+    ] {
+        riv = riv
+            .obj(
+                ty::LINEAR_ANIMATION,
+                &[
+                    (key::ANIMATION_NAME, V::S(name)),
+                    (key::FPS, V::U(10)),
+                    (key::DURATION, V::U(frames)),
+                ],
+            )
+            .obj(ty::KEYED_OBJECT, &[(key::OBJECT_ID, V::U(1))])
+            .obj(
+                ty::KEYED_PROPERTY,
+                &[(key::PROPERTY_KEY, V::U(u64::from(key)))],
+            )
+            .obj(
+                ty::KEY_FRAME_DOUBLE,
+                &[(key::FRAME, V::U(0)), (key::VALUE, V::D(value))],
+            );
+    }
+    let fires = |riv: Riv| {
+        riv.obj(ty::STATE_MACHINE_LAYER, &[])
+            .obj(ty::ENTRY_STATE, &[])
+            .obj(ty::STATE_TRANSITION, &[(key::STATE_TO_ID, V::U(3))])
+            .obj(ty::ANY_STATE, &[])
+            .obj(ty::EXIT_STATE, &[])
+            .obj(ty::ANIMATION_STATE, &[(key::ANIMATION_ID, V::U(2))])
+            .obj(
+                ty::STATE_TRANSITION,
+                &[
+                    (key::STATE_TO_ID, V::U(4)),
+                    (key::TRANSITION_FLAGS, V::U(4 | 8)),
+                    (key::EXIT_TIME, V::U(100)),
+                ],
+            )
+            .obj(
+                dt::DATA_BIND_PATH,
+                &[
+                    (dt::DATA_BIND_PATH_PATH, V::Bytes(vec![3])),
+                    (dt::DATA_BIND_PATH_RELATIVE, V::B(true)),
+                ],
+            )
+            .obj(dt::FIRE_TRIGGER, &[])
+            .obj(ty::ANIMATION_STATE, &[(key::ANIMATION_ID, V::U(2))])
+    };
+    let follows = |riv: Riv| {
+        let riv = riv
+            .obj(ty::STATE_MACHINE_LAYER, &[])
+            .obj(ty::ENTRY_STATE, &[])
+            .obj(ty::STATE_TRANSITION, &[(key::STATE_TO_ID, V::U(3))])
+            .obj(ty::ANY_STATE, &[])
+            .obj(ty::EXIT_STATE, &[])
+            .obj(ty::ANIMATION_STATE, &[(key::ANIMATION_ID, V::U(0))])
+            .obj(ty::STATE_TRANSITION, &[(key::STATE_TO_ID, V::U(4))])
+            .obj(ty::VM_CONDITION, &[])
+            .obj(dt::BINDABLE_TRIGGER, &[]);
+        bind(riv, dt::BINDABLE_TRIGGER_VALUE, &[0, 0], None)
+            .obj(ty::VM_PROPERTY_COMPARATOR, &[])
+            .obj(dt::VALUE_TRIGGER_COMPARATOR, &[])
+            .obj(ty::ANIMATION_STATE, &[(key::ANIMATION_ID, V::U(1))])
+    };
+    let riv = riv.obj(
+        ty::STATE_MACHINE,
+        &[(key::ANIMATION_NAME, V::S("State Machine 1"))],
+    );
+    if first {
+        follows(fires(riv))
+    } else {
+        fires(follows(riv))
+    }
+}
+
+#[test]
+fn states_fire_view_model_triggers_other_layers_follow() {
+    let s = scene(&firing(true));
+    assert_eq!(color_at(&s, 0.48, 10, 25), RED);
+    assert_eq!(color_at(&s, 0.5, 70, 25), RED);
+    assert_eq!(color_at(&s, 0.5, 10, 25), WHITE);
+}
+
+#[test]
+fn a_layer_before_the_one_firing_a_trigger_follows_in_its_frame() {
+    let s = scene(&firing(false));
+    assert_eq!(color_at(&s, 0.48, 10, 25), RED);
+    assert_eq!(color_at(&s, 0.5, 70, 25), RED);
 }

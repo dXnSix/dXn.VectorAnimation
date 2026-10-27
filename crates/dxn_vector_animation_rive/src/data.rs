@@ -459,6 +459,36 @@ pub(crate) fn bindable_source(
     binder.path_to(binder.source(&bind.object)?)
 }
 
+/// The path from the instance bound (artboard `root`'s) of the view model
+/// trigger `StateMachineFireTrigger` `o` of artboard `artboard` fires: its
+/// path in the artboard's data context, relative (by the manifest's names)
+/// or not.
+pub(crate) fn trigger_path(
+    file: &File,
+    root: usize,
+    artboard: usize,
+    o: &Object,
+) -> Option<String> {
+    let contexts = contexts(file, root)?;
+    let overlay = HashMap::new();
+    let binder = Binder {
+        file,
+        converters: &file.converters,
+        context: contexts.get(&artboard)?,
+        overlay: &overlay,
+    };
+    let ids = varuints(o.bytes(p::STATE_MACHINE_FIRE_TRIGGER_VIEW_MODEL_PATH_IDS));
+    let slot = if o.flag(crate::file::RELATIVE_PATH) {
+        binder.resolve_relative(&ids)
+    } else {
+        binder.resolve(&ids)
+    }?;
+    let property = file.view_models.get(slot.0)?.properties.get(slot.2)?;
+    (property.ty == t::VIEW_MODEL_PROPERTY_TRIGGER)
+        .then(|| binder.path_to(slot))
+        .flatten()
+}
+
 /// The value bindable property `o` holds.
 fn bindable_value(o: &Object) -> Option<Data> {
     Some(match o.ty {

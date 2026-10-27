@@ -147,6 +147,12 @@ enum Clock {
 /// The conversion of one artboard.
 pub(crate) struct Converter<'a> {
     file: &'a File,
+    /// The index of the artboard read (the one this one is nested in, or
+    /// it).
+    root: usize,
+    /// The view model triggers its state machines fire: when, and their
+    /// paths from the instance bound.
+    triggered: Vec<(f64, String)>,
     ab: &'a Artboard,
     limits: Limits,
     /// How deep in nested artboards this one is.
@@ -193,6 +199,15 @@ pub(crate) struct Converter<'a> {
     hit_targets: Vec<usize>,
 }
 
+/// A scene converted, its warnings and the view model triggers its state
+/// machines fire.
+pub(crate) type Converted = (Scene, BTreeSet<String>, Vec<(f64, String)>);
+
+/// Where the events a state machine fires stand for view model triggers it
+/// fires (`StateMachineFireTrigger`): from here, each its index in the
+/// machine's [`Machine::triggers`].
+const VM_TRIGGER: usize = 1 << 30;
+
 /// Seconds a frame of a state machine played.
 pub(crate) const DT: f64 = 1.0 / 60.0;
 
@@ -212,6 +227,9 @@ struct Machine {
     /// Changes the view model instance bound makes to what its conditions
     /// read, past its inputs (frame, input, value; `None` fires).
     changes: Vec<(usize, usize, Option<f64>)>,
+    /// The paths of the view model triggers its states and transitions
+    /// fire (what [`VM_TRIGGER`] events stand for).
+    triggers: Vec<Option<String>>,
 }
 
 /// A nested artboard's state machine, as its parent plays it: the layer of
@@ -300,7 +318,7 @@ impl<'a> Converter<'a> {
         file: &'a File,
         options: &crate::Options,
         limits: Limits,
-    ) -> Result<(Scene, BTreeSet<String>), Error> {
+    ) -> Result<Converted, Error> {
         let index = match options.artboard.as_deref() {
             Some(name) => file
                 .artboards
@@ -312,27 +330,28 @@ impl<'a> Converter<'a> {
             }
             None => 0,
         };
-        let (scene, mut warnings) =
-            Self::convert(file, index, Clock::Timeline, options, 0, limits)?;
+        let (scene, mut warnings, triggered) =
+            Self::convert(file, index, index, Clock::Timeline, options, 0, limits)?;
         let others = file.artboards.len() - 1;
         if others > 0 {
             warnings.insert(format!(
                 "{others} other artboard(s) in the file (`Options::artboard` reads one)"
             ));
         }
-        Ok((scene, warnings))
+        Ok((scene, warnings, triggered))
     }
 
     /// The scene of artboard `index` playing what `clock` says, and its
     /// warnings.
     fn convert(
         file: &'a File,
+        root: usize,
         index: usize,
         clock: Clock,
         options: &crate::Options,
         depth: usize,
         limits: Limits,
-    ) -> Result<(Scene, BTreeSet<String>), Error> {
+    ) -> Result<Converted, Error> {
         let ab = file
             .artboards
             .get(index)
@@ -355,6 +374,8 @@ impl<'a> Converter<'a> {
         }
         let mut c = Converter {
             file,
+            root,
+            triggered: Vec::new(),
             ab,
             limits,
             depth,
@@ -425,7 +446,7 @@ impl<'a> Converter<'a> {
         c.build_rig();
         let scene = c.scene()?;
         c.left_out();
-        Ok((scene, c.warnings))
+        Ok((scene, c.warnings, c.triggered))
     }
 
     fn object(&self, i: usize) -> Option<&'a Object> {
@@ -597,6 +618,7 @@ impl<'a> Converter<'a> {
             inputs,
             names,
             changes: bound,
+            triggers,
         } = self.machine(index)?;
         // The changes made, each at the first frame at or after its time:
         // (frame, input, value; `None` fires a trigger).
@@ -716,6 +738,15 @@ impl<'a> Converter<'a> {
         for l in &mut played {
             l.truncate(frames);
         }
+        // The view model triggers it fires, as their changes.
+        for f in fired
+            .iter()
+            .filter(|f| f.frame < frames && f.event >= VM_TRIGGER)
+        {
+            if let Some(Some(path)) = triggers.get(f.event - VM_TRIGGER) {
+                self.triggered.push((f.frame as f64 * DT, path.clone()));
+            }
+        }
         // What it fires, as cues where they happened.
         let objects = &self.ab.objects;
         let mut cues: Vec<dxn_vector_animation::Cue> = fired
@@ -831,6 +862,7 @@ impl<'a> Converter<'a> {
             .collect();
         // Inputs past the machine's own for what changes with them.
         let mut virtual_changes: Vec<(usize, usize, Option<f64>)> = Vec::new();
+        let mut trigger_objects: Vec<&Object> = Vec::new();
         let mut unread: BTreeSet<&'static str> = BTreeSet::new();
         let mut layers: Vec<Vec<machine::State>> = Vec::new();
         for layer in &sm.layers {
@@ -943,7 +975,7 @@ impl<'a> Converter<'a> {
                         exit_part: (o.ty == t::BLEND_STATE_TRANSITION)
                             .then(|| o.id(p::BLEND_STATE_TRANSITION_EXIT_BLEND_ANIMATION_ID))
                             .map(|id| id.unwrap_or(usize::MAX)),
-                        events: fires(&tr.events),
+                        events: fires(&tr.events, &mut trigger_objects),
                     });
                 }
                 let speed = st
@@ -1026,7 +1058,7 @@ impl<'a> Converter<'a> {
                     transitions,
                     speed,
                     blend,
-                    events: fires(&st.events),
+                    events: fires(&st.events, &mut trigger_objects),
                 });
             }
             layers.push(states);
@@ -1052,6 +1084,10 @@ impl<'a> Converter<'a> {
             anims,
             inputs,
             changes: virtual_changes,
+            triggers: trigger_objects
+                .into_iter()
+                .map(|o| at.and_then(|a| crate::data::trigger_path(self.file, self.root, a, o)))
+                .collect(),
         })
     }
 
@@ -1154,6 +1190,7 @@ impl<'a> Converter<'a> {
             fps,
             inputs,
             changes: bound,
+            triggers,
             ..
         }) = self.machine(m.machine)
         else {
@@ -1229,12 +1266,22 @@ impl<'a> Converter<'a> {
                 }
                 v
             };
+            let mut triggered = Vec::new();
             let played: Vec<Vec<machine::Applied>> = layers
                 .iter()
                 .map(|states| {
-                    machine::play(states, &anims, &inputs_at, frames, DT * m.speed).applied
+                    let played = machine::play(states, &anims, &inputs_at, frames, DT * m.speed);
+                    // The view model triggers it fires, on the parent's
+                    // clock.
+                    for f in played.fired.iter().filter(|f| f.event >= VM_TRIGGER) {
+                        if let Some(Some(path)) = triggers.get(f.event - VM_TRIGGER) {
+                            triggered.push((start + f.frame as f64 * DT, path.clone()));
+                        }
+                    }
+                    played.applied
                 })
                 .collect();
+            self.triggered.extend(triggered);
             plans.push(Rc::new(Plan {
                 name: name.clone(),
                 bounds: bounds(&played),
@@ -3861,8 +3908,18 @@ impl<'a> Converter<'a> {
         // Bound values changing in it change it too.
         let bound = &self.file.bound;
         let target_at = o.id(p::NESTED_ARTBOARD_ARTBOARD_ID);
+        // As are those whose state machines fire view model triggers.
+        let fires_triggers = target.state_machines.iter().any(|sm| {
+            sm.layers.iter().flat_map(|l| &l.states).any(|st| {
+                st.events
+                    .iter()
+                    .chain(st.transitions.iter().flat_map(|t| &t.events))
+                    .any(|e| e.ty == t::STATE_MACHINE_FIRE_TRIGGER)
+            })
+        });
         let changed = !options.inputs.is_empty()
             || !options.aligned.is_empty()
+            || fires_triggers
             || bound.objects.keys().any(|k| Some(k.0) == target_at)
             || bound.bindables.keys().any(|k| Some(k.0) == target_at);
         let alike = !changed
@@ -3999,8 +4056,9 @@ impl<'a> Converter<'a> {
             spans,
             machine,
         };
-        let (mut scene, warnings) = Self::convert(
+        let (mut scene, warnings, triggered) = Self::convert(
             self.file,
+            self.root,
             index,
             clock,
             &options,
@@ -4012,6 +4070,7 @@ impl<'a> Converter<'a> {
         for w in warnings {
             self.warn(format!("nested artboard: {w}"));
         }
+        self.triggered.extend(triggered);
         let (w, h) = (
             target.object().num(p::LAYOUT_COMPONENT_WIDTH),
             target.object().num(p::LAYOUT_COMPONENT_HEIGHT),
@@ -5006,14 +5065,24 @@ fn view_model_holds(
     }
 }
 
-/// The events `objects` (a state's or a transition's fire actions) fire.
-fn fires(objects: &[Object]) -> Vec<machine::Fire> {
+/// The events `objects` (a state's or a transition's fire actions) fire: the
+/// artboard's events, and view model triggers (each pushed onto `triggers`,
+/// its event [`VM_TRIGGER`] and its index there).
+fn fires<'o>(objects: &'o [Object], triggers: &mut Vec<&'o Object>) -> Vec<machine::Fire> {
     objects
         .iter()
-        .filter(|o| o.is(t::STATE_MACHINE_FIRE_EVENT))
         .filter_map(|o| {
+            let event = if o.is(t::STATE_MACHINE_FIRE_EVENT) {
+                o.id(p::STATE_MACHINE_FIRE_EVENT_EVENT_ID)
+                    .filter(|&e| e < VM_TRIGGER)?
+            } else if o.ty == t::STATE_MACHINE_FIRE_TRIGGER {
+                triggers.push(o);
+                VM_TRIGGER + triggers.len() - 1
+            } else {
+                return None;
+            };
             Some(machine::Fire {
-                event: o.id(p::STATE_MACHINE_FIRE_EVENT_EVENT_ID)?,
+                event,
                 at_end: o.uint(p::STATE_MACHINE_FIRE_ACTION_OCCURS_VALUE) == 1,
             })
         })

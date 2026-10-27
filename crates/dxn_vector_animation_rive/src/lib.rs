@@ -200,24 +200,51 @@ pub fn read_options(data: &[u8], limits: &Limits, options: &Options) -> Result<I
             limit: limits.max_bytes as f64,
         });
     }
-    let mut file = file::read(data)?;
-    let mut bound = std::collections::BTreeSet::new();
-    if !options.unbound {
-        let index = match &options.artboard {
-            Some(name) => file.artboards.iter().position(|a| a.name() == *name),
-            None => Some(0),
-        };
-        if let Some(index) = index.filter(|&i| i < file.artboards.len()) {
-            bound = data::bind_default(&mut file, index, &options.values);
+    // The view model triggers the state machines fire are changes to the
+    // instance too: read again with those fired until they fire the same
+    // (`ROUNDS` reads at most).
+    const ROUNDS: usize = 6;
+    let mut fired: Vec<(f64, String)> = Vec::new();
+    let mut round = 0;
+    loop {
+        round += 1;
+        let mut file = file::read(data)?;
+        let mut bound = std::collections::BTreeSet::new();
+        if !options.unbound {
+            let index = match &options.artboard {
+                Some(name) => file.artboards.iter().position(|a| a.name() == *name),
+                None => Some(0),
+            };
+            if let Some(index) = index.filter(|&i| i < file.artboards.len()) {
+                let mut values = options.values.clone();
+                values.extend(fired.iter().map(|(time, path)| ValueChange {
+                    time: *time,
+                    path: path.clone(),
+                    value: PropertyValue::Trigger,
+                }));
+                values.sort_by(|a, b| a.time.total_cmp(&b.time));
+                bound = data::bind_default(&mut file, index, &values);
+            }
         }
+        let (scene, mut warnings, mut triggered) =
+            convert::Converter::run(&file, options, *limits)?;
+        triggered.sort_by(|a, b| a.0.total_cmp(&b.0).then_with(|| a.1.cmp(&b.1)));
+        if !options.unbound && triggered != fired && round < ROUNDS {
+            fired = triggered;
+            continue;
+        }
+        if triggered != fired && !options.unbound {
+            warnings.insert(
+                "view model triggers: the state machines fire them differently each time; the last way kept".into(),
+            );
+        }
+        warnings.extend(bound);
+        scene.check(limits)?;
+        return Ok(Import {
+            scene,
+            warnings: warnings.into_iter().collect(),
+        });
     }
-    let (scene, mut warnings) = convert::Converter::run(&file, options, *limits)?;
-    warnings.extend(bound);
-    scene.check(limits)?;
-    Ok(Import {
-        scene,
-        warnings: warnings.into_iter().collect(),
-    })
 }
 
 /// The view model the artboard `options` names in the Rive file `data` is
