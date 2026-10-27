@@ -1393,16 +1393,20 @@ impl Compiler {
         if let Some(i) = joins
             && i + 1 == open.units.len()
             && open.canvas.is_empty()
-            && let Some(Unit::Sampled(scene) | Unit::Raster(scene)) = open.units.get(i)
+            && matches!(open.units[i], Unit::Sampled(_) | Unit::Raster(_))
             && matches!(open.units[i], Unit::Raster(_)) == raster
         {
-            let mut scene = scene.clone();
-            add_within(&mut Arc::make_mut(&mut scene).root, depth - 1, node.clone());
-            open.units[i] = if raster {
-                Unit::Raster(scene)
-            } else {
-                Unit::Sampled(scene)
-            };
+            // Taken out of its unit, the part is not copied to be added to.
+            if let Unit::Sampled(mut scene) | Unit::Raster(mut scene) =
+                std::mem::replace(&mut open.units[i], Unit::Canvas(Vec::new()))
+            {
+                add_within(&mut Arc::make_mut(&mut scene).root, depth - 1, node.clone());
+                open.units[i] = if raster {
+                    Unit::Raster(scene)
+                } else {
+                    Unit::Sampled(scene)
+                };
+            }
             return i;
         }
         // The layers it is drawn in fade and blend it already.

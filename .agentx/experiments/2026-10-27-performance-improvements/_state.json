@@ -11,13 +11,13 @@
   "status": "",
   "createdAt": "2026-10-27T20:14:29Z",
   "finishedAt": null,
-  "lastStableCommit": "5cf36e914c535d063920bdaed44e760e606c216a",
+  "lastStableCommit": "9e9e7ef99563986b23e29ad2442ece210169c648",
   "repositories": [
     {
       "name": "main",
       "path": ".",
       "role": "main",
-      "lastStableCommit": "5cf36e914c535d063920bdaed44e760e606c216a"
+      "lastStableCommit": "9e9e7ef99563986b23e29ad2442ece210169c648"
     }
   ],
   "atomicDiscipline": {
@@ -28,8 +28,8 @@
     "successfulAttemptRequiresCommitBeforeNextExperiment": true,
     "rule": "Run exactly the printed hypothesis. If the attempted change fails, degrades, or suggests a different fix, revert to the checkpoint and finish this experiment as failure. Start a new experiment for the next idea."
   },
-  "currentExperimentId": "b0c460a0-43fe-4f19-ad8a-c6d3a601a5f6",
-  "nextExperimentIndex": 45,
+  "currentExperimentId": "38004177-8ba7-441c-99d6-02f5a62fa760",
+  "nextExperimentIndex": 46,
   "experiments": [
     {
       "id": "f0287285-7a36-4cb5-8eef-94cdd163e5a7",
@@ -550,6 +550,18 @@
       "name": "Merge buffers sized ahead",
       "path": "2026-10-27-44-merge-buffers-sized-ahead.json",
       "startedAt": "2026-10-27T21:57:19Z",
+      "finishedAt": "2026-10-27T21:58:19Z",
+      "state": "done",
+      "status": "success",
+      "resultCommit": "9e9e7ef99563986b23e29ad2442ece210169c648"
+    },
+    {
+      "id": "38004177-8ba7-441c-99d6-02f5a62fa760",
+      "index": 45,
+      "type": "hypothesis",
+      "name": "Sampled parts joined without copies",
+      "path": "2026-10-27-45-sampled-parts-joined-without-copies.json",
+      "startedAt": "2026-10-27T21:59:21Z",
       "finishedAt": null,
       "state": "running",
       "status": ""
