@@ -7,17 +7,17 @@
   "target": "maximal improvement without behavior change (all focused tests pass)",
   "maxIterations": 50,
   "maxExperiments": 50,
-  "state": "running",
-  "status": "",
+  "state": "done",
+  "status": "stopped",
   "createdAt": "2026-10-27T20:14:29Z",
-  "finishedAt": null,
-  "lastStableCommit": "e08e517ed0a4c953c27e9007423c8b49d67778f9",
+  "finishedAt": "2026-10-27T22:08:51Z",
+  "lastStableCommit": "b2faedfc7591bc8c6e670117c2dd413eddc9d8cd",
   "repositories": [
     {
       "name": "main",
       "path": ".",
       "role": "main",
-      "lastStableCommit": "e08e517ed0a4c953c27e9007423c8b49d67778f9"
+      "lastStableCommit": "b2faedfc7591bc8c6e670117c2dd413eddc9d8cd"
     }
   ],
   "atomicDiscipline": {
@@ -28,8 +28,8 @@
     "successfulAttemptRequiresCommitBeforeNextExperiment": true,
     "rule": "Run exactly the printed hypothesis. If the attempted change fails, degrades, or suggests a different fix, revert to the checkpoint and finish this experiment as failure. Start a new experiment for the next idea."
   },
-  "currentExperimentId": "0e1ef232-aaf7-41f1-9cda-498a93a75c4a",
-  "nextExperimentIndex": 50,
+  "currentExperimentId": null,
+  "nextExperimentIndex": 52,
   "experiments": [
     {
       "id": "f0287285-7a36-4cb5-8eef-94cdd163e5a7",
@@ -607,9 +607,32 @@
       "name": "Direct compositing without branches",
       "path": "2026-10-27-49-direct-compositing-without-branches.json",
       "startedAt": "2026-10-27T22:05:04Z",
-      "finishedAt": null,
-      "state": "running",
-      "status": ""
+      "finishedAt": "2026-10-27T22:06:38Z",
+      "state": "done",
+      "status": "success",
+      "resultCommit": "b2faedfc7591bc8c6e670117c2dd413eddc9d8cd"
+    },
+    {
+      "id": "9593b3ab-8cd0-4527-8907-c4d3e2285c3b",
+      "index": 50,
+      "type": "hypothesis",
+      "name": "PNG demultiplied by table",
+      "path": "2026-10-27-50-png-demultiplied-by-table.json",
+      "startedAt": "2026-10-27T22:07:02Z",
+      "finishedAt": "2026-10-27T22:07:55Z",
+      "state": "done",
+      "status": "failure"
+    },
+    {
+      "id": "788ba869-bfcf-4f5b-819d-4dc1b9cca034",
+      "index": 51,
+      "type": "hypothesis",
+      "name": "Frames start with room for their items",
+      "path": "2026-10-27-51-frames-start-with-room-for-their-items.json",
+      "startedAt": "2026-10-27T22:08:21Z",
+      "finishedAt": "2026-10-27T22:08:51Z",
+      "state": "done",
+      "status": "failure"
     }
   ]
 }

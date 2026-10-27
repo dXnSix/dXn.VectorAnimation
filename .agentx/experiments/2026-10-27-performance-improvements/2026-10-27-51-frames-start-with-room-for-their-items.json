@@ -1,0 +1,74 @@
+{
+  "schemaVersion": 1,
+  "id": "788ba869-bfcf-4f5b-819d-4dc1b9cca034",
+  "loopId": "9e7a8b6d-0104-4e72-a31e-3b168c0b3881",
+  "index": 51,
+  "type": "hypothesis",
+  "name": "Frames start with room for their items",
+  "slug": "frames-start-with-room-for-their-items",
+  "path": "2026-10-27-51-frames-start-with-room-for-their-items.json",
+  "createdAt": "2026-10-27T22:08:21Z",
+  "startedAt": "2026-10-27T22:08:21Z",
+  "finishedAt": "2026-10-27T22:08:51Z",
+  "state": "done",
+  "status": "failure",
+  "checkpointCommit": "b2faedfc7591bc8c6e670117c2dd413eddc9d8cd",
+  "resultCommit": "",
+  "rollbackCommand": "git -C \"/Users/dinko/work-private/projects/dXn/dXn.VectorAnimation\" reset --hard b2faedfc7591bc8c6e670117c2dd413eddc9d8cd",
+  "repositories": [
+    {
+      "name": "main",
+      "path": ".",
+      "role": "main",
+      "checkpointCommit": "b2faedfc7591bc8c6e670117c2dd413eddc9d8cd",
+      "resultCommit": "",
+      "rollbackCommand": "git -C \"/Users/dinko/work-private/projects/dXn/dXn.VectorAnimation\" reset --hard b2faedfc7591bc8c6e670117c2dd413eddc9d8cd",
+      "status": "failure"
+    }
+  ],
+  "repositoryCommits": [],
+  "atomicDiscipline": {
+    "oneHypothesisOnly": true,
+    "singleImplementationAttempt": true,
+    "noUnplannedFixesInsideExperiment": true,
+    "failedAttemptRequiresImmediateRevert": true,
+    "successfulAttemptRequiresCommitBeforeNextExperiment": true,
+    "rule": "Run exactly the printed hypothesis. If the attempted change fails, degrades, or suggests a different fix, revert to the checkpoint and finish this experiment as failure. Start a new experiment for the next idea."
+  },
+  "primaryTarget": "wasm/web with headed Playwright and WebGPU enabled",
+  "hypothesisMarkdown": "## Frames start with room for their items Hypothesis\n\nA frame's item list was to start with room for 64 items instead of growing from empty (4, 8, 16, ...).\\n\\n**Tested mechanism:** an initial capacity for frame items. **Allowed:** core `frame.rs`. **Forbidden:** sampling.",
+  "measurementPlanMarkdown": "### Measurement Plan\n\nRelease bench over the 53 corpus files (median of 3 runs, best of 5 each), plus the focused tests of the touched area.",
+  "expectedOutcomeMarkdown": "### Expected Outcome\n\nThe targeted metric improves with identical graph output and passing focused tests.",
+  "diagnostics": {
+    "playwright": [],
+    "rayx": [],
+    "counters": [],
+    "artifacts": []
+  },
+  "measurements": [
+    {
+      "metric": "frame_at us/frame",
+      "before": "200.6",
+      "after": "192.5-192.8",
+      "delta": "",
+      "source": "scratchpad bench.sh: median of 3 `vector-animation-check bench artifacts-temp/corpus`"
+    },
+    {
+      "metric": "frame_at allocs/frame",
+      "before": "2908",
+      "after": "2801",
+      "delta": "",
+      "source": "scratchpad bench.sh: median of 3 `vector-animation-check bench artifacts-temp/corpus`"
+    },
+    {
+      "metric": "ttff MB allocated",
+      "before": "382.0",
+      "after": "401.5",
+      "delta": "",
+      "source": "scratchpad bench.sh: median of 3 `vector-animation-check bench artifacts-temp/corpus`"
+    }
+  ],
+  "reportMarkdown": "## Frames start with room for their items Finished\n\n**Passed Status**: False\n\n**Attempt Count:** 1. **Out-of-scope changes:** none.\n\nFailed: frames 4% faster with 4% fewer allocations, but 5% more bytes allocated at load, where compiling samples many small frames (a still check, a moving layer's bounds) that never fill 64 items. A tracked metric degraded; reverted.\n\n| Repo | Path | Checkpoint | Result Commit | Status |\n| --- | --- | --- | --- | --- |\n| main | . | b2faedf | none | reverted |",
+  "decisionMarkdown": "### Decision\n\nReverted to b2faedf.",
+  "notes": ""
+}
