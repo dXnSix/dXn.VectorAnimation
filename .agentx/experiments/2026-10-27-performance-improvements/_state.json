@@ -11,13 +11,13 @@
   "status": "",
   "createdAt": "2026-10-27T20:14:29Z",
   "finishedAt": null,
-  "lastStableCommit": "2eed04c9a0e696b7c1126e0895f808e9ef740298",
+  "lastStableCommit": "9eb585954218bd89204c15b2a09e171bdb8c0113",
   "repositories": [
     {
       "name": "main",
       "path": ".",
       "role": "main",
-      "lastStableCommit": "2eed04c9a0e696b7c1126e0895f808e9ef740298"
+      "lastStableCommit": "9eb585954218bd89204c15b2a09e171bdb8c0113"
     }
   ],
   "atomicDiscipline": {
@@ -28,8 +28,8 @@
     "successfulAttemptRequiresCommitBeforeNextExperiment": true,
     "rule": "Run exactly the printed hypothesis. If the attempted change fails, degrades, or suggests a different fix, revert to the checkpoint and finish this experiment as failure. Start a new experiment for the next idea."
   },
-  "currentExperimentId": "2aa232bf-e9a9-4eb2-a5b1-4044633029f6",
-  "nextExperimentIndex": 17,
+  "currentExperimentId": "d241e7c5-4f8f-4d81-8bce-7b36bad95f52",
+  "nextExperimentIndex": 18,
   "experiments": [
     {
       "id": "f0287285-7a36-4cb5-8eef-94cdd163e5a7",
@@ -218,6 +218,18 @@
       "name": "Horizontal blur copies rows whole",
       "path": "2026-10-27-16-horizontal-blur-copies-rows-whole.json",
       "startedAt": "2026-10-27T20:53:36Z",
+      "finishedAt": "2026-10-27T20:54:47Z",
+      "state": "done",
+      "status": "success",
+      "resultCommit": "9eb585954218bd89204c15b2a09e171bdb8c0113"
+    },
+    {
+      "id": "d241e7c5-4f8f-4d81-8bce-7b36bad95f52",
+      "index": 17,
+      "type": "hypothesis",
+      "name": "SVG keyframe values parsed once each",
+      "path": "2026-10-27-17-svg-keyframe-values-parsed-once-each.json",
+      "startedAt": "2026-10-27T20:56:28Z",
       "finishedAt": null,
       "state": "running",
       "status": ""

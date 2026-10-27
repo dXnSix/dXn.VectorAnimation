@@ -1365,8 +1365,14 @@ impl<'a, 'input> Converter<'a, 'input> {
         fallback: T,
     ) -> Animated<T> {
         let mut out = Vec::with_capacity(keys.len());
+        // Iterations repeat their values: each read once.
+        let mut read: HashMap<&str, Option<T>> = HashMap::new();
         for k in keys.iter().filter(|k| k.time.is_finite()) {
-            match parse(&k.value) {
+            let value = read
+                .entry(k.value.as_str())
+                .or_insert_with(|| parse(&k.value))
+                .clone();
+            match value {
                 Some(v) => out.push(Keyframe::new(k.time, v, k.easing.clone())),
                 None => {
                     self.warn(format!(
@@ -1510,8 +1516,13 @@ impl<'a, 'input> Converter<'a, 'input> {
         match animations.get("transform") {
             Some(keys) => {
                 let mut lists = Vec::with_capacity(keys.len());
+                let mut read: HashMap<&str, Option<Vec<TransformFn>>> = HashMap::new();
                 for k in keys {
-                    match transform_list(&k.value, box_size) {
+                    let list = read
+                        .entry(k.value.as_str())
+                        .or_insert_with(|| transform_list(&k.value, box_size))
+                        .clone();
+                    match list {
                         Some(list) => lists.push(Keyframe::new(k.time, list, k.easing.clone())),
                         None => {
                             self.warn(format!("animation of `transform` has a value it cannot read (`{}`) and is left out", k.value));

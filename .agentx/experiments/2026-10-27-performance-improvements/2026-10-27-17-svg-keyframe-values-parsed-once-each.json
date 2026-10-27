@@ -1,0 +1,52 @@
+{
+  "schemaVersion": 1,
+  "id": "d241e7c5-4f8f-4d81-8bce-7b36bad95f52",
+  "loopId": "9e7a8b6d-0104-4e72-a31e-3b168c0b3881",
+  "index": 17,
+  "type": "hypothesis",
+  "name": "SVG keyframe values parsed once each",
+  "slug": "svg-keyframe-values-parsed-once-each",
+  "path": "2026-10-27-17-svg-keyframe-values-parsed-once-each.json",
+  "createdAt": "2026-10-27T20:56:28Z",
+  "startedAt": "2026-10-27T20:56:28Z",
+  "finishedAt": null,
+  "state": "running",
+  "status": "",
+  "checkpointCommit": "9eb585954218bd89204c15b2a09e171bdb8c0113",
+  "resultCommit": "",
+  "rollbackCommand": "git -C \"/Users/dinko/work-private/projects/dXn/dXn.VectorAnimation\" reset --hard 9eb585954218bd89204c15b2a09e171bdb8c0113",
+  "repositories": [
+    {
+      "name": "main",
+      "path": ".",
+      "role": "main",
+      "checkpointCommit": "9eb585954218bd89204c15b2a09e171bdb8c0113",
+      "resultCommit": "",
+      "rollbackCommand": "git -C \"/Users/dinko/work-private/projects/dXn/dXn.VectorAnimation\" reset --hard 9eb585954218bd89204c15b2a09e171bdb8c0113",
+      "status": ""
+    }
+  ],
+  "repositoryCommits": [],
+  "atomicDiscipline": {
+    "oneHypothesisOnly": true,
+    "singleImplementationAttempt": true,
+    "noUnplannedFixesInsideExperiment": true,
+    "failedAttemptRequiresImmediateRevert": true,
+    "successfulAttemptRequiresCommitBeforeNextExperiment": true,
+    "rule": "Run exactly the printed hypothesis. If the attempted change fails, degrades, or suggests a different fix, revert to the checkpoint and finish this experiment as failure. Start a new experiment for the next idea."
+  },
+  "primaryTarget": "wasm/web with headed Playwright and WebGPU enabled",
+  "hypothesisMarkdown": "",
+  "measurementPlanMarkdown": "",
+  "expectedOutcomeMarkdown": "",
+  "diagnostics": {
+    "playwright": [],
+    "rayx": [],
+    "counters": [],
+    "artifacts": []
+  },
+  "measurements": [],
+  "reportMarkdown": "",
+  "decisionMarkdown": "",
+  "notes": ""
+}
