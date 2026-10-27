@@ -183,13 +183,19 @@ pub fn machine(data: &[u8], options: &Options) -> Result<Option<Machine>, Error>
     else {
         return Ok(None);
     };
-    Ok(Some(read_machine(&file, artboard, index, "", "", 0)))
+    let root = file
+        .artboards
+        .iter()
+        .position(|a| std::ptr::eq(a, artboard))
+        .unwrap_or(0);
+    Ok(Some(read_machine(&file, root, artboard, index, "", "", 0)))
 }
 
-/// State machine `index` of `artboard`, at `path`, its scene ids under
-/// `prefix`.
+/// State machine `index` of `artboard`, at `path` in artboard `root`, its
+/// scene ids under `prefix`.
 fn read_machine(
     file: &file::File,
+    root: usize,
     artboard: &file::Artboard,
     index: usize,
     path: &str,
@@ -318,8 +324,8 @@ fn read_machine(
                     .artboards
                     .iter()
                     .position(|x| std::ptr::eq(x, artboard));
-                if let Some(property) =
-                    at.and_then(|at| crate::data::bindable_source(file, (at, index, bindable)))
+                if let Some(property) = at
+                    .and_then(|at| crate::data::bindable_source(file, root, (at, index, bindable)))
                 {
                     actions.push(Action::Value { property, bindable });
                 }
@@ -381,6 +387,7 @@ fn read_machine(
                 };
                 nested.push(read_machine(
                     file,
+                    root,
                     target,
                     sm,
                     &path,

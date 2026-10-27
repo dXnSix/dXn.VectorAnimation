@@ -56,6 +56,7 @@ mod dt {
     pub const BIND_FLAGS: u16 = 587;
     pub const LISTENER_VIEW_MODEL_CHANGE: u16 = 487;
     pub const NESTED_DATA_BIND_PATH: u16 = 582;
+    pub const MANIFEST_ASSET: u16 = 642;
 }
 
 /// A view model with a number "level" (property 0) and a color "tint"
@@ -844,4 +845,89 @@ fn nested_artboards_bind_their_hosts_instance_or_the_one_their_path_names() {
     assert_eq!(color_at(&s, 0.5, 30, 40), WHITE);
     assert_eq!(color_at(&s, 1.5, 50, 15), RED);
     assert_eq!(color_at(&s, 1.5, 20, 15), WHITE);
+}
+
+/// Rive's manifest of `names` and `paths` (each an id and its value).
+fn manifest(names: &[(u8, &str)], paths: &[(u8, &[u8])]) -> Vec<u8> {
+    let mut out = Vec::new();
+    let mut section = vec![names.len() as u8];
+    for (id, name) in names {
+        section.extend([*id, name.len() as u8]);
+        section.extend(name.as_bytes());
+    }
+    out.extend([0, section.len() as u8]);
+    out.extend(section);
+    let mut section = vec![paths.len() as u8];
+    for (id, path) in paths {
+        section.extend([*id, path.len() as u8]);
+        section.extend(*path);
+    }
+    out.extend([1, section.len() as u8]);
+    out.extend(section);
+    out
+}
+
+#[test]
+fn bindings_by_name_read_the_properties_their_names_name() {
+    // "level" 40 and "tint" blue, bound by the manifest's names: the
+    // square's x through path 5 ("level"), its color through name 2
+    // ("tint") itself.
+    let riv = Riv::new()
+        .obj(dt::MANIFEST_ASSET, &[(key::NAME, V::S("manifest"))])
+        .obj(
+            ty::FILE_ASSET_CONTENTS,
+            &[(
+                key::BYTES,
+                V::Bytes(manifest(
+                    &[(1, "level"), (2, "tint")],
+                    &[(5, &[1]), (6, &[2])],
+                )),
+            )],
+        )
+        .obj(ty::VIEW_MODEL, &[(key::VM_NAME, V::S("Game"))])
+        .obj(ty::VM_COLOR, &[(key::VM_NAME, V::S("tint"))])
+        .obj(ty::VM_NUMBER, &[(key::VM_NAME, V::S("level"))])
+        .obj(ty::VM_INSTANCE, &[(key::VM_INSTANCE_VM, V::U(0))])
+        .obj(
+            ty::VM_INSTANCE_COLOR,
+            &[
+                (key::VM_VALUE_PROPERTY, V::U(0)),
+                (key::VM_COLOR_VALUE, V::C(0xFF00_00FF)),
+            ],
+        )
+        .obj(
+            ty::VM_INSTANCE_NUMBER,
+            &[
+                (key::VM_VALUE_PROPERTY, V::U(1)),
+                (key::VM_NUMBER_VALUE, V::D(40.0)),
+            ],
+        );
+    let by_name = |riv: Riv, property: u16, path: &[u8]| {
+        riv.obj(
+            ty::DATA_BIND_CONTEXT,
+            &[
+                (key::BIND_PROPERTY_KEY, V::U(u64::from(property))),
+                (dt::BIND_FLAGS, V::U(16)),
+                (key::BIND_PATH, V::Bytes(path.to_vec())),
+            ],
+        )
+    };
+    let riv = by_name(bound_artboard(riv).shape(0, 10.0, 30.0), key::X, &[5])
+        .obj(
+            ty::RECTANGLE,
+            &[
+                (key::PARENT_ID, V::U(1)),
+                (key::PATH_WIDTH, V::D(10.0)),
+                (key::PATH_HEIGHT, V::D(10.0)),
+            ],
+        )
+        .obj(ty::FILL, &[(key::PARENT_ID, V::U(1))])
+        .obj(
+            ty::SOLID_COLOR,
+            &[(key::PARENT_ID, V::U(3)), (key::COLOR, V::C(0xFFFF_0000))],
+        );
+    let riv = by_name(riv, key::COLOR, &[2]);
+    let s = scene(&riv);
+    assert_eq!(color_at(&s, 0.0, 40, 30), BLUE);
+    assert_eq!(color_at(&s, 0.0, 10, 30), WHITE);
 }

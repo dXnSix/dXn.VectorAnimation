@@ -161,6 +161,11 @@ pub(crate) struct File {
     pub binds: Vec<Bind>,
     /// What changes to the view model instance bound set over time.
     pub bound: Bound,
+    /// Its manifest's names and paths of names (`ManifestAsset`), what
+    /// bindings by name and relative paths read.
+    pub manifest: Manifest,
+    /// A data bind path read and not yet claimed by what reads it next.
+    pending_path: Option<Object>,
     /// Objects of types the runtime of the tables' tag does not know, by
     /// type key.
     pub unknown: BTreeMap<u64, usize>,
@@ -173,6 +178,60 @@ pub(crate) struct ViewModel {
     pub properties: Vec<Object>,
     pub instances: Vec<Instance>,
 }
+
+/// A file's manifest: names by id, and paths of name ids by id.
+#[derive(Debug, Default)]
+pub(crate) struct Manifest {
+    pub names: HashMap<u64, String>,
+    pub paths: HashMap<u64, Vec<u64>>,
+}
+
+impl Manifest {
+    /// The manifest `bytes` hold (`ManifestAsset::decode`): sections of
+    /// names and of paths, those it does not know skipped; what it cannot
+    /// read, left out.
+    fn decode(bytes: &[u8]) -> Manifest {
+        let mut m = Manifest::default();
+        let mut r = Reader { data: bytes, at: 0 };
+        let mut read = || -> Result<(), Error> {
+            while !r.done() {
+                let section = r.varuint()?;
+                let size = usize::try_from(r.varuint()?).unwrap_or(usize::MAX);
+                match section {
+                    0 => {
+                        for _ in 0..r.varuint()? {
+                            let id = r.varuint()?;
+                            let n = usize::try_from(r.varuint()?).unwrap_or(usize::MAX);
+                            let name = String::from_utf8_lossy(r.take(n)?).into_owned();
+                            m.names.insert(id, name);
+                        }
+                    }
+                    1 => {
+                        for _ in 0..r.varuint()? {
+                            let id = r.varuint()?;
+                            let n = r.varuint()?;
+                            let mut path = Vec::new();
+                            for _ in 0..n {
+                                path.push(r.varuint()?);
+                            }
+                            m.paths.insert(id, path);
+                        }
+                    }
+                    _ => {
+                        r.take(size)?;
+                    }
+                }
+            }
+            Ok(())
+        };
+        let _ = read();
+        m
+    }
+}
+
+/// The key of a hidden property a `StateMachineFireTrigger` whose path is
+/// relative (read from the `DataBindPath` before it) is given.
+pub(crate) const RELATIVE_PATH: u16 = 0xFFF1;
 
 /// A state machine's bindable property: its artboard, machine and index.
 pub(crate) type BindableAt = (usize, usize, usize);
@@ -422,6 +481,14 @@ pub(crate) fn read(data: &[u8]) -> Result<File, Error> {
         place(&mut file, &mut recent, &open, object);
         last = placed(&file, before);
     }
+    if let Some(bytes) = file
+        .assets
+        .iter()
+        .find(|a| a.object.ty == types::MANIFEST_ASSET)
+        .and_then(|a| a.contents.as_deref())
+    {
+        file.manifest = Manifest::decode(bytes);
+    }
     Ok(file)
 }
 
@@ -526,6 +593,23 @@ fn place(
             i.values.push(object);
         }
         return;
+    }
+    if ty == types::DATA_BIND_PATH {
+        file.pending_path = Some(object);
+        return;
+    }
+    if ty == types::STATE_MACHINE_FIRE_TRIGGER
+        && let Some(path) = file.pending_path.take()
+    {
+        // Its path, claimed (`DataBindPathReferencer::importDataBindPath`).
+        object.set(
+            defs::props::STATE_MACHINE_FIRE_TRIGGER_VIEW_MODEL_PATH_IDS,
+            Value::Bytes(path.bytes(defs::props::DATA_BIND_PATH_PATH).to_vec()),
+        );
+        object.set(
+            RELATIVE_PATH,
+            Value::Bool(path.flag(defs::props::DATA_BIND_PATH_IS_RELATIVE)),
+        );
     }
     if is_a(ty, types::DATA_CONVERTER) {
         file.converters.push(Converter {

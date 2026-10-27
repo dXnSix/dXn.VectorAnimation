@@ -403,8 +403,7 @@ pub(crate) fn listener_change(
     };
     let o = &bind.object;
     let flags = o.uint(p::DATA_BIND_FLAGS);
-    let ids = varuints(o.bytes(p::DATA_BIND_CONTEXT_SOURCE_PATH_IDS));
-    let slot = binder.resolve(&ids)?;
+    let slot = binder.source(o)?;
     // To the view model, the main direction converts, else the reverse.
     let value = match o
         .id(p::DATA_BIND_CONVERTER_ID)
@@ -428,7 +427,7 @@ pub(crate) fn listener_change(
     };
     Some(crate::ValueChange {
         time,
-        path: binder.names(&ids)?,
+        path: binder.path_to(slot)?,
         value,
     })
 }
@@ -438,6 +437,7 @@ pub(crate) fn listener_change(
 /// (by a binding to the view model), by name.
 pub(crate) fn bindable_source(
     file: &File,
+    root: usize,
     (artboard, machine, bindable): (usize, usize, usize),
 ) -> Option<String> {
     let target = BindTarget::Bindable {
@@ -448,16 +448,15 @@ pub(crate) fn bindable_source(
     let bind = file.binds.iter().find(|b| {
         b.target == target && b.object.uint(p::DATA_BIND_FLAGS) & (TO_SOURCE | TWO_WAY) != 0
     })?;
+    let contexts = contexts(file, root)?;
     let overlay = HashMap::new();
     let binder = Binder {
         file,
         converters: &file.converters,
-        context: &[],
+        context: contexts.get(&artboard)?,
         overlay: &overlay,
     };
-    binder.names(&varuints(
-        bind.object.bytes(p::DATA_BIND_CONTEXT_SOURCE_PATH_IDS),
-    ))
+    binder.path_to(binder.source(&bind.object)?)
 }
 
 /// The value bindable property `o` holds.
@@ -653,17 +652,13 @@ impl Binder<'_> {
     /// warning for what it cannot bind.
     fn bound(&self, bind: &Object, target: BindTarget) -> Result<Option<Set>, String> {
         let flags = bind.uint(p::DATA_BIND_FLAGS);
-        if flags & NAME_BASED != 0 {
-            return Err("data bindings: bindings by name left unbound".into());
-        }
         if flags & TWO_WAY == 0 && flags & TO_SOURCE != 0 {
             // To the view model alone: nothing reads it back here.
             return Ok(None);
         }
         // The main direction to the target converts, else the reverse.
         let main = flags & TO_SOURCE == 0;
-        let path = varuints(bind.bytes(p::DATA_BIND_CONTEXT_SOURCE_PATH_IDS));
-        let Some(slot) = self.resolve(&path) else {
+        let Some(slot) = self.source(bind) else {
             return Ok(None);
         };
         let Ok(key) = u16::try_from(bind.uint(p::DATA_BIND_PROPERTY_KEY)) else {
@@ -721,25 +716,102 @@ impl Binder<'_> {
         None
     }
 
-    /// The names of the properties source path `ids` goes through, `/`
-    /// between (as [`Binder::named`] reads them).
-    fn names(&self, ids: &[u64]) -> Option<String> {
-        let (&first, rest) = ids.split_first()?;
-        let mut vm = usize::try_from(first).ok()?;
-        let mut names = Vec::new();
-        for (n, &k) in rest.iter().enumerate() {
-            let property = self
-                .file
+    /// The property binding `bind` reads: by its source path, or by the
+    /// names its path in the file's manifest gives (a binding by name,
+    /// `DataBindContext::resolvePath`).
+    fn source(&self, bind: &Object) -> Option<Slot> {
+        let ids = varuints(bind.bytes(p::DATA_BIND_CONTEXT_SOURCE_PATH_IDS));
+        if bind.uint(p::DATA_BIND_FLAGS) & NAME_BASED != 0 {
+            self.resolve_relative(&ids)
+        } else {
+            self.resolve(&ids)
+        }
+    }
+
+    /// The property a relative path `ids` names: its one id the manifest's
+    /// path of name ids (else name ids itself), read by name from the
+    /// innermost instance out (`DataContext::getRelativeViewModelProperty`).
+    fn resolve_relative(&self, ids: &[u64]) -> Option<Slot> {
+        let manifest = &self.file.manifest;
+        let ids = match ids {
+            [id] => manifest
+                .paths
+                .get(id)
+                .filter(|p| !p.is_empty())
+                .map_or(ids, Vec::as_slice),
+            _ => ids,
+        };
+        let names: Vec<&str> = ids
+            .iter()
+            .map(|id| manifest.names.get(id).map_or("", String::as_str))
+            .collect();
+        let (last, through) = names.split_last()?;
+        let index = |vm: usize, name: &str| {
+            self.file
                 .view_models
                 .get(vm)?
                 .properties
-                .get(usize::try_from(k).ok()?)?;
-            names.push(property.string(p::VIEW_MODEL_COMPONENT_NAME));
-            if n + 1 < rest.len() {
-                vm = property.id(p::VIEW_MODEL_PROPERTY_VIEW_MODEL_VIEW_MODEL_REFERENCE_ID)?;
+                .iter()
+                .position(|p| p.string(defs::props::VIEW_MODEL_COMPONENT_NAME) == name)
+        };
+        'context: for &(root, instance) in self.context {
+            let (mut vm, mut instance) = (root, instance);
+            for name in through {
+                match index(vm, name).and_then(|k| self.nested(vm, instance, k)) {
+                    Some(next) => (vm, instance) = next,
+                    None => continue 'context,
+                }
+            }
+            if let Some(k) = index(vm, last)
+                && self.exists((vm, instance, k))
+            {
+                return Some((vm, instance, k));
             }
         }
-        Some(names.join("/"))
+        None
+    }
+
+    /// The path by names (as [`Binder::named`] reads it, from the outermost
+    /// instance of the context) to property `slot`.
+    fn path_to(&self, slot: Slot) -> Option<String> {
+        let &(vm, instance) = self.context.last()?;
+        let mut names = Vec::new();
+        self.find(vm, instance, slot, &mut names, 0)
+            .then(|| names.join("/"))
+    }
+
+    /// Whether `slot` is in view model `vm`'s instance `instance` or one
+    /// nested in it, its property names pushed onto `names`.
+    fn find(
+        &self,
+        vm: usize,
+        instance: Option<usize>,
+        slot: Slot,
+        names: &mut Vec<String>,
+        depth: usize,
+    ) -> bool {
+        let Some(model) = self.file.view_models.get(vm) else {
+            return false;
+        };
+        if (vm, instance) == (slot.0, slot.1)
+            && let Some(property) = model.properties.get(slot.2)
+        {
+            names.push(property.string(p::VIEW_MODEL_COMPONENT_NAME));
+            return true;
+        }
+        if depth >= MAX_DEPTH {
+            return false;
+        }
+        for (k, property) in model.properties.iter().enumerate() {
+            if let Some((next, inner)) = self.nested(vm, instance, k) {
+                names.push(property.string(p::VIEW_MODEL_COMPONENT_NAME));
+                if self.find(next, inner, slot, names, depth + 1) {
+                    return true;
+                }
+                names.pop();
+            }
+        }
+        false
     }
 
     /// The property named by `path` (property names, nested view models'
