@@ -9,7 +9,8 @@
 // plays one of them alone on the page's background (the home page's hero).
 // The Rive files (`--rive fixtures/docs`, written as their bytes) play live:
 // `rive-switch` (a listener), `rive-events` (the cues it fires) and
-// `rive-progress` (a view model set from the page).
+// `rive-progress` (a view model set from the page); `rive-files`, a grid of
+// community files fetched from beside the app (`rive/`, `--rive-files`).
 import { mount, Scroll, signal, Text, View } from "nsh";
 import { Button } from "nsh/base";
 import { host } from "nsh/host";
@@ -17,6 +18,7 @@ import { VectorAnimation, type VectorAnimationRef } from "dxn-vector-animation";
 import { scenes } from "./animations/index";
 import { gallery } from "./animations/gallery";
 import { rive } from "./animations/rive";
+import { riveFiles } from "./animations/rive-files";
 
 // Every example plays under reduced motion too (`ignoreReduceMotion`): a reader whose system turns
 // animation effects off, as Windows' setting does, would otherwise see only the first frame. An app
@@ -155,7 +157,7 @@ function Events() {
   );
 }
 
-const riveFiles = new Map<string, Uint8Array>(rive);
+const riveDemos = new Map<string, Uint8Array>(rive);
 
 /** A Rive switch: a click on it toggles its state machine's input "on", as does a button here. */
 function RiveSwitch() {
@@ -166,7 +168,7 @@ function RiveSwitch() {
       <View style={{ flex: 1 }}>
         <VectorAnimation
           ignoreReduceMotion
-          src={riveFiles.get("switch") as never}
+          src={riveDemos.get("switch") as never}
           style={{ width: "100%", height: "100%" }}
           ref={(r: VectorAnimationRef) => (player = r)}
           onLoad={ready}
@@ -196,7 +198,7 @@ function RiveEvents() {
       <View style={{ flex: 1 }}>
         <VectorAnimation
           ignoreReduceMotion
-          src={riveFiles.get("travel") as never}
+          src={riveDemos.get("travel") as never}
           style={{ width: "100%", height: "100%" }}
           onLoad={ready}
           onCue={(c) => cues.set([`${c.name} at ${c.time.toFixed(2)} s`, ...cues()].slice(0, 4))}
@@ -227,7 +229,7 @@ function RiveProgress() {
       <View style={{ flex: 1 }}>
         <VectorAnimation
           ignoreReduceMotion
-          src={riveFiles.get("progress") as never}
+          src={riveDemos.get("progress") as never}
           style={{ width: "100%", height: "100%" }}
           ref={(r: VectorAnimationRef) => (player = r)}
           onLoad={(info) => {
@@ -264,6 +266,53 @@ function RiveProgress() {
         <Control title={'fireValue("celebrate")'} onPress={() => player?.fireValue("celebrate")} />
       </View>
       <Text style={{ fontSize: 12, opacity: 0.6, textAlign: "center" }}>{last()}</Text>
+    </View>
+  );
+}
+
+/**
+ * The Rive community files, a tile each, fetched from beside the app and
+ * played as they are (a pointer over one reaches its listeners); the frame
+ * is as tall as the grid.
+ */
+function RiveFiles() {
+  // Each file's URL beside the page, made absolute by the page's host.
+  const urls = signal<string[] | undefined>(undefined);
+  // The tiles given their file so far: one after another, as the web reads
+  // a file on the page's one thread (a few seconds for the largest).
+  const shown = signal(1);
+  const next = (i: number) => shown.set(Math.max(shown(), i + 2));
+  Promise.all(riveFiles.map(([, url]) => host.call("url", url).then((u) => String(u))))
+    .then((list) => urls.set(list))
+    .catch(() => urls.set([]));
+  return (
+    <View
+      style={{ padding: 12, flexDirection: "row", flexWrap: "wrap", gap: 14, justifyContent: "center" }}
+      onLayout={(e) => {
+        host.call("height", Math.ceil(e.size.height)).catch(() => {});
+      }}
+    >
+      {(urls() ?? []).map((url, i) => {
+        const name = riveFiles[i]?.[0] ?? url;
+        const error = signal("");
+        return (
+          <View style={{ width: 240, flexShrink: 0, gap: 4, alignItems: "center" }}>
+            <VectorAnimation
+              ignoreReduceMotion
+              src={i < shown() ? url : undefined}
+              style={{ width: 240, height: 180, borderWidth: 1, borderColor: "#e5e7eb", borderRadius: 8 }}
+              accessibilityLabel={name}
+              onLoad={() => next(i)}
+              onError={(e) => {
+                error.set(e);
+                next(i);
+              }}
+            />
+            <Text style={{ fontSize: 12, opacity: 0.7 }}>{error() ? `${name}: ${error()}` : name}</Text>
+          </View>
+        );
+      })}
+      {riveFiles.length === 0 ? <Text style={{ opacity: 0.7 }}>No Rive files.</Text> : null}
     </View>
   );
 }
@@ -371,6 +420,7 @@ function App() {
         if (d === "rive-switch") return <RiveSwitch />;
         if (d === "rive-events") return <RiveEvents />;
         if (d === "rive-progress") return <RiveProgress />;
+        if (d === "rive-files") return <RiveFiles />;
         if (d in GALLERY) return <Files group={GALLERY[d as keyof typeof GALLERY]} />;
         const src = named.get(d);
         if (src !== undefined) return <Single src={src} name={d} />;

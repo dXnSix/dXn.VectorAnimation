@@ -2,6 +2,9 @@
   "name": "Vector Animation Examples",
   "id": "com.dxn.vectoranimation.examples",
   "rust": "../../crates/dxn_vector_animation_nsh",
-  "capabilities": { "host": ["demo", "height", "ready"] },
+  "capabilities": {
+    "host": ["demo", "height", "ready", "url"],
+    "network": { "hosts": ["dxnsix.github.io", "localhost", "127.0.0.1"] }
+  },
   "web": { "host": "./host.js" }
 }

@@ -1,6 +1,6 @@
 ---
 title: Examples
-description: A gallery of free animations, Rive files played live, and every check scene of the NSH player, in the browser, and how the examples app is built.
+description: A gallery of free animations, Rive files played live (the importer's and the Rive community's), and every check scene of the NSH player, in the browser, and how the examples app is built.
 group: Examples
 order: 150
 ---
@@ -87,6 +87,35 @@ caption: The bar's view model sets its width (through an interpolating converter
 | `travel.riv` | An animation keying events, and a state firing one as it is entered |
 | `progress.riv` | A view model bound through converters (interpolator, range mapper, to-string), a color eased, a trigger a transition waits on |
 
+### Files from the Rive community
+
+Files from the [Rive community](https://rive.app/community/), each in a tile playing its artboard's default state
+machine with its view model bound, as Rive's players binding automatically do; a pointer over one reaches its
+listeners. They are fetched from beside the examples app and read in the browser one after another (the largest
+take a few seconds each). Their names leave out the community's ids; the files are in
+[`examples/gallery/animations-rive/`](https://github.com/dXnSix/dXn.VectorAnimation/tree/main/examples/gallery/animations-rive).
+
+```example
+demo: rive-files
+height: 900
+caption: Rive community files, each in a tile, played as they are.
+```
+
+| File | What it exercises |
+|---|---|
+| `weather-app-concept` | Nested artboards, inner feathers, hover listeners |
+| `glowing-subscribe-button` | Hover and click listeners firing events, layers looping over different lengths |
+| `tabbar-animation` | Clicks on nested tabs, Rive events reaching listeners |
+| `dress-up` | Images, a click on a nested artboard setting its inputs |
+| `posture-animation` | Hundreds of images, hover and click listeners |
+| `boopkin-kill-count` | Images, a view model counter bound through converters |
+| `interactive-icon-set` | Hover listeners on nested icons |
+| `slot-machine-game-with-scripting` | Luau scripting and layout, left out: it draws little of what it should |
+| `studiorun-a-cosmic-game-by-thelittlelabs` | Thousands of shapes, blend states, nested artboards' state machines |
+| `futuristic-driving-ui-concept` | Bindings by name and nested view models; layout is left out, so it is drawn where the file puts it |
+| `snake-raster-animation` | Hundreds of raster images |
+| `sobo` | A nested artboard's tap firing a view model trigger |
+
 ## The scenes
 
 These are the scenes the player is checked with on every platform, played by its web build. Each one
@@ -131,20 +160,25 @@ caption: The check scenes, each in a tile.
 | `clear-stops` | A gradient whose middle stop fades in from clear as it moves, then out again |
 
 The two examples of [Playback](./playback.md), `playback` and `events`, and the Rive files' three, `rive-switch`,
-`rive-events` and `rive-progress`, belong to the examples app itself.
+`rive-events` and `rive-progress`, belong to the examples app itself; `rive-files` plays the community files.
 
 ## How the examples are built
 
 The examples are an NSH app in the repository, `examples/docs`, on the player. The site's workflow builds the
-dXnSix fork of NSH, writes the scenes (and the Rive files, as their bytes) and publishes the app for the web into the
-site:
+dXnSix fork of NSH, writes the scenes (the small Rive files as their bytes, the community files' names and URLs),
+publishes the app for the web into the site and puts the community files beside it:
 
 ```bash
-cargo run --release -p dxn_vector_animation_check -- scenes examples/docs --gallery fixtures/gallery --rive fixtures/docs
+cargo run --release -p dxn_vector_animation_check -- scenes examples/docs --gallery fixtures/gallery --rive fixtures/docs --rive-files examples/gallery/animations-rive
 cd examples/docs
 nsh package "$PWD/App.tsx" --target web --out /tmp/examples   # /tmp/examples/Vector Animation Examples/
 cp -R "/tmp/examples/Vector Animation Examples" ../../website/public/examples
+mkdir -p ../../website/public/examples/rive && cp ../gallery/animations-rive/*.riv ../../website/public/examples/rive/
 ```
+
+The app fetches the community files by URL: the page's host makes each absolute (its `url` function, as the engine
+checks a fetch's URL against the app's capabilities as it is given), and `nsh.json` grants the site's host (and
+`localhost` for a local build) under `capabilities.network`.
 
 The app reads which example to show from the page's address, `examples/index.html?demo=<name>`, through NSH's web host
 (`host.js`, named by `web.host` in its `nsh.json`); without a name it shows them all. Each page embeds one in an

@@ -25,6 +25,9 @@ export function createHost() {
   return {
     call(name, args) {
       if (name === "demo") return new URLSearchParams(location.search).get("demo") ?? "";
+      // A URL beside the app's page, absolute (the engine checks a fetch's URL
+      // against the app's capabilities before it would resolve a relative one).
+      if (name === "url") return new URL(String(args), document.baseURI).href;
       if (name === "ready") {
         if (parent !== window) parent.postMessage({ type: "dxn-example-ready" }, location.origin);
         return null;
