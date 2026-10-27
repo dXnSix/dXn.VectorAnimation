@@ -9,11 +9,11 @@
   "path": "2026-10-27-18-css-unrolling-copies-each-value-once.json",
   "createdAt": "2026-10-27T20:57:53Z",
   "startedAt": "2026-10-27T20:57:53Z",
-  "finishedAt": null,
-  "state": "running",
-  "status": "",
+  "finishedAt": "2026-10-27T20:58:41Z",
+  "state": "done",
+  "status": "success",
   "checkpointCommit": "1821a74302a46aa981cf51565e27895ba7865973",
-  "resultCommit": "",
+  "resultCommit": "d4d038913acb3f64355b784f7b2bb1024088baae",
   "rollbackCommand": "git -C \"/Users/dinko/work-private/projects/dXn/dXn.VectorAnimation\" reset --hard 1821a74302a46aa981cf51565e27895ba7865973",
   "repositories": [
     {
@@ -21,12 +21,19 @@
       "path": ".",
       "role": "main",
       "checkpointCommit": "1821a74302a46aa981cf51565e27895ba7865973",
-      "resultCommit": "",
+      "resultCommit": "d4d038913acb3f64355b784f7b2bb1024088baae",
       "rollbackCommand": "git -C \"/Users/dinko/work-private/projects/dXn/dXn.VectorAnimation\" reset --hard 1821a74302a46aa981cf51565e27895ba7865973",
-      "status": ""
+      "status": "success"
     }
   ],
-  "repositoryCommits": [],
+  "repositoryCommits": [
+    {
+      "name": "main",
+      "path": ".",
+      "role": "main",
+      "commit": "d4d038913acb3f64355b784f7b2bb1024088baae"
+    }
+  ],
   "atomicDiscipline": {
     "oneHypothesisOnly": true,
     "singleImplementationAttempt": true,
@@ -36,17 +43,39 @@
     "rule": "Run exactly the printed hypothesis. If the attempted change fails, degrades, or suggests a different fix, revert to the checkpoint and finish this experiment as failure. Start a new experiment for the next idea."
   },
   "primaryTarget": "wasm/web with headed Playwright and WebGPU enabled",
-  "hypothesisMarkdown": "",
-  "measurementPlanMarkdown": "",
-  "expectedOutcomeMarkdown": "",
+  "hypothesisMarkdown": "## CSS unrolling copies each value once Hypothesis\n\nUnrolling a CSS animation copied each iteration's stops and then copied every value again into its keyframe (the first copy kept as the last value an iteration ended with). Each keyframe now takes its copy; the last value is read back from the last keyframe where a fill needs it.\\n\\n**Tested mechanism:** one copy a keyframe. **Allowed:** svg `animate::unroll`. **Forbidden:** value sharing types.",
+  "measurementPlanMarkdown": "### Measurement Plan\n\nRelease bench over the 53 corpus files (median of 3 runs, best of 5 each), plus the focused tests of the touched area.",
+  "expectedOutcomeMarkdown": "### Expected Outcome\n\nThe targeted metric improves with identical graph output and passing focused tests.",
   "diagnostics": {
     "playwright": [],
     "rayx": [],
     "counters": [],
     "artifacts": []
   },
-  "measurements": [],
-  "reportMarkdown": "",
-  "decisionMarkdown": "",
+  "measurements": [
+    {
+      "metric": "read ms",
+      "before": "72.9",
+      "after": "71.1",
+      "delta": "",
+      "source": "scratchpad bench.sh: median of 3 `vector-animation-check bench artifacts-temp/corpus`"
+    },
+    {
+      "metric": "ttff allocations",
+      "before": "1,206,220",
+      "after": "1,147,710",
+      "delta": "",
+      "source": "scratchpad bench.sh: median of 3 `vector-animation-check bench artifacts-temp/corpus`"
+    },
+    {
+      "metric": "compiled scenes and warnings",
+      "before": "identical",
+      "after": "identical",
+      "delta": "",
+      "source": "scratchpad bench.sh: median of 3 `vector-animation-check bench artifacts-temp/corpus`"
+    }
+  ],
+  "reportMarkdown": "## CSS unrolling copies each value once Finished\n\n**Passed Status**: True\n\n**Attempt Count:** 1. **Out-of-scope changes:** none.\n\nRead -2.5%, allocations at load -5%. Compiled scenes identical to the loop's start; svg tests pass; clippy clean.\n\n| Repo | Path | Checkpoint | Result Commit | Status |\n| --- | --- | --- | --- | --- |\n| main | . | 1821a74 | d4d0389 | committed |",
+  "decisionMarkdown": "### Decision\n\nCommitted d4d0389: perf(svg): unroll each CSS iteration's values with one copy",
   "notes": ""
 }

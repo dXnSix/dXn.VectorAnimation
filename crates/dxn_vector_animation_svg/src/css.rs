@@ -170,11 +170,12 @@ impl Compound {
             return false;
         }
         if !self.classes.is_empty() {
-            let classes: Vec<&str> = node
-                .attribute("class")
-                .map(|c| c.split_ascii_whitespace().collect())
-                .unwrap_or_default();
-            if !self.classes.iter().all(|c| classes.contains(&c.as_str())) {
+            let classes = node.attribute("class").unwrap_or_default();
+            if !self
+                .classes
+                .iter()
+                .all(|c| classes.split_ascii_whitespace().any(|n| n == c))
+            {
                 return false;
             }
         }
