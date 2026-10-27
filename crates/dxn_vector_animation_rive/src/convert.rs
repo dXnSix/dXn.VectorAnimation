@@ -1152,15 +1152,31 @@ impl<'a> Converter<'a> {
             };
             if let Some((a, t0, direction)) = single {
                 let anim = &plan.anims[a];
-                for seg in steady_pieces(
+                // To the last frame it applies: in the frame a layer
+                // changes, what the next state leaves alone keeps the
+                // frame before's value.
+                let last = if e < frames {
+                    at(e - 1).max(at(k))
+                } else {
+                    until
+                };
+                let pieces = steady_pieces(
                     anim,
                     a,
                     plan.fps.get(a).copied().unwrap_or(60.0),
                     t0,
                     anim.speed * direction * plan.speed,
                     at(k),
-                    until,
-                ) {
+                    last,
+                );
+                if pieces.is_empty() {
+                    keys.push(Key {
+                        t: at(k),
+                        value: curves[&a].at(t0),
+                        interp: Interp::Hold,
+                    });
+                }
+                for seg in pieces {
                     piece_keys(&seg, &curves[&a], keys);
                     hold_last(keys);
                 }
