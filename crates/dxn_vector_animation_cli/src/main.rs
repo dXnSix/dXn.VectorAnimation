@@ -474,6 +474,21 @@ fn describe(file: &Path, format: Format, import: &Import) -> String {
             )),
         }
     }
+    for c in &t.cues {
+        let mut what = c.name.clone();
+        if let Some((url, target)) = &c.url {
+            what.push_str(&format!(", opens {url} ({target})"));
+        }
+        for (name, value) in &c.properties {
+            let value = match value {
+                dxn_vector_animation::CueValue::Number(n) => n.to_string(),
+                dxn_vector_animation::CueValue::Text(t) => format!("{t:?}"),
+                dxn_vector_animation::CueValue::Bool(b) => b.to_string(),
+            };
+            what.push_str(&format!(", {name} = {value}"));
+        }
+        line(format!("  cue          {:.3} s: {what}", c.time));
+    }
     line(format!(
         "  nodes        {} groups, {} shapes, {} images (depth {})",
         s.groups, s.shapes, s.images, s.depth
