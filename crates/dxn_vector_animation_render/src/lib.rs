@@ -499,6 +499,12 @@ impl Renderer {
         let Some(area) = drawn(pixmap) else {
             return;
         };
+        if layer.blend == BlendMode::Normal
+            && (pixmap.width(), pixmap.height()) == (target.width(), target.height())
+        {
+            over(target, pixmap, paint.opacity, area);
+            return;
+        }
         let pattern = sk::Paint {
             shader: sk::Pattern::new(
                 pixmap.as_ref(),
@@ -851,6 +857,47 @@ fn sk_stroke(style: &StrokeStyle) -> sk::Stroke {
     }
 }
 
+/// `layer`'s pixels within `area`, at `opacity`, drawn over `target`'s (of
+/// its size) with source-over, as tiny-skia's pipeline draws a pixmap: in
+/// single precision, faded by the opacity unless it is 1, rounded to the
+/// nearest (ties to even).
+fn over(target: &mut sk::Pixmap, layer: &sk::Pixmap, opacity: f32, area: sk::Rect) {
+    const UNIT: f32 = 1.0 / 255.0;
+    let opacity = opacity.clamp(0.0, 1.0);
+    let fade = |v: u8| {
+        let v = f32::from(v) * UNIT;
+        if opacity == 1.0 { v } else { v * opacity }
+    };
+    let channel = |d: u8, s: u8, inv: f32| -> u8 {
+        let v = (f32::from(d) * UNIT) * inv + fade(s);
+        (v.clamp(0.0, 1.0) * 255.0).round_ties_even() as u8
+    };
+    let w = target.width() as usize;
+    let (x0, x1) = (area.left() as usize, (area.right() as usize).min(w));
+    let (y0, y1) = (area.top() as usize, area.bottom() as usize);
+    let to = target.pixels_mut();
+    let from = layer.pixels();
+    for y in y0..y1.min(from.len() / w.max(1)) {
+        let row = y * w;
+        for (t, s) in to[row + x0..row + x1]
+            .iter_mut()
+            .zip(&from[row + x0..row + x1])
+        {
+            if s.alpha() == 0 {
+                continue;
+            }
+            let inv = 1.0 - fade(s.alpha());
+            *t = sk::PremultipliedColorU8::from_rgba(
+                channel(t.red(), s.red(), inv),
+                channel(t.green(), s.green(), inv),
+                channel(t.blue(), s.blue(), inv),
+                channel(t.alpha(), s.alpha(), inv),
+            )
+            .unwrap_or(*t);
+        }
+    }
+}
+
 /// The rectangle of `pixmap`'s pixels that are not clear, in whole pixels.
 fn drawn(pixmap: &sk::Pixmap) -> Option<sk::Rect> {
     let w = pixmap.width() as usize;
@@ -1198,6 +1245,57 @@ fn gaussian(src: &[f32], dst: &mut [f32], sigma: f64) {
         }
         for c in 0..4 {
             dst[x as usize * 4 + c] = acc[c] / total;
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used)]
+
+    use super::*;
+
+    /// Every premultiplied source channel and alpha over every destination
+    /// channel (each row a source, each column a destination; the alpha
+    /// channel is the same function of them), at `opacity`.
+    fn assert_over_as_the_pipeline(opacity: f32) {
+        let pairs: Vec<(u8, u8)> = (0..=255u8)
+            .flat_map(|a| (0..=a).map(move |c| (c, a)))
+            .collect();
+        let (w, h) = (256u32, pairs.len() as u32);
+        let mut layer = sk::Pixmap::new(w, h).unwrap();
+        let mut under = sk::Pixmap::new(w, h).unwrap();
+        for (y, &(c, a)) in pairs.iter().enumerate() {
+            for x in 0..w as usize {
+                let i = y * w as usize + x;
+                layer.pixels_mut()[i] = sk::PremultipliedColorU8::from_rgba(c, c, c, a).unwrap();
+                under.pixels_mut()[i] =
+                    sk::PremultipliedColorU8::from_rgba(x as u8, x as u8, x as u8, 255).unwrap();
+            }
+        }
+        let mut ours = under.clone();
+        let mut theirs = under;
+        let all = sk::Rect::from_xywh(0.0, 0.0, w as f32, h as f32).unwrap();
+        over(&mut ours, &layer, opacity, all);
+        theirs.draw_pixmap(
+            0,
+            0,
+            layer.as_ref(),
+            &sk::PixmapPaint {
+                opacity,
+                blend_mode: sk::BlendMode::SourceOver,
+                quality: sk::FilterQuality::Nearest,
+            },
+            sk::Transform::identity(),
+            None,
+        );
+        assert!(ours.data() == theirs.data(), "at opacity {opacity}");
+    }
+
+    #[test]
+    fn over_draws_as_the_pipeline_draws_every_pixel() {
+        for opacity in [1.0, 0.98018646, 0.5, 0.17481671] {
+            assert_over_as_the_pipeline(opacity);
         }
     }
 }

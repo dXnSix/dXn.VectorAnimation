@@ -1,0 +1,74 @@
+{
+  "schemaVersion": 1,
+  "id": "3be1780e-e178-49d8-a3f1-af3ce11c8949",
+  "loopId": "9e7a8b6d-0104-4e72-a31e-3b168c0b3881",
+  "index": 31,
+  "type": "hypothesis",
+  "name": "Source-over layers composited directly",
+  "slug": "source-over-layers-composited-directly",
+  "path": "2026-10-27-31-source-over-layers-composited-directly.json",
+  "createdAt": "2026-10-27T21:30:33Z",
+  "startedAt": "2026-10-27T21:30:33Z",
+  "finishedAt": "2026-10-27T21:31:37Z",
+  "state": "done",
+  "status": "failure",
+  "checkpointCommit": "2b26404ef1647c2aaed5dcbba0f3ff614aca047a",
+  "resultCommit": "",
+  "rollbackCommand": "git -C \"/Users/dinko/work-private/projects/dXn/dXn.VectorAnimation\" reset --hard 2b26404ef1647c2aaed5dcbba0f3ff614aca047a",
+  "repositories": [
+    {
+      "name": "main",
+      "path": ".",
+      "role": "main",
+      "checkpointCommit": "2b26404ef1647c2aaed5dcbba0f3ff614aca047a",
+      "resultCommit": "",
+      "rollbackCommand": "git -C \"/Users/dinko/work-private/projects/dXn/dXn.VectorAnimation\" reset --hard 2b26404ef1647c2aaed5dcbba0f3ff614aca047a",
+      "status": "failure"
+    }
+  ],
+  "repositoryCommits": [],
+  "atomicDiscipline": {
+    "oneHypothesisOnly": true,
+    "singleImplementationAttempt": true,
+    "noUnplannedFixesInsideExperiment": true,
+    "failedAttemptRequiresImmediateRevert": true,
+    "successfulAttemptRequiresCommitBeforeNextExperiment": true,
+    "rule": "Run exactly the printed hypothesis. If the attempted change fails, degrades, or suggests a different fix, revert to the checkpoint and finish this experiment as failure. Start a new experiment for the next idea."
+  },
+  "primaryTarget": "wasm/web with headed Playwright and WebGPU enabled",
+  "hypothesisMarkdown": "## Source-over layers composited directly Hypothesis\n\nLayers of normal blend at full opacity were to be drawn over what is under them by a direct loop computing tiny-skia's highp source-over exactly (single precision, round to nearest even), instead of its pipeline.\\n\\n**Tested mechanism:** direct source-over compositing. **Allowed:** render compose, `over`, a unit test. **Forbidden:** other blends.",
+  "measurementPlanMarkdown": "### Measurement Plan\n\nRelease bench over the 53 corpus files (median of 3 runs, best of 5 each), plus the focused tests of the touched area.",
+  "expectedOutcomeMarkdown": "### Expected Outcome\n\nThe targeted metric improves with identical graph output and passing focused tests.",
+  "diagnostics": {
+    "playwright": [],
+    "rayx": [],
+    "counters": [],
+    "artifacts": []
+  },
+  "measurements": [
+    {
+      "metric": "engine us/frame",
+      "before": "610",
+      "after": "609",
+      "delta": "",
+      "source": "scratchpad bench.sh: median of 3 `vector-animation-check bench artifacts-temp/corpus`"
+    },
+    {
+      "metric": "onboarding engine us/frame (3 runs)",
+      "before": "568",
+      "after": "567-574",
+      "delta": "",
+      "source": "scratchpad bench.sh: median of 3 `vector-animation-check bench artifacts-temp/corpus`"
+    },
+    {
+      "metric": "reference frames",
+      "before": "identical",
+      "after": "identical",
+      "delta": "",
+      "source": "scratchpad bench.sh: median of 3 `vector-animation-check bench artifacts-temp/corpus`"
+    }
+  ],
+  "reportMarkdown": "## Source-over layers composited directly Finished\n\n**Passed Status**: False\n\n**Attempt Count:** 1. **Out-of-scope changes:** none.\n\nFailed: no measurable gain. The loop matched tiny-skia on all 8.4 million (channel, alpha, destination) combinations and the reference hashes stayed identical, but the composites that cost onboarding's moving rasters are not plain source-over layers at full opacity (the shadows' and blurs' own compositing in `effects`). Reverted.\n\n| Repo | Path | Checkpoint | Result Commit | Status |\n| --- | --- | --- | --- | --- |\n| main | . | 2b26404 | none | reverted |",
+  "decisionMarkdown": "### Decision\n\nReverted to 2b26404.",
+  "notes": ""
+}

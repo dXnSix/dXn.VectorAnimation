@@ -9,11 +9,11 @@
   "path": "2026-10-27-30-layers-composited-where-they-draw.json",
   "createdAt": "2026-10-27T21:27:11Z",
   "startedAt": "2026-10-27T21:27:11Z",
-  "finishedAt": null,
-  "state": "running",
-  "status": "",
+  "finishedAt": "2026-10-27T21:29:01Z",
+  "state": "done",
+  "status": "success",
   "checkpointCommit": "05baeed4d963581e9a0be2c7d43f9afdc7299ff0",
-  "resultCommit": "",
+  "resultCommit": "2b26404ef1647c2aaed5dcbba0f3ff614aca047a",
   "rollbackCommand": "git -C \"/Users/dinko/work-private/projects/dXn/dXn.VectorAnimation\" reset --hard 05baeed4d963581e9a0be2c7d43f9afdc7299ff0",
   "repositories": [
     {
@@ -21,12 +21,19 @@
       "path": ".",
       "role": "main",
       "checkpointCommit": "05baeed4d963581e9a0be2c7d43f9afdc7299ff0",
-      "resultCommit": "",
+      "resultCommit": "2b26404ef1647c2aaed5dcbba0f3ff614aca047a",
       "rollbackCommand": "git -C \"/Users/dinko/work-private/projects/dXn/dXn.VectorAnimation\" reset --hard 05baeed4d963581e9a0be2c7d43f9afdc7299ff0",
-      "status": ""
+      "status": "success"
     }
   ],
-  "repositoryCommits": [],
+  "repositoryCommits": [
+    {
+      "name": "main",
+      "path": ".",
+      "role": "main",
+      "commit": "2b26404ef1647c2aaed5dcbba0f3ff614aca047a"
+    }
+  ],
   "atomicDiscipline": {
     "oneHypothesisOnly": true,
     "singleImplementationAttempt": true,
@@ -36,17 +43,46 @@
     "rule": "Run exactly the printed hypothesis. If the attempted change fails, degrades, or suggests a different fix, revert to the checkpoint and finish this experiment as failure. Start a new experiment for the next idea."
   },
   "primaryTarget": "wasm/web with headed Playwright and WebGPU enabled",
-  "hypothesisMarkdown": "",
-  "measurementPlanMarkdown": "",
-  "expectedOutcomeMarkdown": "",
+  "hypothesisMarkdown": "## Layers composited where they draw Hypothesis\n\nA layer (a group faded, blended, clipped, masked or with effects) was composited over its whole pixmap, the size of the frame. Where it is clear it leaves what is under it (every blend but destination-in and destination-out), so it is drawn only over the rectangle of its pixels that are not clear, with the shader `draw_pixmap` uses: the same pixels.\\n\\n**Tested mechanism:** compositing over the drawn area. **Allowed:** render `Renderer::compose`, new `drawn`. **Forbidden:** effects, masks.",
+  "measurementPlanMarkdown": "### Measurement Plan\n\nRelease bench over the 53 corpus files (median of 3 runs, best of 5 each), plus the focused tests of the touched area.",
+  "expectedOutcomeMarkdown": "### Expected Outcome\n\nThe targeted metric improves with identical graph output and passing focused tests.",
   "diagnostics": {
     "playwright": [],
     "rayx": [],
     "counters": [],
     "artifacts": []
   },
-  "measurements": [],
-  "reportMarkdown": "",
-  "decisionMarkdown": "",
+  "measurements": [
+    {
+      "metric": "onboarding engine us/frame (A/B, 3 runs)",
+      "before": "587",
+      "after": "568",
+      "delta": "",
+      "source": "scratchpad bench.sh: median of 3 `vector-animation-check bench artifacts-temp/corpus`"
+    },
+    {
+      "metric": "corpus engine us/frame",
+      "before": "627",
+      "after": "610",
+      "delta": "",
+      "source": "scratchpad bench.sh: median of 3 `vector-animation-check bench artifacts-temp/corpus`"
+    },
+    {
+      "metric": "reference frames (4629 PNGs)",
+      "before": "identical",
+      "after": "identical",
+      "delta": "",
+      "source": "scratchpad bench.sh: median of 3 `vector-animation-check bench artifacts-temp/corpus`"
+    },
+    {
+      "metric": "corpus fidelity",
+      "before": "identical",
+      "after": "identical",
+      "delta": "",
+      "source": "scratchpad bench.sh: median of 3 `vector-animation-check bench artifacts-temp/corpus`"
+    }
+  ],
+  "reportMarkdown": "## Layers composited where they draw Finished\n\n**Passed Status**: True\n\n**Attempt Count:** 1. **Out-of-scope changes:** none.\n\nEngine thread -3% a frame (moving blurred layers); compile about the same (the plan's images fill their pixmaps). Reference PNG hashes and fidelity identical; render and image tests pass; clippy clean.\n\n| Repo | Path | Checkpoint | Result Commit | Status |\n| --- | --- | --- | --- | --- |\n| main | . | 05baeed | 2b26404 | committed |",
+  "decisionMarkdown": "### Decision\n\nCommitted 2b26404: perf(render): composite a layer only where it draws",
   "notes": ""
 }

@@ -11,13 +11,13 @@
   "status": "",
   "createdAt": "2026-10-27T20:14:29Z",
   "finishedAt": null,
-  "lastStableCommit": "05baeed4d963581e9a0be2c7d43f9afdc7299ff0",
+  "lastStableCommit": "2b26404ef1647c2aaed5dcbba0f3ff614aca047a",
   "repositories": [
     {
       "name": "main",
       "path": ".",
       "role": "main",
-      "lastStableCommit": "05baeed4d963581e9a0be2c7d43f9afdc7299ff0"
+      "lastStableCommit": "2b26404ef1647c2aaed5dcbba0f3ff614aca047a"
     }
   ],
   "atomicDiscipline": {
@@ -28,8 +28,8 @@
     "successfulAttemptRequiresCommitBeforeNextExperiment": true,
     "rule": "Run exactly the printed hypothesis. If the attempted change fails, degrades, or suggests a different fix, revert to the checkpoint and finish this experiment as failure. Start a new experiment for the next idea."
   },
-  "currentExperimentId": "7e6a83a5-2dc4-4747-aaee-50c20caf29dc",
-  "nextExperimentIndex": 31,
+  "currentExperimentId": "a7c475ba-954d-4ff0-adce-c54a79783544",
+  "nextExperimentIndex": 33,
   "experiments": [
     {
       "id": "f0287285-7a36-4cb5-8eef-94cdd163e5a7",
@@ -385,6 +385,29 @@
       "name": "Layers composited where they draw",
       "path": "2026-10-27-30-layers-composited-where-they-draw.json",
       "startedAt": "2026-10-27T21:27:11Z",
+      "finishedAt": "2026-10-27T21:29:01Z",
+      "state": "done",
+      "status": "success",
+      "resultCommit": "2b26404ef1647c2aaed5dcbba0f3ff614aca047a"
+    },
+    {
+      "id": "3be1780e-e178-49d8-a3f1-af3ce11c8949",
+      "index": 31,
+      "type": "hypothesis",
+      "name": "Source-over layers composited directly",
+      "path": "2026-10-27-31-source-over-layers-composited-directly.json",
+      "startedAt": "2026-10-27T21:30:33Z",
+      "finishedAt": "2026-10-27T21:31:37Z",
+      "state": "done",
+      "status": "failure"
+    },
+    {
+      "id": "a7c475ba-954d-4ff0-adce-c54a79783544",
+      "index": 32,
+      "type": "hypothesis",
+      "name": "Faded source-over layers composited directly",
+      "path": "2026-10-27-32-faded-source-over-layers-composited-directly.json",
+      "startedAt": "2026-10-27T21:32:36Z",
       "finishedAt": null,
       "state": "running",
       "status": ""
