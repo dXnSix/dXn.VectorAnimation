@@ -1863,7 +1863,20 @@ impl Compiler {
             match op {
                 TransformOp::Translate { x, y } => {
                     let (x, y) = (self.g.track(x, time, |v| v), self.g.track(y, time, |v| v));
-                    if !(x.is(0.0) && y.is(0.0)) {
+                    // Still after still (a position, then less the anchor):
+                    // one translation.
+                    if let (
+                        Some(Op::Translate(Num::Const(a), Num::Const(b))),
+                        Num::Const(c),
+                        Num::Const(d),
+                    ) = (out.last(), x, y)
+                    {
+                        let (x, y) = (a + c, b + d);
+                        out.pop();
+                        if !(x == 0.0 && y == 0.0) {
+                            out.push(Op::Translate(Num::Const(x), Num::Const(y)));
+                        }
+                    } else if !(x.is(0.0) && y.is(0.0)) {
                         out.push(Op::Translate(x, y));
                     }
                 }

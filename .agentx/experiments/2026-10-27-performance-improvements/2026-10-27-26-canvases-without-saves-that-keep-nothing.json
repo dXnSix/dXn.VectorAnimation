@@ -9,11 +9,11 @@
   "path": "2026-10-27-26-canvases-without-saves-that-keep-nothing.json",
   "createdAt": "2026-10-27T21:15:13Z",
   "startedAt": "2026-10-27T21:15:13Z",
-  "finishedAt": null,
-  "state": "running",
-  "status": "",
+  "finishedAt": "2026-10-27T21:19:12Z",
+  "state": "done",
+  "status": "success",
   "checkpointCommit": "d3355eb5d6d46b7f539cab039db5775b38ada22e",
-  "resultCommit": "",
+  "resultCommit": "1fe932711e5cd165cc542a892257b11bf28f059a",
   "rollbackCommand": "git -C \"/Users/dinko/work-private/projects/dXn/dXn.VectorAnimation\" reset --hard d3355eb5d6d46b7f539cab039db5775b38ada22e",
   "repositories": [
     {
@@ -21,12 +21,19 @@
       "path": ".",
       "role": "main",
       "checkpointCommit": "d3355eb5d6d46b7f539cab039db5775b38ada22e",
-      "resultCommit": "",
+      "resultCommit": "1fe932711e5cd165cc542a892257b11bf28f059a",
       "rollbackCommand": "git -C \"/Users/dinko/work-private/projects/dXn/dXn.VectorAnimation\" reset --hard d3355eb5d6d46b7f539cab039db5775b38ada22e",
-      "status": ""
+      "status": "success"
     }
   ],
-  "repositoryCommits": [],
+  "repositoryCommits": [
+    {
+      "name": "main",
+      "path": ".",
+      "role": "main",
+      "commit": "1fe932711e5cd165cc542a892257b11bf28f059a"
+    }
+  ],
   "atomicDiscipline": {
     "oneHypothesisOnly": true,
     "singleImplementationAttempt": true,
@@ -36,17 +43,46 @@
     "rule": "Run exactly the printed hypothesis. If the attempted change fails, degrades, or suggests a different fix, revert to the checkpoint and finish this experiment as failure. Start a new experiment for the next idea."
   },
   "primaryTarget": "wasm/web with headed Playwright and WebGPU enabled",
-  "hypothesisMarkdown": "",
-  "measurementPlanMarkdown": "",
-  "expectedOutcomeMarkdown": "",
+  "hypothesisMarkdown": "## Canvases without saves that keep nothing Hypothesis\n\nGroups in groups opened a save each on their canvas even where an outer save kept the same state: a save right inside another and restored right before it, or restored at once, keeps nothing. A canvas's operations (the plan's and each sampled frame's) are closed without them, as many passes as nesting takes.\\n\\n**Tested mechanism:** idle save removal in `closed()`. **Allowed:** `plan.rs` closed/unsaved, a new test group. **Forbidden:** other op rewriting.",
+  "measurementPlanMarkdown": "### Measurement Plan\n\nRelease bench over the 53 corpus files (median of 3 runs, best of 5 each), plus the focused tests of the touched area.",
+  "expectedOutcomeMarkdown": "### Expected Outcome\n\nThe targeted metric improves with identical graph output and passing focused tests.",
   "diagnostics": {
     "playwright": [],
     "rayx": [],
     "counters": [],
     "artifacts": []
   },
-  "measurements": [],
-  "reportMarkdown": "",
-  "decisionMarkdown": "",
+  "measurements": [
+    {
+      "metric": "canvas saves (and as many restores)",
+      "before": "5039",
+      "after": "4244",
+      "delta": "",
+      "source": "scratchpad bench.sh: median of 3 `vector-animation-check bench artifacts-temp/corpus`"
+    },
+    {
+      "metric": "compile ms (A/B)",
+      "before": "34.06",
+      "after": "34.06",
+      "delta": "",
+      "source": "scratchpad bench.sh: median of 3 `vector-animation-check bench artifacts-temp/corpus`"
+    },
+    {
+      "metric": "engine us/frame (A/B)",
+      "before": "621",
+      "after": "624 (noise)",
+      "delta": "",
+      "source": "scratchpad bench.sh: median of 3 `vector-animation-check bench artifacts-temp/corpus`"
+    },
+    {
+      "metric": "corpus fidelity",
+      "before": "identical",
+      "after": "identical",
+      "delta": "",
+      "source": "scratchpad bench.sh: median of 3 `vector-animation-check bench artifacts-temp/corpus`"
+    }
+  ],
+  "reportMarkdown": "## Canvases without saves that keep nothing Finished\n\n**Passed Status**: True\n\n**Attempt Count:** 1. **Out-of-scope changes:** none.\n\nCanvas operations replayed each frame -2.9% (1,590 save/restore of 55,400), at no measurable compile or engine cost. New test group `tests/canvas_saves.rs` (red at the checkpoint: idle saves found; pixels as the reference at whole-pixel times; the half-pixel layer resampling of the scene predates this change); full player suite passes; fidelity identical; clippy clean.\n\n| Repo | Path | Checkpoint | Result Commit | Status |\n| --- | --- | --- | --- | --- |\n| main | . | d3355eb | 1fe9327 | committed |",
+  "decisionMarkdown": "### Decision\n\nCommitted 1fe9327: perf(nsh): canvases drop the saves that keep nothing",
   "notes": ""
 }
