@@ -327,6 +327,12 @@ impl Graph {
     /// `x` through the breakpoints `inputs` (ascending) to `outputs`,
     /// straight between them, clamped at both ends.
     pub fn lookup(&mut self, x: Num, inputs: &[f64], outputs: &[f64]) -> Num {
+        // One value throughout, wherever `x` is.
+        if let Some(&first) = outputs.first()
+            && outputs.iter().all(|&o| o == first)
+        {
+            return Num::Const(first);
+        }
         match x {
             Num::Const(v) => Num::Const(interpolate(
                 v,
@@ -435,6 +441,10 @@ impl Graph {
         }
         let times = rising(keys.iter().map(|k| k.time).collect());
         let values: Vec<f64> = keys.iter().map(|k| f(k.value)).collect();
+        // Values alike (once mapped: opacities above one) hold.
+        if values.iter().all(|&v| v == values[0]) {
+            return Num::Const(values[0]);
+        }
         let easings: Vec<&Easing> = keys[..keys.len() - 1].iter().map(|k| &k.easing).collect();
         // One curve throughout: one interpolation.
         if let Some(curve) = uniform(&easings) {
@@ -487,6 +497,9 @@ impl Graph {
             .iter()
             .map(|k| pack(k.value.with_opacity(opacity)))
             .collect();
+        if colors.iter().all(|&c| c == colors[0]) {
+            return Paint::Const(colors[0]);
+        }
         let easings: Vec<&Easing> = keys[..keys.len() - 1].iter().map(|k| &k.easing).collect();
         if let Some(curve) = uniform(&easings) {
             return Paint::Node(self.add(Expr::InterpColor {

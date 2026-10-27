@@ -11,13 +11,13 @@
   "status": "",
   "createdAt": "2026-10-27T20:14:29Z",
   "finishedAt": null,
-  "lastStableCommit": "aa1593c17ef519d5c8798e153638555cf829e333",
+  "lastStableCommit": "97511e7d643ec46bd479fdce4d157e87dfd5cdda",
   "repositories": [
     {
       "name": "main",
       "path": ".",
       "role": "main",
-      "lastStableCommit": "aa1593c17ef519d5c8798e153638555cf829e333"
+      "lastStableCommit": "97511e7d643ec46bd479fdce4d157e87dfd5cdda"
     }
   ],
   "atomicDiscipline": {
@@ -28,8 +28,8 @@
     "successfulAttemptRequiresCommitBeforeNextExperiment": true,
     "rule": "Run exactly the printed hypothesis. If the attempted change fails, degrades, or suggests a different fix, revert to the checkpoint and finish this experiment as failure. Start a new experiment for the next idea."
   },
-  "currentExperimentId": "c1e69e78-6e62-4cb3-bf50-ba437ac6d860",
-  "nextExperimentIndex": 25,
+  "currentExperimentId": "61bfd65d-1a7a-434b-8f80-24324db9170a",
+  "nextExperimentIndex": 26,
   "experiments": [
     {
       "id": "f0287285-7a36-4cb5-8eef-94cdd163e5a7",
@@ -314,6 +314,18 @@
       "name": "JSON pointer keys escaped only when needed",
       "path": "2026-10-27-24-json-pointer-keys-escaped-only-when-needed.json",
       "startedAt": "2026-10-27T21:09:55Z",
+      "finishedAt": "2026-10-27T21:10:42Z",
+      "state": "done",
+      "status": "success",
+      "resultCommit": "97511e7d643ec46bd479fdce4d157e87dfd5cdda"
+    },
+    {
+      "id": "61bfd65d-1a7a-434b-8f80-24324db9170a",
+      "index": 25,
+      "type": "hypothesis",
+      "name": "Interpolations of one value are constants",
+      "path": "2026-10-27-25-interpolations-of-one-value-are-constants.json",
+      "startedAt": "2026-10-27T21:11:24Z",
       "finishedAt": null,
       "state": "running",
       "status": ""
