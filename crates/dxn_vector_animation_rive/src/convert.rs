@@ -489,6 +489,7 @@ impl<'a> Converter<'a> {
                 loop_start: 0.0,
                 loop_mode,
                 markers: Vec::new(),
+                cues: Vec::new(),
             };
         }
         let markers = self.segments.iter().map(|s| Marker {
@@ -511,6 +512,7 @@ impl<'a> Converter<'a> {
                 })
                 .chain(markers)
                 .collect(),
+                cues: Vec::new(),
             };
         }
         Timeline {
@@ -519,6 +521,7 @@ impl<'a> Converter<'a> {
             loop_start: 0.0,
             loop_mode: first.map_or(LoopMode::Once, |s| s.loop_mode),
             markers: markers.collect(),
+            cues: Vec::new(),
         }
     }
 

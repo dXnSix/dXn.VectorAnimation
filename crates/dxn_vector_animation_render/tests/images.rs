@@ -32,6 +32,7 @@ fn drawn(bytes: Vec<u8>) -> [u8; 3] {
             loop_start: 0.0,
             loop_mode: LoopMode::Once,
             markers: Vec::new(),
+            cues: Vec::new(),
         },
         root: Group {
             children: vec![Node::Image(Image {

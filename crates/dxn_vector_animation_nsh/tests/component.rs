@@ -92,6 +92,7 @@ fn OnceMarker() -> impl IntoElement {
                 loop_mode: Some(LoopMode::Once),
                 ..Marker::new("tap", 2.0, 0.2)
             }],
+            cues: Vec::new(),
         },
         root: Group::new(),
     };

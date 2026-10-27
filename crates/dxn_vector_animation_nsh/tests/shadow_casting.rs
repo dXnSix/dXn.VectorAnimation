@@ -140,6 +140,7 @@ fn timeline() -> Timeline {
         loop_start: 0.0,
         loop_mode: LoopMode::Loop,
         markers: vec![],
+        cues: Vec::new(),
     }
 }
 

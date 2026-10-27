@@ -165,6 +165,7 @@ fn blue_png() -> Vec<u8> {
                 loop_start: 0.0,
                 loop_mode: LoopMode::Once,
                 markers: Vec::new(),
+                cues: Vec::new(),
             },
             root: Group {
                 children: vec![Node::shape(Shape {

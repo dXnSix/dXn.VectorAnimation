@@ -140,6 +140,7 @@ impl<'a> Converter<'a> {
                 loop_start: 0.0,
                 loop_mode: LoopMode::Loop,
                 markers,
+                cues: Vec::new(),
             },
             root: Group {
                 // Scene time 0 is the composition's in point.

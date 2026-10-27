@@ -26,6 +26,7 @@ fn scene(loop_mode: LoopMode, loop_start: f64) -> Scene {
             loop_start,
             loop_mode,
             markers: vec![],
+            cues: Vec::new(),
         },
         root: Group {
             children: vec![Node::Group(Group {

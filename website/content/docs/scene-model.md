@@ -270,6 +270,7 @@ The constructors `TransformOp::translate`, `scale`, `rotate` and `matrix` make c
 | `loop_start` | Where repeating starts over, from 0 (default: the whole timeline) to `duration`: what comes before it plays once, the loop repeats from it to the end. The SVG importer sets it after [delays](./svg.md#the-loop) |
 | `loop_mode` | `LoopMode::Once` (default: plays and holds its last frame), `Loop` (to the end, then from the loop start, over and over), `PingPong` (to the end, back to the loop start, and on) |
 | `markers` | Named times or spans: `Marker::new(name, start, duration)`, a duration of 0 for a point in time; `loop_mode`, when set, is how the span repeats when it plays on its own (a [Rive](./rive.md) animation's loop) |
+| `cues` | Moments playback reports as it passes them, in time order: a `Cue`'s `time`, `name`, the link it opens (`url`: the address and `_blank`, `_parent`, `_self` or `_top`) and named values it carries (`properties`: numbers, strings, booleans). A [Rive](./rive.md#events) file's events are cues; a cue in the loop is passed again each time round |
 
 `Scene::frame_at(t)` does not wrap `t`: looping is the player's. To play on a clock, map the elapsed time to scene time first with `Timeline::time_at`:
 

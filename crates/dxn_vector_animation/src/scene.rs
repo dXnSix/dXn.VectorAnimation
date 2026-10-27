@@ -47,6 +47,52 @@ pub struct Timeline {
         serde(default, skip_serializing_if = "Vec::is_empty")
     )]
     pub markers: Vec<Marker>,
+    /// Moments playback reports as it passes them (a Rive file's events),
+    /// in time order.
+    #[cfg_attr(
+        feature = "serde",
+        serde(default, skip_serializing_if = "Vec::is_empty")
+    )]
+    pub cues: Vec<Cue>,
+}
+
+/// A moment of the timeline that playback reports as it passes it, with
+/// what it carries: a Rive event, fired by a state machine or keyed in an
+/// animation.
+#[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "serde", serde(rename_all = "camelCase"))]
+pub struct Cue {
+    /// Where it is, in seconds.
+    pub time: f64,
+    /// Its name.
+    pub name: String,
+    /// A link it opens (a Rive open-URL event), and where (`_blank`,
+    /// `_parent`, `_self` or `_top`).
+    #[cfg_attr(
+        feature = "serde",
+        serde(default, skip_serializing_if = "Option::is_none")
+    )]
+    pub url: Option<(String, String)>,
+    /// Named values it carries (a Rive event's custom properties).
+    #[cfg_attr(
+        feature = "serde",
+        serde(default, skip_serializing_if = "Vec::is_empty")
+    )]
+    pub properties: Vec<(String, CueValue)>,
+}
+
+/// A value a cue carries.
+#[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "serde", serde(untagged))]
+pub enum CueValue {
+    /// A number.
+    Number(f64),
+    /// A string.
+    Text(String),
+    /// A boolean.
+    Bool(bool),
 }
 
 #[cfg(feature = "serde")]

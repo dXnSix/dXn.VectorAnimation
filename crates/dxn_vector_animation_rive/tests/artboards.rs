@@ -389,6 +389,7 @@ fn embedded_images_are_drawn_about_their_origin() {
                 loop_start: 0.0,
                 loop_mode: LoopMode::Once,
                 markers: Vec::new(),
+                cues: Vec::new(),
             },
             root: Group {
                 children: vec![Node::shape(Shape {

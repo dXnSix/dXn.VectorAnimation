@@ -130,6 +130,7 @@ fn masked(kind: MaskKind, inverted: bool, mask: Vec<Node>, content: Vec<Node>) -
             loop_start: 0.0,
             loop_mode: LoopMode::Loop,
             markers: vec![],
+            cues: Vec::new(),
         },
         root: group(vec![
             filled(rect(0.0, 0.0, 100.0, 100.0), WHITE, Animated::Static(1.0)),

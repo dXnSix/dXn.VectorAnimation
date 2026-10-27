@@ -117,6 +117,13 @@ impl Scene {
             "nodes",
         )
         .or_else(|| over(stats.keyframes, limits.max_keyframes, "keyframes"))
+        .or_else(|| {
+            over(
+                self.timeline.markers.len() + self.timeline.cues.len(),
+                limits.max_keyframes,
+                "markers and cues",
+            )
+        })
         .or_else(|| over(stats.depth, limits.max_depth, "levels of nesting"))
         .or_else(|| over(stats.path_points, limits.max_path_points, "path points"));
         match error {

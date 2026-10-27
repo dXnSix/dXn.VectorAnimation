@@ -18,6 +18,7 @@ fn scene(opacity: Animated<f64>) -> Scene {
             loop_start: 0.0,
             loop_mode: LoopMode::Once,
             markers: vec![],
+            cues: Vec::new(),
         },
         root: Group {
             children: vec![Node::Group(Group {
