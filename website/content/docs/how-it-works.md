@@ -27,6 +27,8 @@ Both importers have the same three functions:
 | `read(data) -> Result<Import, Error>` | Reads with the default `Limits` |
 | `read_with(data, &limits) -> Result<Import, Error>` | Reads within your `Limits` |
 
+The Lottie importer also reads a document already parsed: `read_value(value, &limits)`, for a JSON value an app imported (the NSH player's `Source::Json`).
+
 A program that takes any file sniffs first. This is the order the CLI and the NSH player use, a compiled scene first:
 
 ```rust

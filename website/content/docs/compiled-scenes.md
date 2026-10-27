@@ -43,6 +43,7 @@ It adds `serde`, `serde_json` and `base64` and nothing else. The importers and t
 |---|---|
 | `compiled::to_json(&scene, pretty) -> Result<String, Error>` | The scene in the compiled format; `pretty` indents it. A number that is not finite is `Error::Unsupported` |
 | `compiled::from_json(data, &limits) -> Result<Scene, Error>` | Reads a compiled scene, checked against `limits` |
+| `compiled::from_value(&value, &limits) -> Result<Scene, Error>` | The same from its JSON value (an app's import of the file), not written as text and read again |
 | `compiled::sniff(data) -> bool` | Whether the bytes are a compiled scene: JSON whose first 256 bytes name the format |
 | `FORMAT` | `"dxn-vector-animation"` |
 | `FORMAT_VERSION` | `1` |
@@ -161,7 +162,7 @@ The minified form of this file is 846 bytes.
 `from_json` treats a compiled scene as untrusted input, like the importers treat files:
 
 1. It refuses a file over `limits.max_bytes` with `Error::Limit`.
-2. It reads the envelope's `format` and `version`; a document that is not JSON or lacks them is `Error::Invalid` (``invalid file: missing field `version` at line 1 column 33``).
+2. It reads the envelope's `format` and `version` (in the same pass as the scene; alone where that fails); a document that is not JSON or lacks them is `Error::Invalid` (``invalid file: missing field `version` at line 1 column 33``).
 3. It checks `format`: another name is `Error::Invalid` (`invalid file: not a dxn-vector-animation file`).
 4. It checks `version`: a newer one is `Error::Unsupported` (`unsupported: format version 2 (this library reads up to 1)`), whatever its scene holds.
 5. It parses the scene; one that is not a scene is `Error::Invalid` (``invalid file: missing field `width` at line 1 column 55``).

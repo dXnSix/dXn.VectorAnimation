@@ -4,7 +4,7 @@
 
 use std::fmt::{self, Write as _};
 
-use serde::{Serialize, ser};
+use serde::{Deserialize, Serialize, ser};
 
 use crate::{Error, FORMAT, FORMAT_VERSION, Limits, Scene};
 
@@ -63,6 +63,30 @@ pub fn from_json(data: &[u8], limits: &Limits) -> Result<Scene, Error> {
             limit: limits.max_bytes as f64,
         });
     }
+    read_in(
+        || serde_json::from_slice(data),
+        || serde_json::from_slice(data),
+        limits,
+    )
+}
+
+/// Reads a compiled scene from its JSON value (an app's import of the
+/// file), checked against `limits`: as [`from_json`] reads its text.
+pub fn from_value(value: &serde_json::Value, limits: &Limits) -> Result<Scene, Error> {
+    read_in(
+        || In::deserialize(value),
+        || Head::deserialize(value),
+        limits,
+    )
+}
+
+/// The scene `parse` reads, its format and version checked (by `head` where
+/// it does not read: a newer file's scene may not parse).
+fn read_in(
+    parse: impl FnOnce() -> Result<In, serde_json::Error>,
+    head: impl FnOnce() -> Result<Head, serde_json::Error>,
+    limits: &Limits,
+) -> Result<Scene, Error> {
     let invalid = |e: serde_json::Error| Error::Invalid(e.to_string());
     let checked = |head: Head| {
         if head.format != FORMAT {
@@ -77,11 +101,11 @@ pub fn from_json(data: &[u8], limits: &Limits) -> Result<Scene, Error> {
         Ok(())
     };
     // Read once; where it does not read, the format and version say why
-    // first (a newer file's scene may not parse).
-    let parsed: In = match serde_json::from_slice(data) {
+    // first.
+    let parsed = match parse() {
         Ok(parsed) => parsed,
         Err(e) => {
-            checked(serde_json::from_slice(data).map_err(invalid)?)?;
+            checked(head().map_err(invalid)?)?;
             return Err(invalid(e));
         }
     };

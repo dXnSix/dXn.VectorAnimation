@@ -11,13 +11,13 @@
   "status": "",
   "createdAt": "2026-10-27T20:14:29Z",
   "finishedAt": null,
-  "lastStableCommit": "d585323e9569a821d1bb58d7e5f03a80380d378b",
+  "lastStableCommit": "5ffa2cb824841715904a3d1c5570720e7896ef8e",
   "repositories": [
     {
       "name": "main",
       "path": ".",
       "role": "main",
-      "lastStableCommit": "d585323e9569a821d1bb58d7e5f03a80380d378b"
+      "lastStableCommit": "5ffa2cb824841715904a3d1c5570720e7896ef8e"
     }
   ],
   "atomicDiscipline": {
@@ -28,8 +28,8 @@
     "successfulAttemptRequiresCommitBeforeNextExperiment": true,
     "rule": "Run exactly the printed hypothesis. If the attempted change fails, degrades, or suggests a different fix, revert to the checkpoint and finish this experiment as failure. Start a new experiment for the next idea."
   },
-  "currentExperimentId": "7cf4f4e4-834b-4f0d-adbd-9cf56b2e7dac",
-  "nextExperimentIndex": 36,
+  "currentExperimentId": "df7a2d72-c606-4319-afc2-a677d41357e6",
+  "nextExperimentIndex": 37,
   "experiments": [
     {
       "id": "f0287285-7a36-4cb5-8eef-94cdd163e5a7",
@@ -443,6 +443,18 @@
       "name": "Bench reads JSON values",
       "path": "2026-10-27-35-bench-reads-json-values.json",
       "startedAt": "2026-10-27T21:38:54Z",
+      "finishedAt": "2026-10-27T21:39:33Z",
+      "state": "done",
+      "status": "success",
+      "resultCommit": "5ffa2cb824841715904a3d1c5570720e7896ef8e"
+    },
+    {
+      "id": "df7a2d72-c606-4319-afc2-a677d41357e6",
+      "index": 36,
+      "type": "hypothesis",
+      "name": "JSON values read without a text round trip",
+      "path": "2026-10-27-36-json-values-read-without-a-text-round-trip.json",
+      "startedAt": "2026-10-27T21:39:58Z",
       "finishedAt": null,
       "state": "running",
       "status": ""
