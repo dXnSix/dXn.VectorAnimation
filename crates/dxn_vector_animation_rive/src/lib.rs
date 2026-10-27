@@ -56,13 +56,18 @@
 //! falloffs), as Rive's runtime applies them.
 //!
 //! A nested artboard's state machine plays the same way, its inputs as the
-//! parent's animations set them.
+//! parent's animations set them. [`Options`] changes inputs at times, and
+//! [`Interaction`] turns pointer events over the listeners into changes.
 //!
-//! What a file holds beyond that (state machines' listeners and input
-//! changes, text variation and
-//! follow-path modifiers, text ellipses, layout,
-//! data binding, scripting, audio) is left out with a warning in
-//! [`Import::warnings`].
+//! The artboard's view model's first instance is bound, as Rive's players
+//! binding automatically bind it: through converters and nested view
+//! models, into the artboards it nests too, its values set what they are
+//! bound to and what the state machines' conditions read; values changed
+//! at times ([`Options::values`]) and by listeners follow.
+//!
+//! What a file holds beyond that (text variation and follow-path modifiers,
+//! text ellipses, layout, formula and interpolating converters, scripting,
+//! audio) is left out with a warning in [`Import::warnings`].
 
 mod convert;
 mod cues;

@@ -138,6 +138,7 @@ shots/lottie-motion-0001.png  t=1.000s
 | `--background <BACKGROUND>` | transparent | `#rrggbb`, `#rrggbbaa`, `white`, `black` or `transparent` |
 | `--event <EVENTS>` | | An event that happened, `name=seconds`; repeat it for several. What the file plays on it plays from then |
 | `--input <INPUTS>` | | A Rive state machine's input changed, `name=value@seconds` (`true`, `false` or a number), or a trigger fired, `name@seconds`, a nested artboard's machine's with its path before (`#7/hover=true@1`); repeat it for several |
+| `--value <VALUES>` | | A property of the view model bound to a Rive artboard changed, `path=value@seconds` (`true`, `false`, a number, `#rrggbb` or `#aarrggbb`, an enum's value, else text), or a trigger fired, `path@seconds`; nested view models' property names first, `/` between (`player/score=3@1`); repeat it for several |
 | `--pointer <POINTERS>` | | A pointer over a Rive file, `down:x,y@seconds` (or `up:`, `move:`, `exit:` leaving, `lift:` a finger lifted) in the scene's units; repeat it for several. The state machines' listeners (nested artboards' too) act on it as Rive's runtime has them act, and what they change is printed on stderr |
 | `-o`, `--output <OUTPUT>` | Next to the file | A PNG file for one frame, or a directory for several |
 

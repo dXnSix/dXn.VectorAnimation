@@ -234,8 +234,23 @@ The core gains what Rive needs, each with the reference renderer's drawing and t
    conversion, so a bound value is the property's setup value, and view model conditions evaluate on it
    (`TransitionViewModelCondition`'s comparisons of numbers, booleans, enums, strings and colors).
    Checked against Rive's web runtime with `autoBind`: the test files draw the same; Boopkin moves closer.
-   **Still to come**: converters, bindings by name, nested view models (and nested artboards' contexts),
-   view model values changed over time (by the app, listeners, triggers) and two-way bindings.
+   **Done: converters, nested view models and contexts, values over time.** A binding resolves its path
+   through nested view models and runs its value through its converter (`Binder::convert`, a port of each
+   `DataConverter::convert` and `reverseConvert` but the formula's, lists' and scripts'), its output kind
+   choosing what it sets as each `DataBindContextValue` applies it (a solo's child by index or name). The
+   artboards shown through nested artboards bind in their host's context or the instance its path names,
+   paths resolving up the chain as `DataContext::getViewModelProperty` does. `Options::values` changes the
+   instance at times: each change re-evaluates the bindings, and `File::bound` records what changes and
+   when; the converter holds bound properties from the frame Rive applies a change in, and the state
+   machine simulator reads conditions on changing values (and view model blends) from inputs past the
+   machine's own, and conditions on a value changing or a trigger fired (`ConditionComparisonSelf`) as
+   triggers in that frame. A `ListenerViewModelChange` writes its bindable property's value through its
+   binding to the view model (a trigger converter counting the trigger once more), made by `Interaction`
+   as the pointer reaches it. Checked against Rive's web runtime setting values and pressing at times: the
+   test files draw the same frame for frame, and Sobo, its nested artboard's tap firing a view model
+   trigger, within 0.02%. **Still to come**: formula, list and interpolating converters, bindings by name,
+   states and transitions firing view model triggers, properties both animated and changed, two-way
+   bindings read back from what they target.
 10. **Out of scope for now:** Luau scripting, audio, open-URL events (reported to the app as events), text
     input, scrolling.
 
@@ -268,4 +283,6 @@ The core gains what Rive needs, each with the reference renderer's drawing and t
    ellipses left), elastic easing.
 3. **State machines**: done as they play untouched, with their inputs changed, their listeners acting on a
    pointer in the core, the CLI and the player, blend states and events.
-4. **Data binding and layout**: the default instance bound; converters, changes over time and layout to come.
+4. **Data binding and layout**: the default instance bound through converters and nested view models and
+   contexts, changed over time by the app and listeners; formulas, interpolating converters and layout to
+   come.

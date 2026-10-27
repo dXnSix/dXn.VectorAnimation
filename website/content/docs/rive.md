@@ -156,22 +156,41 @@ The player reports each cue as playback passes it (`onCue`), and those listeners
 
 An artboard bound to a view model plays with its first instance bound, as Rive's editor and players binding
 automatically (`autoBind`) do: each binding to its target sets the property it binds, an object's (a color,
-a number, a text run's text, ...; its value from then on, where no animation keys it) or one the state machine
-reads, so that its conditions on view model values hold as the values compare (numbers ordered; booleans,
-enums, strings and colors equal or not) and a 1D blend on a view model blends at its value.
-`Options::unbound` reads the file as a player binding nothing does. `view_model(data, &options)` gives the
-view model bound and its instance's values; `inspect` prints them.
+a number, a text run's text, a solo's active child by index or name, ...; its value from then on, where no
+animation keys it) or one the state machine reads, so that its conditions on view model values hold as the
+values compare (numbers ordered; booleans, enums, strings and colors equal or not) and a 1D blend on a view
+model blends at its value.
 
-Bindings through converters or by name and nested view models are left unbound for now; a trigger, or a
-condition on a value changing, never holds, since nothing changes the instance.
+A binding reads through nested view models and runs its value through its converter as Rive's runtime does:
+operations (by a value, or by a view model's number), normalizers and degrees to radians, range mappers
+(clamped, wrapping, reversed, eased by an interpolator), rounding, to-string (decimals, trailing zeros,
+thousands separators, color formats) and to-number, string padding and trimming, boolean negation, trigger
+counts, and groups of them. The artboards it shows through nested artboards bind too, in their host's data
+context or in the instance their host's path names within it, their paths read up the contexts as Rive's
+`DataContext` reads them.
+
+`Options::values` changes the instance over time, as an app sets values through Rive's view model instance
+API (`render --value 'level=5@1'`, the player's `setValue` and `fireValue`): from the frame Rive applies a
+change in, what is bound to the property follows it, the state machines' conditions on it hold as it
+compares, and a condition on a value changing or a trigger fired holds in that frame. A listener changing a
+view model (`ListenerViewModelChange`) writes the value its bindable property holds through that property's
+binding to the view model, as the pointer reaches the listener: a press firing a view model trigger, often.
+A property the file's instance writes no value of is left out, as Rive copies the instance.
+
+`Options::unbound` reads the file as a player binding nothing does. `view_model(data, &options)` gives the
+view model bound and its instance's values; `inspect` prints them, and the listeners that set them.
+
+Formula, list and scripted converters, interpolating converters easing a change over time (a change is
+taken at once), bindings by name, and properties an animation keys changing with the instance are left out
+for now.
 
 ## Left out for now
 
 What a file holds beyond that is left out with a warning (`Import::warnings`, `inspect`, `onLoad`):
 
-- other state machines than the default, listeners changing view models, the events a nested artboard's
-  state machine fires as it plays (those its listeners fire reach its parent), audio; data converters,
-  bindings by name, nested view models and changes to view model values;
+- other state machines than the default, the events a nested artboard's state machine fires as it plays
+  (those its listeners fire reach its parent), states and transitions firing view model triggers, audio;
+  formula, list, scripted and interpolating converters, and bindings by name;
 - text variation and follow-path modifiers and text ellipses, layout, draggable and scroll constraints,
   scripting and audio.
 
