@@ -637,18 +637,31 @@ impl<'a> Converter<'a> {
             if last_change + 120 >= l.len() {
                 steady = false;
             }
-            let looping = l.last().and_then(|ap| {
-                let an = anims[ap.current?.0];
-                let d = (an.end - an.start).abs() / (an.speed * ap.direction).abs();
+            let period = |a: usize, rate: f64| {
+                let an = anims[a];
+                let d = (an.end - an.start).abs() / (an.speed * rate).abs();
                 match an.loop_mode {
                     LoopMode::Loop if d > 0.0 => Some(d),
                     LoopMode::PingPong if d > 0.0 => Some(2.0 * d),
                     _ => None,
                 }
+            };
+            let looping: Option<Vec<f64>> = l.last().and_then(|ap| match &ap.blend {
+                // A blend repeats over what its animations that loop do.
+                Some(b) => {
+                    let all: Vec<f64> = b
+                        .parts
+                        .iter()
+                        .flatten()
+                        .filter_map(|b| period(b.anim, 1.0))
+                        .collect();
+                    (!all.is_empty()).then_some(all)
+                }
+                None => period(ap.current?.0, ap.direction).map(|p| vec![p]),
             });
             match looping {
-                Some(period) => {
-                    periods.push(period);
+                Some(all) => {
+                    periods.extend(all);
                     settled = settled.max(last_change);
                 }
                 // Still from the last frame that moved.
@@ -744,6 +757,11 @@ impl<'a> Converter<'a> {
                             .and_then(|o| o.id(p::ANIMATION_STATE_ANIMATION_ID))
                             .filter(|a| *a < anims.len()),
                     ),
+                    Some(t::BLEND_STATE1_D_INPUT | t::BLEND_STATE_DIRECT) => machine::Kind::Blend,
+                    Some(t::BLEND_STATE1_D_VIEW_MODEL) => {
+                        unread.insert("BlendState1DViewModel (blending at 0)");
+                        machine::Kind::Blend
+                    }
                     Some(ty) => {
                         unread.extend(defs::type_name(ty));
                         machine::Kind::Other
@@ -790,6 +808,9 @@ impl<'a> Converter<'a> {
                         exit_time: o.num(p::STATE_TRANSITION_EXIT_TIME),
                         conditions,
                         ease,
+                        exit_part: (o.ty == t::BLEND_STATE_TRANSITION)
+                            .then(|| o.id(p::BLEND_STATE_TRANSITION_EXIT_BLEND_ANIMATION_ID))
+                            .map(|id| id.unwrap_or(usize::MAX)),
                     });
                 }
                 let speed = st
@@ -797,10 +818,60 @@ impl<'a> Converter<'a> {
                     .as_ref()
                     .filter(|o| o.is(t::ADVANCEABLE_STATE))
                     .map_or(1.0, |o| o.num(p::ADVANCEABLE_STATE_SPEED));
+                let blend = (kind == machine::Kind::Blend).then(|| {
+                    let o = st.object.as_ref();
+                    let direct = o.is_some_and(|o| o.ty == t::BLEND_STATE_DIRECT);
+                    let parts = st
+                        .parts
+                        .iter()
+                        .map(|part| {
+                            let anim = part
+                                .id(p::BLEND_ANIMATION_ANIMATION_ID)
+                                .filter(|a| *a < anims.len());
+                            if !direct {
+                                return machine::Part {
+                                    anim,
+                                    value: part.num(p::BLEND_ANIMATION1_D_VALUE),
+                                    input: None,
+                                };
+                            }
+                            let source = part.uint(p::BLEND_ANIMATION_DIRECT_BLEND_SOURCE);
+                            if source == 2 {
+                                unread.insert(
+                                    "BlendAnimationDirect bound to a view model (mixing at 0)",
+                                );
+                            }
+                            machine::Part {
+                                anim,
+                                value: if source == 1 {
+                                    part.num(p::BLEND_ANIMATION_DIRECT_MIX_VALUE)
+                                } else {
+                                    0.0
+                                },
+                                input: (source == 0).then(|| {
+                                    part.id(p::BLEND_ANIMATION_DIRECT_INPUT_ID)
+                                        .unwrap_or(usize::MAX)
+                                }),
+                            }
+                        })
+                        .collect();
+                    machine::Blend {
+                        parts,
+                        by: if direct {
+                            machine::By::Direct
+                        } else {
+                            machine::By::OneD(
+                                o.and_then(|o| o.id(p::BLEND_STATE1_D_INPUT_INPUT_ID)),
+                            )
+                        },
+                        reset: !direct && o.is_some_and(|o| o.uint(p::LAYER_STATE_FLAGS) & 2 != 0),
+                    }
+                });
                 states.push(machine::State {
                     kind,
                     transitions,
                     speed,
+                    blend,
                 });
             }
             layers.push(states);
@@ -943,8 +1014,20 @@ impl<'a> Converter<'a> {
         keys: &mut Vec<Key<T>>,
     ) {
         let keyed = |x: Option<(usize, f64)>| x.filter(|(a, _)| curves.contains_key(a));
-        let applies =
-            |ap: &machine::Applied| keyed(ap.current).is_some() || keyed(ap.from).is_some();
+        let blends = |b: &Option<Rc<machine::Blended>>| {
+            b.as_ref().is_some_and(|b| {
+                b.parts
+                    .iter()
+                    .flatten()
+                    .any(|b| curves.contains_key(&b.anim))
+            })
+        };
+        let applies = |ap: &machine::Applied| {
+            keyed(ap.current).is_some()
+                || keyed(ap.from).is_some()
+                || blends(&ap.blend)
+                || blends(&ap.from_blend)
+        };
         let frames = plan.layers.first().map_or(0, Vec::len);
         let effective = |k: usize| {
             plan.layers
@@ -987,24 +1070,40 @@ impl<'a> Converter<'a> {
                 hold_last(keys);
                 continue;
             };
-            let ap = plan.layers[l][k];
-            if ap.from.is_none()
-                && let Some((a, t0)) = keyed(ap.current)
-            {
-                // What the state plays until a layer changes: the
-                // animation's own keys.
-                let until = if e >= frames {
-                    (plan.offset + plan.span).max(at(k))
-                } else {
-                    at(e)
-                };
+            let ap = &plan.layers[l][k];
+            let mixing = ap.from.is_some() || ap.from_blend.is_some();
+            let until = if e >= frames {
+                (plan.offset + plan.span).max(at(k))
+            } else {
+                at(e)
+            };
+            // What the state plays until a layer changes: the animation's
+            // own keys; a blend's that alone weighs 1 where the property
+            // is keyed.
+            let single = if mixing {
+                None
+            } else if let Some(b) = &ap.blend {
+                let on: Vec<&machine::BlendedPart> = b
+                    .parts
+                    .iter()
+                    .flatten()
+                    .filter(|b| b.weight != 0.0 && curves.contains_key(&b.anim))
+                    .collect();
+                match on[..] {
+                    [only] if only.weight == 1.0 => Some((only.anim, only.time, only.direction)),
+                    _ => None,
+                }
+            } else {
+                keyed(ap.current).map(|(a, t)| (a, t, ap.direction))
+            };
+            if let Some((a, t0, direction)) = single {
                 let anim = plan.anims[a];
                 for seg in steady_pieces(
                     &anim,
                     a,
                     plan.fps.get(a).copied().unwrap_or(60.0),
                     t0,
-                    anim.speed * ap.direction * plan.speed,
+                    anim.speed * direction * plan.speed,
                     at(k),
                     until,
                 ) {
@@ -1030,18 +1129,74 @@ impl<'a> Converter<'a> {
                     }
                 })
                 .clone();
-            let mut v = reset;
-            if let Some((a, t)) = keyed(ap.from) {
-                v = v.mix(&curves[&a].at(t), ease(ap.ease, ap.from_mix));
+            // Each blended animation in turn, its weight times the state's
+            // mix; a 1D blend resetting first (to its first animation's
+            // first keyframes, else the values it was entered with).
+            let blend = |v: &mut T, b: &machine::Blended, m: f64| {
+                if b.reset {
+                    let first = b.parts.first().copied().flatten();
+                    *v = match first.and_then(|b| curves.get(&b.anim)) {
+                        Some(c) => c
+                            .keys
+                            .first()
+                            .map_or_else(|| reset.clone(), |k| k.value.clone()),
+                        None => reset.clone(),
+                    };
+                }
+                for b in b.parts.iter().flatten() {
+                    if let Some(c) = curves.get(&b.anim)
+                        && m * b.weight != 0.0
+                    {
+                        *v = v.mix(&c.at(b.time), m * b.weight);
+                    }
+                }
+            };
+            // A blend weighing nothing the property is keyed by: what it
+            // resets to, else what it had, held.
+            if let (false, Some(b)) = (mixing, &ap.blend)
+                && !b
+                    .parts
+                    .iter()
+                    .flatten()
+                    .any(|b| b.weight != 0.0 && curves.contains_key(&b.anim))
+            {
+                let mut v = keys
+                    .last()
+                    .map_or_else(|| setup.clone(), |k| k.value.clone());
+                blend(&mut v, b, 1.0);
+                keys.push(Key {
+                    t: at(k),
+                    value: v,
+                    interp: Interp::Hold,
+                });
+                continue;
             }
-            if let Some((a, t)) = keyed(ap.current) {
-                v = v.mix(&curves[&a].at(t), ease(ap.ease, ap.mix));
+            for j in k..e {
+                let ap = &plan.layers[l][j];
+                // A mix starts from the value when it began; a blend alone
+                // from the value it had a frame before.
+                let mut v = if mixing {
+                    reset.clone()
+                } else {
+                    keys.last()
+                        .map_or_else(|| setup.clone(), |k| k.value.clone())
+                };
+                if let Some(b) = &ap.from_blend {
+                    blend(&mut v, b, ease(ap.ease, ap.from_mix));
+                } else if let Some((a, t)) = keyed(ap.from) {
+                    v = v.mix(&curves[&a].at(t), ease(ap.ease, ap.from_mix));
+                }
+                if let Some(b) = &ap.blend {
+                    blend(&mut v, b, ease(ap.ease, ap.mix));
+                } else if let Some((a, t)) = keyed(ap.current) {
+                    v = v.mix(&curves[&a].at(t), ease(ap.ease, ap.mix));
+                }
+                keys.push(Key {
+                    t: at(j),
+                    value: v,
+                    interp: Interp::Linear,
+                });
             }
-            keys.push(Key {
-                t: at(k),
-                value: v,
-                interp: Interp::Linear,
-            });
         }
         hold_last(keys);
     }
@@ -4232,7 +4387,14 @@ fn bounds(layers: &[Vec<machine::Applied>]) -> Vec<usize> {
     let mut out = vec![0];
     for k in 1..frames {
         if layers.iter().any(|l| {
-            l[k].from.is_some() || l[k].serial != l[k - 1].serial || l[k - 1].from.is_some()
+            l[k].from.is_some()
+                || l[k].serial != l[k - 1].serial
+                || l[k - 1].from.is_some()
+                || l[k].from_blend.is_some()
+                || match (&l[k].blend, &l[k - 1].blend) {
+                    (Some(a), Some(b)) => !a.same_weights(b),
+                    (a, b) => a.is_some() != b.is_some(),
+                }
         }) {
             out.push(k);
         }

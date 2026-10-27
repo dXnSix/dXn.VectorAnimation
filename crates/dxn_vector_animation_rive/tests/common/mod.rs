@@ -86,6 +86,10 @@ pub mod ty {
     pub const LISTENER_BOOL_CHANGE: u16 = 117;
     pub const LISTENER_ALIGN_TARGET: u16 = 126;
     pub const JOYSTICK: u16 = 148;
+    pub const BLEND_STATE_DIRECT: u16 = 73;
+    pub const BLEND_ANIMATION_1D: u16 = 75;
+    pub const BLEND_STATE_1D_INPUT: u16 = 76;
+    pub const BLEND_ANIMATION_DIRECT: u16 = 77;
     pub const TRANSITION_TRIGGER_CONDITION: u16 = 68;
     pub const KEY_FRAME_BOOL: u16 = 84;
 }
@@ -257,6 +261,13 @@ pub mod key {
     pub const JOYSTICK_WIDTH: u16 = 305;
     pub const JOYSTICK_HEIGHT: u16 = 306;
     pub const JOYSTICK_HANDLE: u16 = 313;
+    pub const BLEND_ANIMATION_ID: u16 = 165;
+    pub const BLEND_VALUE: u16 = 166;
+    pub const BLEND_INPUT: u16 = 167;
+    pub const DIRECT_INPUT: u16 = 168;
+    pub const MIX_VALUE: u16 = 297;
+    pub const BLEND_SOURCE: u16 = 298;
+    pub const STATE_FLAGS: u16 = 536;
     pub const ACTION_INPUT: u16 = 227;
     pub const ACTION_BOOL_VALUE: u16 = 228;
 }

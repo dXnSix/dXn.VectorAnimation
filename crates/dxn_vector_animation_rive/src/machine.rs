@@ -7,6 +7,8 @@
 //! are 32-bit floats, as the runtime keeps them, so a frame lands on the
 //! same side of an exit time as there.
 
+use std::rc::Rc;
+
 use dxn_vector_animation::LoopMode;
 
 use crate::curve::Interp;
@@ -49,6 +51,9 @@ pub(crate) struct Trans {
     pub exit_time: f64,
     pub conditions: Vec<Cond>,
     pub ease: Option<Interp>,
+    /// From a blend state: the one of its animations whose time the exit
+    /// time is of (an index into its parts).
+    pub exit_part: Option<usize>,
 }
 
 const DISABLED: u64 = 1;
@@ -66,7 +71,9 @@ pub(crate) enum Kind {
     Any,
     /// Plays an animation (an index into the animations), or nothing.
     Animation(Option<usize>),
-    /// A state of a kind not played here (a blend state): plays nothing.
+    /// Blends animations (the state's `blend`).
+    Blend,
+    /// A state of a kind not played here: plays nothing.
     Other,
 }
 
@@ -77,11 +84,78 @@ pub(crate) struct State {
     /// How fast it plays its animation (backwards when negative, from its
     /// end).
     pub speed: f64,
+    /// A blend state's animations and how it weighs them.
+    pub blend: Option<Blend>,
+}
+
+/// A blend state (`BlendState1DInstance`, `BlendStateDirectInstance`).
+#[derive(Debug, Clone)]
+pub(crate) struct Blend {
+    /// Its animations, in order.
+    pub parts: Vec<Part>,
+    /// What weighs them.
+    pub by: By,
+    /// Before they apply, the properties they key are set back: to the
+    /// first animation's first keyframes, the others to their values when
+    /// the state was entered (`LayerStateFlags::Reset`, 1D blends).
+    pub reset: bool,
+}
+
+/// What weighs a blend state's animations.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) enum By {
+    /// The number input (none: 0) between the two animations whose values
+    /// are around it.
+    OneD(Option<usize>),
+    /// Each animation its own mix, 0 to 100.
+    Direct,
+}
+
+/// An animation of a blend state.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct Part {
+    pub anim: Option<usize>,
+    /// A 1D blend's value for it; a direct blend's fixed mix.
+    pub value: f64,
+    /// A direct blend's number input setting its mix.
+    pub input: Option<usize>,
+}
+
+/// What a blend state applies at a frame: each animation's time, weight
+/// and rate (none where it has no animation), in order, and whether it
+/// resets.
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct Blended {
+    pub parts: Vec<Option<BlendedPart>>,
+    pub reset: bool,
+}
+
+/// An animation a blend applies.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) struct BlendedPart {
+    pub anim: usize,
+    pub time: f64,
+    pub weight: f64,
+    /// The way it plays (1 or -1, ping-pong turning it).
+    pub direction: f64,
+}
+
+impl Blended {
+    /// Whether it weighs its animations as `other` does.
+    pub fn same_weights(&self, other: &Blended) -> bool {
+        self.parts.len() == other.parts.len()
+            && self
+                .parts
+                .iter()
+                .zip(&other.parts)
+                .all(|(a, b)| a.map(|a| a.weight) == b.map(|b| b.weight))
+    }
 }
 
 /// What a layer applies at a frame: the animation of its state and that
-/// animation's time, and while it mixes in, the state it mixes from.
-#[derive(Debug, Clone, Copy, PartialEq)]
+/// animation's time (or the animations it blends), and while it mixes in,
+/// the state it mixes from.
+#[derive(Debug, Clone, PartialEq)]
 pub(crate) struct Applied {
     /// Counts the states the layer has entered: the same while it stays.
     pub serial: u32,
@@ -90,6 +164,10 @@ pub(crate) struct Applied {
     /// state's speed, ping-pong turning it.
     pub direction: f64,
     pub from: Option<(usize, f64)>,
+    /// The current state's blend.
+    pub blend: Option<Rc<Blended>>,
+    /// The blend of the state it mixes from.
+    pub from_blend: Option<Rc<Blended>>,
     pub mix: f64,
     pub from_mix: f64,
     pub ease: Option<Interp>,
@@ -191,10 +269,34 @@ impl Playing {
 }
 
 /// A state entered.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 struct Entered {
     state: usize,
     playing: Option<Playing>,
+    /// A blend state's animations and their weights.
+    parts: Vec<(Option<Playing>, f32)>,
+}
+
+impl Entered {
+    /// What its blend applies, if it is one.
+    fn blended(&self, states: &[State]) -> Option<Rc<Blended>> {
+        let blend = states.get(self.state)?.blend.as_ref()?;
+        Some(Rc::new(Blended {
+            parts: self
+                .parts
+                .iter()
+                .map(|(p, w)| {
+                    p.map(|p| BlendedPart {
+                        anim: p.anim,
+                        time: f64::from(p.time),
+                        weight: f64::from(*w),
+                        direction: f64::from(p.direction),
+                    })
+                })
+                .collect(),
+            reset: blend.reset,
+        }))
+    }
 }
 
 /// A layer playing.
@@ -215,7 +317,8 @@ struct Layer<'a> {
 
 impl Layer<'_> {
     fn enter(&mut self, state: usize) {
-        let playing = match self.states.get(state) {
+        let s = self.states.get(state);
+        let playing = match s {
             Some(&State {
                 kind: Kind::Animation(Some(a)),
                 speed,
@@ -223,7 +326,26 @@ impl Layer<'_> {
             }) => self.anims.get(a).map(|an| Playing::new(a, an, speed)),
             _ => None,
         };
-        self.current = Some(Entered { state, playing });
+        // A blend's animations play at their own speed.
+        let parts = s
+            .and_then(|s| s.blend.as_ref())
+            .map(|b| {
+                b.parts
+                    .iter()
+                    .map(|part| {
+                        let playing = part
+                            .anim
+                            .and_then(|a| self.anims.get(a).map(|an| Playing::new(a, an, 1.0)));
+                        (playing, 0.0)
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+        self.current = Some(Entered {
+            state,
+            playing,
+            parts,
+        });
         self.serial += 1;
     }
 
@@ -232,6 +354,57 @@ impl Layer<'_> {
             && let Some(a) = self.anims.get(p.anim)
         {
             p.advance(seconds, a);
+        }
+        let Some(blend) = self.states.get(e.state).and_then(|s| s.blend.as_ref()) else {
+            return;
+        };
+        // Each animation on while it keeps going
+        // (`BlendStateInstance::advance`).
+        for (p, _) in &mut e.parts {
+            if let Some(p) = p
+                && let Some(a) = self.anims.get(p.anim)
+                && p.keep_going(a, 1.0)
+            {
+                p.advance(seconds, a);
+            }
+        }
+        let input = |i: Option<usize>| {
+            i.and_then(|i| self.inputs.get(i).copied().flatten())
+                .unwrap_or(0.0) as f32
+        };
+        match blend.by {
+            By::Direct => {
+                for ((_, w), part) in e.parts.iter_mut().zip(&blend.parts) {
+                    let value = match part.input {
+                        Some(i) => input(Some(i)),
+                        None => part.value as f32,
+                    };
+                    *w = (value / 100.0).clamp(0.0, 1.0);
+                }
+            }
+            By::OneD(i) => {
+                let value = input(i);
+                let values: Vec<f32> = blend.parts.iter().map(|p| p.value as f32).collect();
+                let index = one_d_index(&values, value);
+                let to = values.get(index).copied();
+                let from = index.checked_sub(1).and_then(|k| values.get(k)).copied();
+                let (mix, mix_from) = match (to, from) {
+                    (Some(t), Some(f)) if t != f => {
+                        let mix = (value - f) / (t - f);
+                        (mix, 1.0 - mix)
+                    }
+                    _ => (1.0, 1.0),
+                };
+                for ((_, w), &v) in e.parts.iter_mut().zip(&values) {
+                    *w = if to == Some(v) {
+                        mix
+                    } else if from == Some(v) {
+                        mix_from
+                    } else {
+                        0.0
+                    };
+                }
+            }
         }
     }
 
@@ -242,6 +415,7 @@ impl Layer<'_> {
         if t.flags & DURATION_IS_PERCENTAGE != 0 {
             let d = self
                 .from
+                .as_ref()
                 .and_then(|f| f.playing)
                 .and_then(|p| self.anims.get(p.anim))
                 .map_or(0.0, Anim::duration);
@@ -295,8 +469,12 @@ impl Layer<'_> {
         if t.flags & DISABLED != 0 || !t.conditions.iter().all(|c| self.holds(c)) {
             return false;
         }
+        let exiting = match t.exit_part {
+            Some(k) => from.parts.get(k).and_then(|(p, _)| *p),
+            None => from.playing,
+        };
         if t.flags & ENABLE_EXIT_TIME != 0
-            && let Some(p) = from.playing
+            && let Some(p) = exiting
             && let Some(a) = self.anims.get(p.anim)
         {
             let duration = a.duration() as f32;
@@ -318,7 +496,7 @@ impl Layer<'_> {
     /// Takes the first transition allowed from `from`
     /// (`StateMachineLayerInstance::tryChangeState`).
     fn try_change(&mut self, from: Entered, frame: usize) -> bool {
-        let current = self.current.map(|c| c.state);
+        let current = self.current.as_ref().map(|c| c.state);
         let Some(t) = self
             .states
             .get(from.state)
@@ -331,7 +509,7 @@ impl Layer<'_> {
         else {
             return false;
         };
-        let out = self.current;
+        let out = self.current.take();
         self.enter(t.to);
         let mut out = out;
         // Paused at the exit time when the transition says.
@@ -352,9 +530,13 @@ impl Layer<'_> {
         if self.mix != 0.0 {
             self.hold_from = t.flags & PAUSE_ON_EXIT != 0;
         }
-        let spilled = self.from.and_then(|f| f.playing).map_or(0.0, |p| p.spilled);
+        let spilled = self
+            .from
+            .as_ref()
+            .and_then(|f| f.playing)
+            .map_or(0.0, |p| p.spilled);
         self.transition = Some(t);
-        if let Some(mut c) = self.current {
+        if let Some(mut c) = self.current.take() {
             self.advance_state(&mut c, spilled);
             self.current = Some(c);
         }
@@ -378,13 +560,14 @@ impl Layer<'_> {
                 Entered {
                     state: any,
                     playing: None,
+                    parts: Vec::new(),
                 },
                 frame,
             )
         {
             return true;
         }
-        match self.current {
+        match self.current.clone() {
             Some(c) => self.try_change(c, frame),
             None => false,
         }
@@ -392,14 +575,14 @@ impl Layer<'_> {
 
     /// One frame of `seconds` (`StateMachineLayerInstance::advance`).
     fn advance(&mut self, seconds: f32, frame: usize) -> Applied {
-        if let Some(mut c) = self.current {
+        if let Some(mut c) = self.current.take() {
             self.advance_state(&mut c, seconds);
             self.current = Some(c);
         }
         self.update_mix(seconds);
         if self.mix < 1.0
             && !self.hold_from
-            && let Some(mut f) = self.from
+            && let Some(mut f) = self.from.take()
         {
             self.advance_state(&mut f, seconds);
             self.from = Some(f);
@@ -414,15 +597,23 @@ impl Layer<'_> {
         {
             p.spilled = 0.0;
         }
-        let playing = self.current.and_then(|c| c.playing);
+        let playing = self.current.as_ref().and_then(|c| c.playing);
+        let mixing = self.mix < 1.0;
         Applied {
             serial: self.serial,
             current: playing.map(|p| (p.anim, f64::from(p.time))),
             direction: playing.map_or(1.0, |p| f64::from(p.direction * p.speed)),
-            from: if self.mix < 1.0 {
+            from: if mixing {
                 self.from
+                    .as_ref()
                     .and_then(|f| f.playing)
                     .map(|p| (p.anim, f64::from(p.time)))
+            } else {
+                None
+            },
+            blend: self.current.as_ref().and_then(|c| c.blended(self.states)),
+            from_blend: if mixing {
+                self.from.as_ref().and_then(|f| f.blended(self.states))
             } else {
                 None
             },
@@ -467,4 +658,24 @@ pub(crate) fn play(
             layer.advance(if k == 0 { 0.0 } else { dt as f32 }, k)
         })
         .collect()
+}
+
+/// The index of the first of a 1D blend's `values` at or past `value`
+/// (`BlendState1DInstance::animationIndex`).
+fn one_d_index(values: &[f32], value: f32) -> usize {
+    let (mut idx, mut start, mut end) = (0i64, 0i64, values.len() as i64 - 1);
+    while start <= end {
+        let mid = (start + end) >> 1;
+        let closest = values[mid as usize];
+        if closest < value {
+            start = mid + 1;
+        } else if closest > value {
+            end = mid - 1;
+        } else {
+            idx = mid;
+            break;
+        }
+        idx = start;
+    }
+    idx as usize
 }

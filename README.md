@@ -203,7 +203,8 @@ them alone.
   (outer and inner, offset, blurred as Rive's renderer blurs them); strokes the transform does not scale; clipping shapes; solos and hidden
   drawables; opacity multiplied down the tree into each paint; embedded images (PNG, JPEG, WebP).
 - The default state machine first, as Rive plays it: layers together, transitions whose conditions hold,
-  exit times, mixes, states playing backwards, repeating from where it settles. Nested artboards' state
+  exit times, mixes, states playing backwards, blend states (1D and direct), repeating from where it
+  settles. Nested artboards' state
   machines too, their inputs as the parent's animations key them. Its inputs changed over time
   (`Options::inputs`), and its listeners acting on a pointer (`Interaction`: presses, releases, clicks,
   enters, leaves and moves over their shapes setting, toggling and firing inputs and moving nodes to the
@@ -223,8 +224,8 @@ them alone.
   skins deforming outlines and image meshes by their bones' weights. Constraints (translation, rotation,
   scale, transform, distance, IK, follow-path) applied as Rive's runtime applies them. Draw rules, keyed too.
   Text modifiers moving, turning, scaling and fading glyphs by their ranges.
-- Left out with a warning, for the phases of [its design](docs/design/rive.md) to come: blend states,
-  other state machines and Rive events, text variation and follow-path modifiers and ellipses, layout,
+- Left out with a warning, for the phases of [its design](docs/design/rive.md) to come: other
+  state machines and Rive events, text variation and follow-path modifiers and ellipses, layout,
   data binding, scripting and audio.
 
 ## Untrusted input
@@ -567,7 +568,7 @@ The scene model and its inputs:
    markers with their loops; feathered edges; strokes that do not scale; nested artboards; text; joysticks;
    bones, skins and image meshes; constraints; draw rules; text modifiers.
 4. Rive, as [its design](docs/design/rive.md) says: what the runtime evaluates (what is
-   left of text), what is left of state machines (blend states, events), then data binding and layout.
+   left of text), Rive events, then data binding and layout.
 
 The NSH player:
 

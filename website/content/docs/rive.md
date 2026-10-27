@@ -54,7 +54,10 @@ The artboard's default state machine comes first, at 0, under a marker of its na
 runtime plays it, with its inputs as they are unless they are changed (below). Each layer enters its first
 state; transitions whose conditions hold for the inputs' values are taken, at their exit times, mixing
 from one state into the next over their durations and easings; a state of negative speed plays its
-animation backwards from its end; later layers override earlier ones where they key the same property,
+animation backwards from its end; a blend state plays its animations together, a 1D blend mixing the two
+around its number input's value, a direct blend each by its own input or value (each applied in turn over
+what the property had, or over its first animation's first keys where it resets); later layers override
+earlier ones where they key the same property,
 and a property no state applies keeps its last value. The timeline's span is the machine's until it
 settles and then what repeats (`loop_start` where it settles), so a player with no `segment` plays what
 the file plays when it opens.
@@ -129,13 +132,12 @@ vector-animation render menu.riv --artboard Menu -t 0.5
 
 What a file holds beyond that is left out with a warning (`Import::warnings`, `inspect`, `onLoad`):
 
-- blend states, conditions on view models, other state machines than the default, listeners on nested
+- conditions and blends on view models, other state machines than the default, listeners on nested
   artboards, drags and events, listeners changing view models, Rive events and data binding;
 - text variation and follow-path modifiers and text ellipses, layout, draggable and scroll constraints,
   scripting and audio.
 
 These come in the phases of the [design](https://github.com/dXnSix/dXn.VectorAnimation/blob/main/docs/design/rive.md):
-what the runtime evaluates (what is left of text), what is left of state machines, then data binding and
-layout.
+what the runtime evaluates (what is left of text), Rive events, then data binding and layout.
 
 Next: [Limits](./limits.md), which bound a Rive file as they bound the others.

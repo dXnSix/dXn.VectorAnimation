@@ -202,8 +202,13 @@ The core gains what Rive needs, each with the reference renderer's drawing and t
    turns pointer events into input changes and nodes moved to the pointer (`Options::aligned`), reading
    the file again. Presses and releases act a frame sooner, as Rive's web runtime advances by nothing
    after them. Checked against Rive's runtime driven by mouse events: the test files draw the same, the
-   weather card, tabbar and posture samples within their plain playback's differences. **Still to
-   come**: blend states, Rive events, listeners on nested artboards and drags.
+   weather card, tabbar and posture samples within their plain playback's differences. **Done: blend
+   states**: 1D (by a number input) and direct (by inputs or fixed mixes) as `BlendState1DInstance` and
+   `BlendStateDirectInstance` weigh them, their animations applied in turn over the value a frame before
+   or over the reset, exits on a blend animation's time; a blend weighing one animation alone bakes as its
+   pieces, a real mix frame by frame. The test files draw as Rive does (blends mixing over the frame before
+   reach the same values a few frames later: Rive's web player applies the first frame three times).
+   **Still to come**: Rive events, listeners on nested artboards and drags.
 9. **View models and data binding** (phase 4): view models, instances and bindings to properties and
    conditions, with converters; layout components laid out at import for the artboard's size.
 10. **Out of scope for now:** Luau scripting, audio, open-URL events (reported to the app as events), text
@@ -236,6 +241,6 @@ The core gains what Rive needs, each with the reference renderer's drawing and t
 2. **What the runtime evaluates:** feather, strokes that do not scale, nested artboards, text, bones and
    meshes, constraints, draw rules, text modifiers (done; variation and follow-path modifiers and
    ellipses left), elastic easing.
-3. **State machines**: done as they play untouched, with their inputs changed and their listeners acting on
-   a pointer in the core, the CLI and the player; blend states and events to come.
+3. **State machines**: done as they play untouched, with their inputs changed, their listeners acting on a
+   pointer in the core, the CLI and the player, and blend states; events to come.
 4. **Data binding and layout.**
