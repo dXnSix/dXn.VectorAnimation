@@ -834,6 +834,11 @@ fn add_within(g: &mut Group, depth: usize, node: Node) {
     }
 }
 
+/// How many nodes a plan's graph may have: NSH makes each one in time that
+/// grows with how many it made before, and evaluates each frame what each
+/// reads anew, so that a scene of more is sampled frame by frame instead.
+pub const MAX_GRAPH_NODES: usize = 20_000;
+
 /// Compiles `scene` drawn through `base` (the scene's fit into the view),
 /// for a display of a pixel a point.
 pub fn compile(scene: &Scene, base: Matrix) -> Result<Plan, Unsupported> {
@@ -869,6 +874,12 @@ pub fn compile_for(scene: &Scene, base: Matrix, pixels: f64) -> Result<Plan, Uns
     };
     c.group(&scene.root, TIME, 0)?;
     c.flush();
+    if c.g.nodes().len() > MAX_GRAPH_NODES {
+        return unsupported(format!(
+            "{} graph nodes, more than NSH's graph is given at once ({MAX_GRAPH_NODES})",
+            c.g.nodes().len()
+        ));
+    }
     let root = c.layers.pop().map(|l| l.units).unwrap_or_default();
     Ok(Plan {
         graph: c.g,
