@@ -16,10 +16,7 @@ use dxn_vector_animation::{
     Node, Paint, Scene, Shape, ShapePath, Star, StarKind, Timeline, Track, Trim, TrimMode,
 };
 use dxn_vector_animation_nsh::{AnimationInfo, Source, vector_animation};
-use nsh_core::{
-    MountItem, Size,
-    ui::{Root, prelude::*},
-};
+use nsh_core::{MountItem, Size, element::Root, prelude::*};
 use nsh_engine::EngineConfig;
 use nsh_testing::Headless;
 

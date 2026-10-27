@@ -310,10 +310,10 @@ fn mixed_scene() -> Scene {
 }
 
 /// A scene with a sampled part in a player.
-#[nsh_core::ui::prelude::component]
-fn Mixed() -> impl nsh_core::ui::prelude::IntoElement {
+#[nsh_core::prelude::component]
+fn Mixed() -> impl nsh_core::prelude::IntoElement {
     use dxn_vector_animation_nsh::{AnimationInfo, Source, vector_animation};
-    use nsh_core::ui::prelude::*;
+    use nsh_core::prelude::*;
     let status = signal(String::from("loading"));
     let json = dxn_vector_animation::compiled::to_json(&mixed_scene(), false).unwrap();
     view()
@@ -332,7 +332,7 @@ fn Mixed() -> impl nsh_core::ui::prelude::IntoElement {
 fn the_player_plays_the_graph_and_draws_the_part_as_it_moves() {
     use std::sync::{Arc, Mutex};
 
-    use nsh_core::{MountItem, Size, animation::AnimationOp, ui::Root, ui::prelude::px};
+    use nsh_core::{MountItem, Size, animation::AnimationOp, element::Root, prelude::px};
 
     let mut app = nsh_testing::Headless::start(nsh_engine::EngineConfig {
         viewport: Size::new(px(200.0), px(200.0)),

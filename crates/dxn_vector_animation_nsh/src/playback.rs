@@ -9,13 +9,13 @@
 
 use nsh_core::{
     animation::Easing,
-    ui::{AnimatedValue, Animation, Timing},
+    element::{AnimatedValue, Animation, Timing},
 };
 
 use crate::source::Repeat;
 
 /// Which way playback runs (`direction`).
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, nsh_core::ui::PropEnum)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, nsh_core::element::PropEnum)]
 pub enum Direction {
     /// From the start to the end.
     #[default]

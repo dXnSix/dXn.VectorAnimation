@@ -31,7 +31,7 @@ An app with a Rust crate of its own can depend on the player instead and registe
 registry.register::<dxn_vector_animation_nsh::VectorAnimation>();
 ```
 
-The crate depends on `nsh-core` by version requirement (`0.2`), so it builds with the app's own NSH:
+The crate depends on `nsh-core` by version requirement (`0.3`), so it builds with the app's own NSH:
 crates.io's, a checkout or a fork. It uses NSH's public API alone.
 
 ## Play a file

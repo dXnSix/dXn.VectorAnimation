@@ -7,7 +7,7 @@ use std::collections::HashMap;
 
 use dxn_vector_animation::{Animated, Color, Easing, Keyframe};
 
-/// A curve within an interpolation's segments: what every NSH 0.2 graph
+/// A curve within an interpolation's segments: what every NSH graph
 /// eases with. Holds and CSS `steps()` and `linear()` become breakpoints
 /// of their own (straight lines and jumps a microsecond long).
 #[derive(Debug, Clone, Copy, PartialEq)]

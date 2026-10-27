@@ -98,7 +98,7 @@ use dxn_vector_animation_nsh::{
     AnimationInfo, Direction, Repeat, ResizeMode, Segment, Source, VectorAnimation, VectorAnimationApi,
     vector_animation,
 };
-use nsh_core::ui::prelude::*;
+use nsh_core::prelude::*;
 
 let player = component_ref::<VectorAnimation>();
 let duration = signal(0.0);

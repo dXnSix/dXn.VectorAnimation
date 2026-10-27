@@ -287,7 +287,7 @@ fn canvases_while_playing(scene: Scene, more: usize) -> (usize, usize) {
     use std::sync::{Arc, Mutex};
 
     use dxn_vector_animation_nsh::{AnimationInfo, Source, vector_animation};
-    use nsh_core::{MountItem, Size, ui::Root, ui::prelude::*};
+    use nsh_core::{MountItem, Size, element::Root, prelude::*};
 
     // The player reads it on the engine's thread.
     static JSON: Mutex<String> = Mutex::new(String::new());

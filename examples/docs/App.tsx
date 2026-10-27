@@ -11,9 +11,8 @@
 // `rive-switch` (a listener), `rive-events` (the cues it fires) and
 // `rive-progress` (a view model set from the page); `rive-files`, a grid of
 // community files fetched from beside the app (`rive/`, `--rive-files`).
-import { mount, Scroll, signal, Text, View } from "nsh";
+import { host, mount, Scroll, signal, Text, View } from "nsh";
 import { Button } from "nsh/base";
-import { host } from "nsh/host";
 import { VectorAnimation, type VectorAnimationRef } from "dxn-vector-animation";
 import { scenes } from "./animations/index";
 import { gallery } from "./animations/gallery";

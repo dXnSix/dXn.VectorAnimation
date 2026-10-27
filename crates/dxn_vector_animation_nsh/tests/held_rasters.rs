@@ -19,7 +19,8 @@ use dxn_vector_animation_nsh::{AnimationInfo, Source, vector_animation};
 use nsh_core::{
     MountItem, Size,
     canvas::{CanvasOp, Composite},
-    ui::{Root, prelude::*},
+    element::Root,
+    prelude::*,
 };
 use nsh_engine::EngineConfig;
 use nsh_testing::Headless;

@@ -13,8 +13,9 @@ use dxn_vector_animation_rive::{
 };
 use nsh_core::{
     HoverEvent, TouchEvent, TouchPhase,
+    element::{SignalEquals, signal_with},
     geometry::{Bounds, Points, Size, px},
-    ui::{SignalEquals, prelude::*, signal_with},
+    prelude::*,
 };
 
 use crate::{

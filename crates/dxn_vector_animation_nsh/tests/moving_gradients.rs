@@ -363,10 +363,10 @@ fn transformed_gradient_on_a_stroke() {
 }
 
 /// The coin in a player, as a compiled scene.
-#[nsh_core::ui::prelude::component]
-fn Coin() -> impl nsh_core::ui::prelude::IntoElement {
+#[nsh_core::prelude::component]
+fn Coin() -> impl nsh_core::prelude::IntoElement {
     use dxn_vector_animation_nsh::{AnimationInfo, Source, vector_animation};
-    use nsh_core::ui::prelude::*;
+    use nsh_core::prelude::*;
     let json = dxn_vector_animation::compiled::to_json(&coin_scene(), false).unwrap();
     let status = signal(String::from("loading"));
     view()
@@ -385,7 +385,7 @@ fn Coin() -> impl nsh_core::ui::prelude::IntoElement {
 fn plays_on_the_native_graph_of_the_engine() {
     use std::sync::{Arc, Mutex};
 
-    use nsh_core::{MountItem, Size, animation::AnimationOp, ui::Root, ui::prelude::px};
+    use nsh_core::{MountItem, Size, animation::AnimationOp, element::Root, prelude::px};
 
     let mut app = nsh_testing::Headless::start(nsh_engine::EngineConfig {
         viewport: Size::new(px(200.0), px(200.0)),

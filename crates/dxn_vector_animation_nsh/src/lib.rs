@@ -16,7 +16,7 @@ pub mod playback;
 pub mod source;
 mod span;
 
-use nsh_core::ui::prelude::*;
+use nsh_core::prelude::*;
 
 pub use crate::{
     component::{

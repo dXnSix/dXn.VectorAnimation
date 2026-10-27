@@ -208,10 +208,10 @@ fn trim_across_open_outlines_one_after_another() {
 }
 
 /// The ring spinner in a player.
-#[nsh_core::ui::prelude::component]
-fn Spinner() -> impl nsh_core::ui::prelude::IntoElement {
+#[nsh_core::prelude::component]
+fn Spinner() -> impl nsh_core::prelude::IntoElement {
     use dxn_vector_animation_nsh::{AnimationInfo, Source, vector_animation};
-    use nsh_core::ui::prelude::*;
+    use nsh_core::prelude::*;
     let status = signal(String::from("loading"));
     view()
         .child(
@@ -229,7 +229,7 @@ fn Spinner() -> impl nsh_core::ui::prelude::IntoElement {
 fn plays_on_the_native_graph_of_the_engine() {
     use std::sync::{Arc, Mutex};
 
-    use nsh_core::{MountItem, Size, animation::AnimationOp, ui::Root, ui::prelude::px};
+    use nsh_core::{MountItem, Size, animation::AnimationOp, element::Root, prelude::px};
 
     let mut app = nsh_testing::Headless::start(nsh_engine::EngineConfig {
         viewport: Size::new(px(200.0), px(200.0)),

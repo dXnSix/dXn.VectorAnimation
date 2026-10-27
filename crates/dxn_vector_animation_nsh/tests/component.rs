@@ -5,10 +5,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use dxn_vector_animation_nsh::{AnimationInfo, Source, VectorAnimationApi, vector_animation};
-use nsh_core::{
-    Size,
-    ui::{Root, prelude::*},
-};
+use nsh_core::{Size, element::Root, prelude::*};
 use nsh_engine::EngineConfig;
 use nsh_testing::Headless;
 

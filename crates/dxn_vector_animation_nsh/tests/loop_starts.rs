@@ -11,7 +11,8 @@ use dxn_vector_animation_nsh::{Direction, Repeat, Source, playback::Playback, ve
 use nsh_core::{
     MountItem, Size,
     animation::{AnimationOp, Composite, Driver},
-    ui::{Root, prelude::*},
+    element::Root,
+    prelude::*,
 };
 use nsh_engine::EngineConfig;
 use nsh_testing::Headless;

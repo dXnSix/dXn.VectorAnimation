@@ -4,7 +4,7 @@
 
 use dxn_vector_animation::{Limits, Scene, compiled};
 use dxn_vector_animation_rive::Interaction;
-use nsh_core::ui::{JsHost, JsIn, JsKind, JsOwned, JsValue, PropError, TsTypes};
+use nsh_core::element::{JsHost, JsIn, JsKind, JsOwned, JsValue, PropError, TsTypes};
 
 /// What a `VectorAnimation` plays.
 #[derive(Debug, Clone, PartialEq)]

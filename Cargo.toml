@@ -39,9 +39,9 @@ log = "0.4"
 miniz_oxide = "0.8.9"
 # NSH by version requirement: an app's own NSH (crates.io, a checkout, a
 # fork) is the one the player builds with.
-nsh-core = "0.2"
-nsh-engine = { version = "0.2", default-features = false }
-nsh-testing = { version = "0.2", default-features = false }
+nsh-core = "0.3"
+nsh-engine = { version = "0.3", default-features = false }
+nsh-testing = { version = "0.3", default-features = false }
 roxmltree = "0.21.2"
 rustybuzz = "0.20.1"
 serde = { version = "1.0.229", features = ["derive", "rc"] }

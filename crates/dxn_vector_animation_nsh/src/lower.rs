@@ -12,8 +12,9 @@ use nsh_core::{
         self, CanvasGradient, CanvasImage, CanvasOp, Composite, GradientShape,
         Paint as CanvasPaint, PathOp,
     },
+    element::{AnimatedNode, AnimatedValue, Interpolation},
     geometry::{Percentage, point, px},
-    ui::{AnimatedNode, AnimatedValue, Interpolation, prelude::*},
+    prelude::*,
 };
 
 use crate::{
@@ -59,7 +60,7 @@ impl Nodes {
                     )
                 }),
                 Expr::Math(op, a, b) => nodes[*a].and_then(|a| {
-                    let b: nsh_core::ui::AnimationOperand = match b {
+                    let b: nsh_core::element::AnimationOperand = match b {
                         Operand::Const(c) => (*c as f32).into(),
                         Operand::Node(n) => (&nodes[*n]?).into(),
                     };
@@ -202,8 +203,8 @@ pub(crate) fn elements(
         .collect()
 }
 
-fn blend_mode(b: BlendMode) -> Option<nsh_core::ui::BlendMode> {
-    use nsh_core::ui::BlendMode as M;
+fn blend_mode(b: BlendMode) -> Option<nsh_core::element::BlendMode> {
+    use nsh_core::element::BlendMode as M;
     Some(match b {
         BlendMode::Normal | BlendMode::DestinationIn | BlendMode::DestinationOut => return None,
         BlendMode::Multiply => M::Multiply,
@@ -392,7 +393,7 @@ pub(crate) fn painter(ops: &[Op], nodes: &Nodes) -> Painter {
 fn shadow_scale() -> f32 {
     #[cfg(target_arch = "wasm32")]
     {
-        nsh_core::ui::prelude::pixel_ratio().max(1.0)
+        nsh_core::prelude::pixel_ratio().max(1.0)
     }
     #[cfg(not(target_arch = "wasm32"))]
     {
