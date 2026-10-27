@@ -596,12 +596,7 @@ fn sample_shape(shape: &Shape, time: f64, m: Matrix, out: &mut Vec<Item>, depth:
     }
     let fill = shape.fill.as_ref().and_then(|fill| {
         let paint = paint_at(&fill.paint, time, fill.opacity.sample(time), &path, depth)?;
-        Some(Item::Fill {
-            path: path.clone(),
-            transform: m,
-            paint,
-            rule: fill.rule,
-        })
+        Some((paint, fill.rule))
     });
     let stroke = shape.stroke.as_ref().and_then(|stroke| {
         let width = stroke.width.sample(time);
@@ -624,25 +619,43 @@ fn sample_shape(shape: &Shape, time: f64, m: Matrix, out: &mut Vec<Item>, depth:
             (!array.is_empty() && array.iter().sum::<f64>() > 0.0)
                 .then(|| (array, dash.offset.sample(time)))
         });
-        Some(Item::Stroke {
-            path: path.clone(),
-            transform: m,
+        Some((
             paint,
-            style: StrokeStyle {
+            StrokeStyle {
                 width,
                 cap: stroke.cap,
                 join: stroke.join,
                 miter_limit: stroke.miter_limit,
                 dash,
             },
-        })
+        ))
     });
-    let (first, second) = match shape.paint_order {
-        PaintOrder::FillFirst => (fill, stroke),
-        PaintOrder::StrokeFirst => (stroke, fill),
+    let fill_item = |(paint, rule), path| Item::Fill {
+        path,
+        transform: m,
+        paint,
+        rule,
     };
-    out.extend(first);
-    out.extend(second);
+    let stroke_item = |(paint, style), path| Item::Stroke {
+        path,
+        transform: m,
+        paint,
+        style,
+    };
+    // The path goes to the last item drawing it, a copy to the first.
+    match (fill, stroke, shape.paint_order) {
+        (Some(f), Some(s), PaintOrder::FillFirst) => {
+            out.push(fill_item(f, path.clone()));
+            out.push(stroke_item(s, path));
+        }
+        (Some(f), Some(s), PaintOrder::StrokeFirst) => {
+            out.push(stroke_item(s, path.clone()));
+            out.push(fill_item(f, path));
+        }
+        (Some(f), None, _) => out.push(fill_item(f, path)),
+        (None, Some(s), _) => out.push(stroke_item(s, path)),
+        (None, None, _) => {}
+    }
 }
 
 fn sample_text(text: &Text, time: f64, m: Matrix, out: &mut Vec<Item>, depth: usize) {
