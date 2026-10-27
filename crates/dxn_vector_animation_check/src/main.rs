@@ -1,10 +1,12 @@
 //! `vector-animation-check`: the device checks of the player.
 //!
-//! - `scenes <app> [--corpus <dir>] [--gallery <dir>]` writes the check app's
-//!   animations: the check set's own scenes (`scenes.rs`), and, from a corpus
-//!   folder, the files of `CORPUS` that are there. A gallery folder's files
-//!   (`.json`, `.lottie`, `.svg`) are written beside them as `gallery.ts`, in
-//!   a group each, and are no part of the check set.
+//! - `scenes <app> [--corpus <dir>] [--gallery <dir>] [--rive <dir>]` writes
+//!   the check app's animations: the check set's own scenes (`scenes.rs`),
+//!   and, from a corpus folder, the files of `CORPUS` that are there. A
+//!   gallery folder's files (`.json`, `.lottie`, `.svg`) are written beside
+//!   them as `gallery.ts`, in a group each, and are no part of the check
+//!   set; a Rive folder's `.riv` files as their bytes in `rive.ts` (played
+//!   as they are, their state machines and view models live).
 //! - `compare <shots> <app> [--tile <points>] [--out <dir>]` finds the tiles
 //!   in each screenshot `frame-<page>-<percent>.png` the check app's test
 //!   took, renders the reference frame of each at the tile's size, and
@@ -87,7 +89,7 @@ fn main() -> ExitCode {
         Some("compare") => compare::run(&args[1..]),
         Some("profile") => profile::run(&args[1..]),
         _ => Err(
-            "usage: vector-animation-check scenes <app> [--corpus <dir>] [--gallery <dir>]\n       \
+            "usage: vector-animation-check scenes <app> [--corpus <dir>] [--gallery <dir>] [--rive <dir>]\n       \
                   vector-animation-check compare <shots> <app> [--tile <points>] [--out <dir>]\n       \
                   vector-animation-check profile <dir> [--size <points>] [--ratio <pixels a point>]"
                 .into(),
@@ -161,6 +163,7 @@ fn write_scenes(args: &[String]) -> Result<(), String> {
     )
     .map_err(|e| e.to_string())?;
     write_gallery(&dir, option(args, "--gallery").map(Path::new))?;
+    write_rive(&dir, option(args, "--rive").map(Path::new))?;
     println!(
         "{} scenes in {} ({} pages)",
         list.len(),
@@ -230,5 +233,45 @@ fn write_gallery(dir: &Path, folder: Option<&Path>) -> Result<(), String> {
     )
     .map_err(|e| e.to_string())?;
     println!("{count} gallery scenes");
+    Ok(())
+}
+
+/// Writes `rive.ts`: the bytes of every `.riv` file of `folder` that reads,
+/// by name (none without a folder).
+fn write_rive(dir: &Path, folder: Option<&Path>) -> Result<(), String> {
+    let mut files: Vec<PathBuf> = match folder {
+        Some(folder) => std::fs::read_dir(folder)
+            .map_err(|e| format!("{}: {e}", folder.display()))?
+            .flatten()
+            .map(|e| e.path())
+            .filter(|p| p.extension().is_some_and(|e| e == "riv"))
+            .collect(),
+        None => Vec::new(),
+    };
+    files.sort();
+    let mut entries = String::new();
+    for path in &files {
+        let Some(stem) = path.file_stem().and_then(|s| s.to_str()) else {
+            continue;
+        };
+        let data = std::fs::read(path).map_err(|e| format!("{}: {e}", path.display()))?;
+        if let Err(e) = dxn_vector_animation_rive::read(&data) {
+            eprintln!("{}: {e}: left out", path.display());
+            continue;
+        }
+        let bytes: Vec<String> = data.iter().map(u8::to_string).collect();
+        entries.push_str(&format!(
+            "  [\"{stem}\", new Uint8Array([{}])],\n",
+            bytes.join(",")
+        ));
+    }
+    std::fs::write(
+        dir.join("rive.ts"),
+        format!(
+            "// Written by `vector-animation-check scenes --rive`.\nexport const rive: [string, Uint8Array][] = [\n{entries}];\n"
+        ),
+    )
+    .map_err(|e| e.to_string())?;
+    println!("{} Rive files", files.len());
     Ok(())
 }
