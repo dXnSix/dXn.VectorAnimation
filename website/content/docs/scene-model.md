@@ -322,6 +322,9 @@ shapes in the group with that id at a time: the group nearest the root of those 
 transforms and group times, its shapes' paths filled under the non-zero rule (strokes, clips and opacity
 aside, painted or not). `Scene::hit_bounds(id, time)` is the box around those outlines. A player hit-tests
 what a pointer is over with them, as the Rive importer's [listeners](./rive.md#inputs-and-listeners) do.
+Each searches the scene for the group; a `HitIndex` made of the scene once finds them at once
+(`Scene::hit_rect_indexed`), and gives the order the scene draws its groups in (`HitIndex::order`), for
+hit-testing a pointer's every move over many targets.
 
 ## Group time
 

@@ -312,6 +312,31 @@ impl Breaks {
     }
 }
 
+/// The times inputs have keyframes at, and the easing all of them agree on
+/// between each two (see [`Baker::derive`]).
+#[derive(Debug, Clone, Default)]
+pub(crate) struct Spans {
+    times: Vec<f64>,
+    easings: Vec<Option<Easing>>,
+}
+
+impl Spans {
+    /// The spans of `inputs`.
+    pub fn of(inputs: &[&Breaks]) -> Spans {
+        let mut times: Vec<f64> = inputs
+            .iter()
+            .flat_map(|b| b.0.iter().map(|k| k.t))
+            .collect();
+        times.sort_by(f64::total_cmp);
+        times.dedup();
+        let easings = times
+            .windows(2)
+            .map(|w| easing_between(inputs, w[0], w[1]))
+            .collect();
+        Spans { times, easings }
+    }
+}
+
 /// Turns values computed from keyed inputs into scene keyframes, within a
 /// budget of keyframes for the samples.
 #[derive(Debug)]
@@ -323,27 +348,33 @@ pub(crate) struct Baker {
     /// Whether the budget ran out (and values went straight between
     /// keyframes instead).
     pub over: bool,
+    /// Spans ending before this time are not sampled ([`crate::Options::from`]).
+    pub from: f64,
 }
 
 impl Baker {
     /// The value `at` computes from `inputs` over time.
     pub fn derive<T: Close>(&mut self, inputs: &[&Breaks], at: impl Fn(f64) -> T) -> Animated<T> {
-        let mut times: Vec<f64> = inputs
-            .iter()
-            .flat_map(|b| b.0.iter().map(|k| k.t))
-            .collect();
-        times.sort_by(f64::total_cmp);
-        times.dedup();
+        self.derive_over(&Spans::of(inputs), at)
+    }
+
+    /// The value `at` computes over `spans` (those of its inputs, found
+    /// once for values computed from the same inputs).
+    pub fn derive_over<T: Close>(&mut self, spans: &Spans, at: impl Fn(f64) -> T) -> Animated<T> {
+        let times = &spans.times;
         let Some(&last) = times.last() else {
             return Animated::Static(at(0.0));
         };
         let mut keys = Vec::new();
         // Consecutive sampled spans, simplified together.
         let mut run: Vec<(f64, T)> = Vec::new();
-        for w in times.windows(2) {
+        for (w, candidate) in times.windows(2).zip(&spans.easings) {
             let (a, b) = (w[0], w[1]);
+            if b <= self.from {
+                continue;
+            }
             let (va, vb) = (at(a), at(b));
-            let candidate = easing_between(inputs, a, b);
+            let candidate = candidate.clone();
             if let Some(e) = candidate
                 && [0.25, 0.5, 0.75].iter().all(|u| {
                     let expected = if matches!(e, Easing::Hold) {

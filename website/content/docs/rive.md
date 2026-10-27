@@ -101,7 +101,9 @@ hiding what is behind it, as Rive hits them) and makes what they do. A pointer p
 shape drags it as it moves, wherever it goes, from its second move (Rive's web runtime starts the drag with
 the first). An event a listener fires reaches the listeners listening for it: its machine's own, then its
 nested artboard's parent's, and on up (only the file's own reach the app, as cues). Each change reads the
-file again (`import()`). A press, a release and a finger lifted act at once, as Rive's web runtime
+file again (`import()`); `Interaction::forward()` reads it from the change's time on (`Options::from`:
+values computed from others, skinned meshes and constraints, are sampled from the span that time falls in,
+and held before), so that a change costs a player playing on the same however long it has played. A press, a release and a finger lifted act at once, as Rive's web runtime
 advances the machine by nothing after them; a move, a leaving and an input set by hand act from the next
 frame. A node moved to the pointer holds there, or moves as far as the pointer did when it keeps its
 offset, until a key moves it again.
@@ -119,7 +121,8 @@ let scene = &play.import().scene;
 The player does the same: the pointer over a Rive file (a finger or a button going down, moving and
 lifting; the mouse moving over it and leaving) acts on its listeners, the ref's `setInput(name, value)` and
 `fire(name)` change its inputs, `onInput` reports each change and `onLoad`'s `inputs` lists them. Each
-change is made off the engine thread, and playback goes on in the new scene from where it is.
+change is made off the engine thread, the file read from the change on, and playback goes on in the new
+scene from where it is.
 
 ```tsx
 let player: VectorAnimationRef | undefined;

@@ -295,3 +295,42 @@ fn skinned_meshes_follow_their_bones() {
     let c = color_at(&s, 1.0, 45, 25);
     assert!(near(c, BLUE, 2), "{c:?}");
 }
+
+#[test]
+fn a_skinned_mesh_read_from_a_time_plays_on_from_it_as_read_whole() {
+    let riv = image(root_bone(with_image(), 0.0, 0.0, 10.0), 0);
+    let (riv, _) = mesh(riv, 2, Some(1));
+    let skin = riv.next_index();
+    let riv = riv
+        .obj(
+            ty::SKIN,
+            &[
+                (key::PARENT_ID, V::U(3)),
+                (key::SKIN_TX, V::D(20.0)),
+                (key::SKIN_TY, V::D(20.0)),
+            ],
+        )
+        .obj(
+            ty::TENDON,
+            &[(key::PARENT_ID, V::U(skin)), (key::TENDON_BONE_ID, V::U(1))],
+        );
+    let bytes = animate(riv, 1, key::ROOT_BONE_X, 0.0, 20.0).bytes();
+    let limits = dxn_vector_animation::Limits::default();
+    let whole = dxn_vector_animation_rive::read_options(&bytes, &limits, &Default::default())
+        .unwrap()
+        .scene;
+    let from = dxn_vector_animation_rive::read_options(
+        &bytes,
+        &limits,
+        &dxn_vector_animation_rive::Options {
+            from: 0.55,
+            ..Default::default()
+        },
+    )
+    .unwrap()
+    .scene;
+    let png = |s: &Scene, t: f64| render_png(&s.frame_at(t), &RenderOptions::default()).unwrap();
+    for t in [0.55, 0.6, 0.75, 1.0] {
+        assert!(png(&whole, t) == png(&from, t), "at {t}");
+    }
+}

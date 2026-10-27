@@ -1,6 +1,8 @@
 //! Whether a point falls on what a group draws: the outlines of the shapes
 //! in it, as a player hit-tests what a pointer is over.
 
+use std::collections::HashMap;
+
 use kurbo::{Line, ParamCurve as _, Shape as _};
 
 use crate::{
@@ -31,8 +33,22 @@ impl Scene {
     /// inside them, or their edges in it. A pointer hits a little around
     /// itself so (Rive's runtime tests the box 2 units around it).
     pub fn hit_rect(&self, id: &str, rect: Rect, time: f64) -> bool {
+        self.hit_rect_in(None, id, rect, time)
+    }
+
+    /// [`Scene::hit_rect`], the group found through `index` (made of this
+    /// scene) rather than searched for.
+    pub fn hit_rect_indexed(&self, index: &HitIndex, id: &str, rect: Rect, time: f64) -> bool {
+        self.hit_rect_in(Some(index), id, rect, time)
+    }
+
+    fn hit_rect_in(&self, index: Option<&HitIndex>, id: &str, rect: Rect, time: f64) -> bool {
         let mut hit = false;
-        if let Some((group, m, time)) = self.target(id, time) {
+        let target = match index {
+            Some(index) => self.indexed(index, id, time),
+            None => self.target(id, time),
+        };
+        if let Some((group, m, time)) = target {
             outlines(group, m, time, 0, &mut |path| {
                 hit = hit || overlaps(&path.to_kurbo(), rect);
             });
@@ -83,6 +99,104 @@ impl Scene {
             level = next;
         }
         None
+    }
+}
+
+impl Scene {
+    /// The group with id `id` [`Scene::target`] finds, through `index`:
+    /// the first of the id's groups, nearest the root first, active at
+    /// `time` with all that holds it.
+    fn indexed(&self, index: &HitIndex, id: &str, time: f64) -> Option<(&Group, Matrix, f64)> {
+        'paths: for path in index.at.get(id)? {
+            let mut group = &self.root;
+            let mut m = Matrix::IDENTITY;
+            let mut time = time;
+            for k in std::iter::once(None).chain(path.iter().map(|&k| Some(k as usize))) {
+                if let Some(k) = k {
+                    group = match group.children.get(k) {
+                        Some(Node::Group(g)) => g,
+                        // An index of another scene.
+                        _ => continue 'paths,
+                    };
+                }
+                if group.active.is_some_and(|range| !range.contains(time)) {
+                    continue 'paths;
+                }
+                time = group.local_time(time);
+                m = m * transform_at(&group.transform, time);
+            }
+            if group.id.as_deref() == Some(id) {
+                return Some((group, m, time));
+            }
+        }
+        None
+    }
+}
+
+/// Where a scene's groups with ids are, so that hit tests find them at once
+/// rather than searching the scene (as [`Scene::hit_rect`] does each time):
+/// for a player hit-testing a pointer's every move over many targets.
+#[derive(Debug, Clone, Default)]
+pub struct HitIndex {
+    /// Each id's groups, nearest the root first (breadth first, as
+    /// [`Scene::hit`] searches): the children's indices from the root.
+    at: HashMap<String, Vec<Box<[u32]>>>,
+    /// Each id's place in the order the scene draws its groups (its first
+    /// group's).
+    order: HashMap<String, usize>,
+}
+
+impl HitIndex {
+    /// The index of `scene`'s groups with ids.
+    pub fn new(scene: &Scene) -> HitIndex {
+        let mut index = HitIndex::default();
+        let mut level: Vec<(&Group, Vec<u32>)> = vec![(&scene.root, Vec::new())];
+        for _ in 0..MAX_DEPTH {
+            let mut next = Vec::new();
+            for (group, path) in level {
+                if let Some(id) = &group.id {
+                    index
+                        .at
+                        .entry(id.clone())
+                        .or_default()
+                        .push(path.clone().into_boxed_slice());
+                }
+                for (k, child) in group.children.iter().enumerate() {
+                    if let (Node::Group(g), Ok(k)) = (child, u32::try_from(k)) {
+                        let mut path = path.clone();
+                        path.push(k);
+                        next.push((g, path));
+                    }
+                }
+            }
+            if next.is_empty() {
+                break;
+            }
+            level = next;
+        }
+        fn walk(g: &Group, order: &mut HashMap<String, usize>, depth: usize) {
+            if depth > MAX_DEPTH {
+                return;
+            }
+            if let Some(id) = &g.id {
+                let n = order.len();
+                order.entry(id.clone()).or_insert(n);
+            }
+            for c in &g.children {
+                if let Node::Group(c) = c {
+                    walk(c, order, depth + 1);
+                }
+            }
+        }
+        walk(&scene.root, &mut index.order, 0);
+        index
+    }
+
+    /// Where the first group with id `id` comes in the order the scene draws
+    /// its groups with ids (depth first, what is drawn later over what is
+    /// drawn earlier).
+    pub fn order(&self, id: &str) -> Option<usize> {
+        self.order.get(id).copied()
     }
 }
 

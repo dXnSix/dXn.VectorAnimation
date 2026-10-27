@@ -21,7 +21,7 @@ use dxn_vector_animation::{
 };
 
 use crate::{
-    curve::{Baker, Break, Breaks, Curve, Interp, Key, Keyed, sub_easing},
+    curve::{Baker, Break, Breaks, Curve, Interp, Key, Keyed, Spans, sub_easing},
     defs::{self, props as p, types as t},
     file::{Artboard, File, KeyedProperty, Object},
     geometry::{self, Vertex},
@@ -392,6 +392,7 @@ impl<'a> Converter<'a> {
                 rate: 60.0,
                 budget: limits.max_keyframes / 2,
                 over: false,
+                from: options.from,
             },
             rig: Rig::default(),
             constrained: HashMap::new(),
@@ -3874,7 +3875,7 @@ impl<'a> Converter<'a> {
             let (first, rest) = path.split_once('/').unwrap_or((path, ""));
             (first == own || (!name.is_empty() && first == name)).then(|| rest.to_owned())
         };
-        let options = crate::Options {
+        let mut options = crate::Options {
             artboard: None,
             unbound: true,
             inputs: self
@@ -3898,6 +3899,7 @@ impl<'a> Converter<'a> {
                 })
                 .collect(),
             values: Vec::new(),
+            from: 0.0,
         };
         // Bound values changing in it change it too.
         let bound = &self.file.bound;
@@ -3921,6 +3923,11 @@ impl<'a> Converter<'a> {
             && plays
                 .iter()
                 .all(|(_, _, how)| matches!(how, Pieces::Rate(r) if r.keys.is_empty()));
+        // Laid out over the parent's spans, it is sampled from where the
+        // parent is; restarting at each, in its own time from its start.
+        if !alike {
+            options.from = self.baker.from;
+        }
         // Each window of the nested artboard's own time: its length, the
         // parent's time its inputs are read from, and what they hold.
         let mut windows: Vec<(f64, Option<f64>, Option<Vec<u64>>)> = Vec::new();
@@ -4476,14 +4483,34 @@ impl<'a> Converter<'a> {
         if let Some(skin) = &skin {
             skin.breaks(&mut breaks);
         }
-        let at = |v: usize, t: f64, bones: &[Matrix], skin: Option<&Skin>| {
-            let o = vertices[v];
-            let p = Point::new(inputs.at(o, p::VERTEX_X, t), inputs.at(o, p::VERTEX_Y, t));
-            match skin {
-                Some(s) => deform(p, weights[v].0, weights[v].1, s.world, bones),
-                None => p,
+        // The vertices where they are at a time, once for all the
+        // triangles: they sample the same times.
+        let placed: RefCell<HashMap<u64, Rc<[Point]>>> = RefCell::default();
+        let at = |t: f64| -> Rc<[Point]> {
+            if let Some(points) = placed.borrow().get(&t.to_bits()) {
+                return points.clone();
             }
+            let bones = skin.as_ref().map(|s| s.bones(t)).unwrap_or_default();
+            let points: Rc<[Point]> = vertices
+                .iter()
+                .enumerate()
+                .map(|(v, &o)| {
+                    let p = Point::new(inputs.at(o, p::VERTEX_X, t), inputs.at(o, p::VERTEX_Y, t));
+                    match &skin {
+                        Some(s) => deform(p, weights[v].0, weights[v].1, s.world, &bones),
+                        None => p,
+                    }
+                })
+                .collect();
+            let mut placed = placed.borrow_mut();
+            // Bounded: a long timeline samples many times.
+            if placed.len() > 4096 {
+                placed.clear();
+            }
+            placed.insert(t.to_bits(), points.clone());
+            points
         };
+        let spans = Spans::of(&Breaks::all(&breaks));
         let mut nodes = Vec::new();
         for tri in indices.as_chunks::<3>().0 {
             let [a, b, c] = tri.map(|k| k as usize);
@@ -4493,10 +4520,9 @@ impl<'a> Converter<'a> {
             let Some(from_inverse) = from.invert() else {
                 continue;
             };
-            let matrix = self.baker.derive(&Breaks::all(&breaks), |t| {
-                let bones = skin.as_ref().map(|s| s.bones(t)).unwrap_or_default();
-                let to = |v| at(v, t, &bones, skin.as_ref());
-                triangle(to(a), to(b), to(c)).unwrap_or(Matrix::scale(0.0, 0.0)) * from_inverse
+            let matrix = self.baker.derive_over(&spans, |t| {
+                let to = at(t);
+                triangle(to[a], to[b], to[c]).unwrap_or(Matrix::scale(0.0, 0.0)) * from_inverse
             });
             nodes.push(Node::Group(Group {
                 transform: vec![TransformOp::Matrix { matrix }],

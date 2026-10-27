@@ -35,6 +35,7 @@ pub use frame::{
     text_bounds,
 };
 pub use geom::{Matrix, Path, PathEl, Point, Rect};
+pub use hit::HitIndex;
 pub use limits::{Error, Import, Limits, Stats};
 pub use scene::{
     BlendMode, Blur, Clip, ClipShape, ColorEffect, ColorMatrix, ColorOp, Cue, CueValue, Dash,

@@ -3,8 +3,8 @@
 #![allow(clippy::unwrap_used)]
 
 use dxn_vector_animation::{
-    Animated, AnimatedPoint, Easing, Geometry, Group, Keyframe, Node, Point, Rect, Scene, Shape,
-    ShapePath, Timeline, Track, TransformOp,
+    Animated, AnimatedPoint, Easing, Geometry, Group, HitIndex, Keyframe, Node, Point, Rect, Scene,
+    Shape, ShapePath, Timeline, Track, TransformOp,
 };
 
 fn square(size: f64) -> Node {
@@ -92,4 +92,27 @@ fn a_rectangle_hits_where_it_overlaps_a_groups_outlines() {
     // A rectangle around all of it.
     assert!(s.hit_rect("button", Rect::new(0.0, 30.0, 50.0, 40.0), 0.0));
     assert!(!s.hit_rect("nothing", around(20.0, 50.0), 0.0));
+}
+
+#[test]
+fn an_index_finds_the_groups_a_search_does() {
+    let s = scene();
+    let index = HitIndex::new(&s);
+    let around = |x: f64, y: f64| Rect::new(x - 2.0, y - 2.0, 4.0, 4.0);
+    for (id, x, y, t) in [
+        ("button", 20.0, 50.0, 0.0),
+        ("button", 28.0, 50.0, 0.0),
+        ("button", 78.0, 48.0, 1.0),
+        ("panel", 78.0, 48.0, 1.0),
+        ("nothing", 20.0, 50.0, 0.0),
+    ] {
+        assert_eq!(
+            s.hit_rect_indexed(&index, id, around(x, y), t),
+            s.hit_rect(id, around(x, y), t),
+            "{id} at {x}, {y}, {t} s"
+        );
+    }
+    // The panel draws first, the button over it.
+    assert!(index.order("panel") < index.order("button"));
+    assert_eq!(index.order("nothing"), None);
 }

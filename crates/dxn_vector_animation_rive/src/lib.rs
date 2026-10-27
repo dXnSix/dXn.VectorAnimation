@@ -115,6 +115,13 @@ pub struct Options {
     /// bound to changes with them, and the state machine's conditions on
     /// them hold as they compare.
     pub values: Vec<ValueChange>,
+    /// The seconds from which the scene is played: values computed from
+    /// others (skinned meshes, constraints) are sampled from the span the
+    /// time falls in, and before it hold there. A player reading the file
+    /// again for a change made as it plays reads it from the change's time,
+    /// at a cost that does not grow with how long it has played; 0 (by
+    /// default) samples all of the timeline.
+    pub from: f64,
 }
 
 /// A change made to a property of the view model instance bound at a time.

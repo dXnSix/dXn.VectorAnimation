@@ -93,7 +93,8 @@ pub fn read(bytes: &[u8]) -> Result<Loaded, String> {
     let limits = Limits::default();
     if dxn_vector_animation_rive::sniff(bytes) {
         let play = Interaction::new(bytes.to_vec(), limits, Default::default())
-            .map_err(|e| e.to_string())?;
+            .map_err(|e| e.to_string())?
+            .forward();
         let import = play.import();
         return Ok(Loaded {
             scene: import.scene.clone(),

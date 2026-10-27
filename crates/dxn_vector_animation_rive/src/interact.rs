@@ -3,7 +3,7 @@
 //! changes of its inputs as Rive's runtime turns them; each change read
 //! into the scene again.
 
-use dxn_vector_animation::{Cue, Error, Import, Limits, Point, Rect};
+use dxn_vector_animation::{Cue, Error, HitIndex, Import, Limits, Point, Rect};
 
 use crate::{
     Aligned, InputChange, InputValue, Options, PropertyValue, ValueChange,
@@ -413,32 +413,6 @@ fn read_machine(
     }
 }
 
-/// Where each group of `scene` with an id is in the order it draws (later
-/// is in front).
-fn draw_order(scene: &dxn_vector_animation::Scene) -> std::collections::HashMap<&str, usize> {
-    fn walk<'a>(
-        g: &'a dxn_vector_animation::Group,
-        out: &mut std::collections::HashMap<&'a str, usize>,
-        depth: usize,
-    ) {
-        if depth > 256 {
-            return;
-        }
-        if let Some(id) = &g.id {
-            let n = out.len();
-            out.entry(id.as_str()).or_insert(n);
-        }
-        for c in &g.children {
-            if let dxn_vector_animation::Node::Group(c) = c {
-                walk(c, out, depth + 1);
-            }
-        }
-    }
-    let mut out = std::collections::HashMap::new();
-    walk(&scene.root, &mut out, 0);
-    out
-}
-
 /// The artboard `options` names in `file` (its first by default).
 fn chosen<'a>(
     file: &'a file::File,
@@ -490,6 +464,10 @@ pub struct Interaction {
     objects: Vec<Option<file::Object>>,
     /// The artboard's index and its default state machine's.
     root: Option<(usize, usize)>,
+    /// Where the scene's groups are, for the listeners' hit tests.
+    index: HitIndex,
+    /// Reads again from each change on ([`Interaction::forward`]).
+    forward: bool,
 }
 
 /// An event a listener fired: the path of its machine, the event's index
@@ -528,11 +506,14 @@ impl Interaction {
                 Some((at, m))
             })
         };
+        let index = HitIndex::new(&import.scene);
         Ok(Interaction {
             data,
             limits,
             options,
             machine,
+            index,
+            forward: false,
             import,
             listeners,
             over: vec![false; n],
@@ -543,6 +524,15 @@ impl Interaction {
             objects,
             root,
         })
+    }
+
+    /// Reads the scene again for each change from the change's time on
+    /// ([`crate::Options::from`]): what it shows before is left unsampled.
+    /// For a player playing on from where it is, at a cost that does not
+    /// grow with how long it has played.
+    pub fn forward(mut self) -> Interaction {
+        self.forward = true;
+        self
     }
 
     /// The events the artboard's listeners fired since they were last
@@ -673,14 +663,14 @@ impl Interaction {
             vec![false; listeners.len()]
         } else {
             let scene = &self.import.scene;
-            let order = &draw_order(scene);
+            let index = &self.index;
             let mut shapes: Vec<(usize, usize, &String)> = listeners
                 .iter()
                 .enumerate()
                 .flat_map(|(k, (_, l))| {
                     l.targets
                         .iter()
-                        .map(move |id| (order.get(id.as_str()).copied().unwrap_or(0), k, id))
+                        .map(move |id| (index.order(id).unwrap_or(0), k, id))
                 })
                 .collect();
             shapes.sort_by_key(|s| std::cmp::Reverse(s.0));
@@ -690,7 +680,7 @@ impl Interaction {
                 if blocked.is_some_and(|b| at < b) {
                     break;
                 }
-                if scene.hit_rect(id, around, time) {
+                if scene.hit_rect_indexed(index, id, around, time) {
                     hits[k] = true;
                     if listeners[k].1.opaque.contains(id) {
                         blocked = Some(at);
@@ -938,11 +928,23 @@ impl Interaction {
         for v in &mut values {
             v.time = v.time.max(last);
         }
+        // Played on from the changes: what came before them is not sampled
+        // again.
+        let first = changes
+            .iter()
+            .map(|c| c.time)
+            .chain(aligned.iter().map(|a| a.time))
+            .chain(values.iter().map(|v| v.time))
+            .fold(f64::INFINITY, f64::min);
         let mut options = self.options.clone();
+        if self.forward && first.is_finite() {
+            options.from = options.from.max(first);
+        }
         options.inputs.extend(changes);
         options.aligned.extend(aligned);
         options.values.extend(values);
         self.import = read_options(&self.data, &self.limits, &options)?;
+        self.index = HitIndex::new(&self.import.scene);
         self.options = options;
         Ok(())
     }
