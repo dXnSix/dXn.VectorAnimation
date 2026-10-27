@@ -51,10 +51,12 @@ jobs:
         with:
           path: repo
           persist-credentials: false
+      # NSH 0.2, as the player asks for (`nsh-core = "0.2"`): the fork's last
+      # main commit before it took upstream's 0.3.0.
       - uses: actions/checkout@v7
         with:
           repository: dXnSix/nsh
-          ref: main
+          ref: 284b52ce00a3ac3fbc77bfc0b55914742d7ae284
           path: nsh
           persist-credentials: false
       - uses: dtolnay/rust-toolchain@1.99.0
