@@ -1017,31 +1017,30 @@ fn blur_axis(data: &mut [f32], len: usize, count: usize, step: usize, stride: us
 
 /// The average of each pixel's `size` pixels from `before` before it.
 fn box_blur(src: &[f32], dst: &mut [f32], size: usize, before: usize) {
-    let len = src.len() / 4;
+    let src = src.as_chunks::<4>().0;
+    let dst = dst.as_chunks_mut::<4>().0;
+    let len = src.len();
     let mut sum = [0.0f32; 4];
-    let at = |x: isize| -> Option<usize> { (x >= 0 && (x as usize) < len).then_some(x as usize) };
-    // The window of pixel 0: from -before to size - 1 - before.
-    for x in 0..size as isize {
-        if let Some(i) = at(x - before as isize) {
-            for c in 0..4 {
-                sum[c] += src[i * 4 + c];
-            }
+    let add = |sum: &mut [f32; 4], px: &[f32; 4]| {
+        for c in 0..4 {
+            sum[c] += px[c];
         }
+    };
+    // The window of pixel 0: from -before to size - 1 - before.
+    for px in src.iter().take(size.saturating_sub(before)) {
+        add(&mut sum, px);
     }
     let n = size as f32;
-    for x in 0..len {
+    for (x, out) in dst.iter_mut().enumerate().take(len) {
         for c in 0..4 {
-            dst[x * 4 + c] = sum[c] / n;
+            out[c] = sum[c] / n;
         }
-        let x = x as isize;
-        if let Some(i) = at(x + size as isize - before as isize) {
-            for c in 0..4 {
-                sum[c] += src[i * 4 + c];
-            }
+        if let Some(px) = (x + size).checked_sub(before).and_then(|i| src.get(i)) {
+            add(&mut sum, px);
         }
-        if let Some(i) = at(x - before as isize) {
+        if let Some(px) = x.checked_sub(before).and_then(|i| src.get(i)) {
             for c in 0..4 {
-                sum[c] -= src[i * 4 + c];
+                sum[c] -= px[c];
             }
         }
     }
