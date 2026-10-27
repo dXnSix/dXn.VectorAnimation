@@ -176,6 +176,8 @@ pub(crate) struct Converter<'a> {
     baker: Baker,
     /// The components' world transforms with their constraints.
     rig: Rig,
+    /// The bones' world transforms at the times skins sampled them.
+    bones: BoneCache,
     /// The transforms of the components constraints move, baked.
     constrained: HashMap<usize, Vec<TransformOp>>,
     /// The clips of the clipping shapes, made once.
@@ -395,6 +397,7 @@ impl<'a> Converter<'a> {
                 from: options.from,
             },
             rig: Rig::default(),
+            bones: BoneCache::default(),
             constrained: HashMap::new(),
             clips: HashMap::new(),
             plan: None,
@@ -2732,7 +2735,7 @@ impl<'a> Converter<'a> {
         // Built in the world, as Rive builds it (corners round there), then
         // moved into the shape.
         let built = self.baker.derive(&Breaks::all(&breaks), |t| {
-            let bones = skin.bones(t);
+            let bones = skin.bones(t, &self.bones);
             let at = |p: Point, (indices, values): (u32, u32)| {
                 deform(p, indices, values, skin.world, &bones)
             };
@@ -2813,7 +2816,7 @@ impl<'a> Converter<'a> {
                 }
                 None => Vec::new(),
             };
-            tendons.push((ops, inverse));
+            tendons.push((bone, ops, inverse));
         }
         Ok(Some(Skin { world, tendons }))
     }
@@ -4490,7 +4493,10 @@ impl<'a> Converter<'a> {
             if let Some(points) = placed.borrow().get(&t.to_bits()) {
                 return points.clone();
             }
-            let bones = skin.as_ref().map(|s| s.bones(t)).unwrap_or_default();
+            let bones = skin
+                .as_ref()
+                .map(|s| s.bones(t, &self.bones))
+                .unwrap_or_default();
             let points: Rc<[Point]> = vertices
                 .iter()
                 .enumerate()
@@ -5437,24 +5443,47 @@ impl Inputs {
 struct Skin {
     /// The skinned object's world transform when it was bound.
     world: Matrix,
-    /// Each tendon's bone, as its world transform, and its inverse bind.
-    tendons: Vec<(Vec<TransformOp>, Matrix)>,
+    /// Each tendon's bone (its index, and its world transform) and its
+    /// inverse bind.
+    tendons: Vec<(Option<usize>, Vec<TransformOp>, Matrix)>,
 }
 
+/// The bones' world transforms at the times sampled, for the skins
+/// sharing them.
+type BoneCache = RefCell<HashMap<(usize, u64), Matrix>>;
+
 impl Skin {
-    /// The bones' transforms at `t`, the first (index 0) none.
-    fn bones(&self, t: f64) -> Vec<Matrix> {
+    /// The bones' transforms at `t`, the first (index 0) none; each bone's
+    /// world transform taken from `cache` when another skin placed it then.
+    fn bones(&self, t: f64, cache: &BoneCache) -> Vec<Matrix> {
+        let world = |bone: Option<usize>, ops: &[TransformOp]| {
+            let Some(b) = bone else {
+                return transform_at(ops, t);
+            };
+            let key = (b, t.to_bits());
+            if let Some(m) = cache.borrow().get(&key) {
+                return *m;
+            }
+            let m = transform_at(ops, t);
+            let mut cache = cache.borrow_mut();
+            // Bounded: a long timeline samples many times.
+            if cache.len() > 1 << 18 {
+                cache.clear();
+            }
+            cache.insert(key, m);
+            m
+        };
         std::iter::once(Matrix::IDENTITY)
             .chain(
                 self.tendons
                     .iter()
-                    .map(|(ops, inverse)| transform_at(ops, t) * *inverse),
+                    .map(|(bone, ops, inverse)| world(*bone, ops) * *inverse),
             )
             .collect()
     }
 
     fn breaks(&self, out: &mut Vec<Breaks>) {
-        for (ops, _) in &self.tendons {
+        for (_, ops, _) in &self.tendons {
             ops_breaks(ops, out);
         }
     }
