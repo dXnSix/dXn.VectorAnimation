@@ -19,7 +19,7 @@ use roxmltree::Node as XmlNode;
 
 use crate::{
     animate::{TimelineSpan, property_keyframes},
-    css::{Stylesheet, parse_declarations},
+    css::{Index, Stylesheet, parse_declarations},
     filter,
     smil::{self, Smil},
     values::{
@@ -174,6 +174,8 @@ impl Default for Style {
 pub(crate) struct Converter<'a, 'input> {
     ids: HashMap<&'a str, XmlNode<'a, 'input>>,
     sheet: Stylesheet,
+    /// The sheet's selectors by what their elements have.
+    index: Index,
     /// The root's view box: what percentages and `view-box` refer to.
     view: Rect,
     pub(crate) warnings: BTreeSet<String>,
@@ -245,6 +247,7 @@ impl<'a, 'input> Converter<'a, 'input> {
         });
         let mut converter = Converter {
             ids,
+            index: sheet.index(),
             sheet,
             view,
             warnings,
@@ -413,8 +416,10 @@ impl<'a, 'input> Converter<'a, 'input> {
         if let Some(d) = node.attribute("d") {
             put("d", d, (0, (0, 0, 0), 0));
         }
-        for rule in &self.sheet.rules {
-            for sel in rule.selectors.iter().filter(|s| s.matches(node)) {
+        for (r, s) in self.index.candidates(node) {
+            let rule = &self.sheet.rules[r];
+            let sel = &rule.selectors[s];
+            if sel.matches(node) {
                 for decl in &rule.declarations {
                     let level = if decl.important { 3 } else { 1 };
                     put(

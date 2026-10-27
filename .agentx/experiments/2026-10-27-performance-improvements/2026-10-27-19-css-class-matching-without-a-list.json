@@ -9,11 +9,11 @@
   "path": "2026-10-27-19-css-class-matching-without-a-list.json",
   "createdAt": "2026-10-27T20:59:04Z",
   "startedAt": "2026-10-27T20:59:04Z",
-  "finishedAt": null,
-  "state": "running",
-  "status": "",
+  "finishedAt": "2026-10-27T20:59:52Z",
+  "state": "done",
+  "status": "success",
   "checkpointCommit": "d4d038913acb3f64355b784f7b2bb1024088baae",
-  "resultCommit": "",
+  "resultCommit": "9e333c72d345644bbb025531ebc617516552bbdc",
   "rollbackCommand": "git -C \"/Users/dinko/work-private/projects/dXn/dXn.VectorAnimation\" reset --hard d4d038913acb3f64355b784f7b2bb1024088baae",
   "repositories": [
     {
@@ -21,12 +21,19 @@
       "path": ".",
       "role": "main",
       "checkpointCommit": "d4d038913acb3f64355b784f7b2bb1024088baae",
-      "resultCommit": "",
+      "resultCommit": "9e333c72d345644bbb025531ebc617516552bbdc",
       "rollbackCommand": "git -C \"/Users/dinko/work-private/projects/dXn/dXn.VectorAnimation\" reset --hard d4d038913acb3f64355b784f7b2bb1024088baae",
-      "status": ""
+      "status": "success"
     }
   ],
-  "repositoryCommits": [],
+  "repositoryCommits": [
+    {
+      "name": "main",
+      "path": ".",
+      "role": "main",
+      "commit": "9e333c72d345644bbb025531ebc617516552bbdc"
+    }
+  ],
   "atomicDiscipline": {
     "oneHypothesisOnly": true,
     "singleImplementationAttempt": true,
@@ -36,17 +43,39 @@
     "rule": "Run exactly the printed hypothesis. If the attempted change fails, degrades, or suggests a different fix, revert to the checkpoint and finish this experiment as failure. Start a new experiment for the next idea."
   },
   "primaryTarget": "wasm/web with headed Playwright and WebGPU enabled",
-  "hypothesisMarkdown": "",
-  "measurementPlanMarkdown": "",
-  "expectedOutcomeMarkdown": "",
+  "hypothesisMarkdown": "## CSS class matching without a list Hypothesis\n\nEvery selector tested against every element collected the element's `class` words into a `Vec` first; the words are now looked through where they are.\\n\\n**Tested mechanism:** allocation-free class matching. **Allowed:** svg `css::Compound::matches`. **Forbidden:** cascade restructuring.",
+  "measurementPlanMarkdown": "### Measurement Plan\n\nRelease bench over the 53 corpus files (median of 3 runs, best of 5 each), plus the focused tests of the touched area.",
+  "expectedOutcomeMarkdown": "### Expected Outcome\n\nThe targeted metric improves with identical graph output and passing focused tests.",
   "diagnostics": {
     "playwright": [],
     "rayx": [],
     "counters": [],
     "artifacts": []
   },
-  "measurements": [],
-  "reportMarkdown": "",
-  "decisionMarkdown": "",
+  "measurements": [
+    {
+      "metric": "read ms",
+      "before": "71.1",
+      "after": "69.8",
+      "delta": "",
+      "source": "scratchpad bench.sh: median of 3 `vector-animation-check bench artifacts-temp/corpus`"
+    },
+    {
+      "metric": "ttff allocations",
+      "before": "1,147,710",
+      "after": "1,047,820",
+      "delta": "",
+      "source": "scratchpad bench.sh: median of 3 `vector-animation-check bench artifacts-temp/corpus`"
+    },
+    {
+      "metric": "compiled scenes and warnings",
+      "before": "identical",
+      "after": "identical",
+      "delta": "",
+      "source": "scratchpad bench.sh: median of 3 `vector-animation-check bench artifacts-temp/corpus`"
+    }
+  ],
+  "reportMarkdown": "## CSS class matching without a list Finished\n\n**Passed Status**: True\n\n**Attempt Count:** 1. **Out-of-scope changes:** none.\n\nRead -2%, allocations at load -9% (snake.svg: hundreds of rules over hundreds of cells). Compiled scenes identical; svg tests pass; clippy clean.\n\n| Repo | Path | Checkpoint | Result Commit | Status |\n| --- | --- | --- | --- | --- |\n| main | . | d4d0389 | 9e333c7 | committed |",
+  "decisionMarkdown": "### Decision\n\nCommitted 9e333c7: perf(svg): match a selector's classes without collecting the element's",
   "notes": ""
 }

@@ -21,6 +21,62 @@ pub(crate) struct Rule {
     pub(crate) order: usize,
 }
 
+/// A sheet's selectors, `(rule, selector)` each, by what an element must
+/// have for one to match it (its first id, else its last class, else its
+/// tag), so that an element tries only those it may match.
+#[derive(Debug, Default)]
+pub(crate) struct Index {
+    ids: HashMap<String, Vec<(usize, usize)>>,
+    classes: HashMap<String, Vec<(usize, usize)>>,
+    tags: HashMap<String, Vec<(usize, usize)>>,
+    rest: Vec<(usize, usize)>,
+}
+
+impl Index {
+    /// The selectors `node` may match, in the sheet's order.
+    pub(crate) fn candidates(&self, node: roxmltree::Node<'_, '_>) -> Vec<(usize, usize)> {
+        let mut out = self.rest.clone();
+        let mut add = |list: Option<&Vec<(usize, usize)>>| out.extend(list.into_iter().flatten());
+        if let Some(id) = node.attribute("id") {
+            add(self.ids.get(id));
+        }
+        if let Some(classes) = node.attribute("class") {
+            for (i, class) in classes.split_ascii_whitespace().enumerate() {
+                // A class the element names twice adds its selectors once.
+                if !classes.split_ascii_whitespace().take(i).any(|c| c == class) {
+                    add(self.classes.get(class));
+                }
+            }
+        }
+        add(self.tags.get(node.tag_name().name()));
+        out.sort_unstable();
+        out
+    }
+}
+
+impl Stylesheet {
+    /// Its selectors indexed.
+    pub(crate) fn index(&self) -> Index {
+        let mut index = Index::default();
+        for (r, rule) in self.rules.iter().enumerate() {
+            for (s, sel) in rule.selectors.iter().enumerate() {
+                let subject = &sel.subject;
+                let list = if let Some(id) = subject.ids.first() {
+                    index.ids.entry(id.clone()).or_default()
+                } else if let Some(class) = subject.classes.last() {
+                    index.classes.entry(class.clone()).or_default()
+                } else if let Some(tag) = &subject.tag {
+                    index.tags.entry(tag.clone()).or_default()
+                } else {
+                    &mut index.rest
+                };
+                list.push((r, s));
+            }
+        }
+        index
+    }
+}
+
 /// A selector: compounds joined by combinators, matched right to left.
 #[derive(Debug, Default)]
 pub(crate) struct Selector {

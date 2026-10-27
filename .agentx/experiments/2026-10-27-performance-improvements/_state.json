@@ -11,13 +11,13 @@
   "status": "",
   "createdAt": "2026-10-27T20:14:29Z",
   "finishedAt": null,
-  "lastStableCommit": "d4d038913acb3f64355b784f7b2bb1024088baae",
+  "lastStableCommit": "9e333c72d345644bbb025531ebc617516552bbdc",
   "repositories": [
     {
       "name": "main",
       "path": ".",
       "role": "main",
-      "lastStableCommit": "d4d038913acb3f64355b784f7b2bb1024088baae"
+      "lastStableCommit": "9e333c72d345644bbb025531ebc617516552bbdc"
     }
   ],
   "atomicDiscipline": {
@@ -28,8 +28,8 @@
     "successfulAttemptRequiresCommitBeforeNextExperiment": true,
     "rule": "Run exactly the printed hypothesis. If the attempted change fails, degrades, or suggests a different fix, revert to the checkpoint and finish this experiment as failure. Start a new experiment for the next idea."
   },
-  "currentExperimentId": "e4b649ec-92ec-4843-9cf4-ceeb5e029b5d",
-  "nextExperimentIndex": 20,
+  "currentExperimentId": "9d552d7c-7a40-4253-a73f-df232fe96e19",
+  "nextExperimentIndex": 21,
   "experiments": [
     {
       "id": "f0287285-7a36-4cb5-8eef-94cdd163e5a7",
@@ -254,6 +254,18 @@
       "name": "CSS class matching without a list",
       "path": "2026-10-27-19-css-class-matching-without-a-list.json",
       "startedAt": "2026-10-27T20:59:04Z",
+      "finishedAt": "2026-10-27T20:59:52Z",
+      "state": "done",
+      "status": "success",
+      "resultCommit": "9e333c72d345644bbb025531ebc617516552bbdc"
+    },
+    {
+      "id": "9d552d7c-7a40-4253-a73f-df232fe96e19",
+      "index": 20,
+      "type": "hypothesis",
+      "name": "CSS rules indexed by what their subject needs",
+      "path": "2026-10-27-20-css-rules-indexed-by-what-their-subject-needs.json",
+      "startedAt": "2026-10-27T21:00:20Z",
       "finishedAt": null,
       "state": "running",
       "status": ""
