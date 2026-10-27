@@ -45,7 +45,7 @@ says.
 | `onLoad` | `AnimationInfo` | The file was read |
 | `onEnd` | none | Playback reached its end; never while repeating forever |
 | `onCue` | `{ name, time, url, target, properties }` | Playback passed a cue: an event a Rive file's state machine fired, or a listener fired as the pointer acted; `properties` is an object of its custom properties |
-| `onInput` | `{ name, kind, value }` | An input of a Rive file's state machine changed: a listener under the pointer, `setInput` or `fire` changed it (a bool's value is 0 or 1, a trigger fired 1) |
+| `onInput` | `{ name, path, kind, value }` | An input of a Rive file's state machine changed: a listener under the pointer, `setInput` or `fire` changed it (a bool's value is 0 or 1, a trigger fired 1) |
 | `onError` | `string` | The file could not be loaded or read |
 
 `AnimationInfo`:
@@ -56,7 +56,7 @@ says.
 | `size` | `{ width, height }` | The animation's own size, in points |
 | `markers` | `{ name, start, duration }[]` | Its markers: Lottie's, a Rive file's animations, and the segments it plays on events (`on:btn.click`) |
 | `events` | `string[]` | The events it has something to play on, such as `btn.click` |
-| `inputs` | `{ name, kind, value }[]` | A Rive file's state machine's inputs: `kind` is `"bool"`, `"number"` or `"trigger"`, `value` the value at first |
+| `inputs` | `{ name, path, kind, value }[]` | A Rive file's state machines' inputs, its nested artboards' too (`path` names those: `#` and each nested artboard's index, `/` between; empty for the file's own): `kind` is `"bool"`, `"number"` or `"trigger"`, `value` the value at first |
 | `warnings` | `string[]` | What the file holds that the scene leaves out |
 
 ## Ref methods
@@ -67,6 +67,7 @@ says.
 | `trigger(event)` | Plays what the file has for an event once from its start and holds its end |
 | `setInput(name, value)` | Sets a Rive file's state machine input (a boolean or a number) now; the machine plays on from here as Rive plays it with the change |
 | `fire(name)` | Fires a Rive file's state machine trigger now |
+| `setInputAt(path, name, value)`, `fireAt(path, name)` | The same for the state machine a nested artboard plays, at its path (as `onLoad`'s `inputs` gives it) |
 
 A Rive file whose state machine has listeners hears the pointer over it as Rive's web runtime does: a finger
 or a button going down presses, moving moves, lifting releases and leaves; the mouse moving over it moves,

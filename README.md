@@ -207,8 +207,8 @@ them alone.
   settles; the events it fires as the timeline's cues, which the player reports as it passes them. Nested artboards' state
   machines too, their inputs as the parent's animations key them. Its inputs changed over time
   (`Options::inputs`), and its listeners acting on a pointer (`Interaction`: presses, releases, clicks,
-  enters, leaves and moves over their shapes setting, toggling and firing inputs and moving nodes to the
-  pointer); the player hears the pointer over a Rive file and changes inputs from its ref.
+  enters, leaves, moves and drags over their shapes setting, toggling and firing inputs, firing events
+  that other listeners hear and moving nodes to the pointer), nested artboards' machines too; the player hears the pointer over a Rive file and changes inputs from its ref.
 - Linear animations, one after another on the timeline, each under a marker of its name carrying its loop,
   within their work areas and at their speeds; holds,
   straight lines, cubic easings and value curves as easings; elastic easings, colors mixed straight and

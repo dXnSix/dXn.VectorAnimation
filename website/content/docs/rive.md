@@ -88,10 +88,20 @@ shapes they listen on (a node's are the shapes under it; their ids are the scene
 events they act on (enter, exit, down, up, move, click) and what they do (set, toggle or fire an input,
 move a node to the pointer).
 
-`Interaction` plays a file as a user does. `set(time, input, value)` changes an input; `pointer(time, kind,
-point)` hit-tests the listeners' shapes at a point of the scene ([`Scene::hit`](./scene-model.md): their
-outlines under the non-zero rule, painted or not, as Rive hits them) and makes what they do. Each change
-reads the file again (`import()`). A press, a release and a finger lifted act at once, as Rive's web runtime
+The state machines nested artboards play take part too: `machine` lists them under their parent's
+(`Machine::nested`), each at a path of nested artboards (`#` and each one's index in the artboard holding
+it, `/` between; an `InputChange`'s `path` may name them instead), and a change at a path is made to that
+machine, which plays it in the parent's spans.
+
+`Interaction` plays a file as a user does. `set(time, input, value)` (or `set_at` with a path) changes an
+input; `pointer(time, kind, point)` hit-tests the listeners' shapes at a point of the scene, nested
+artboards' too ([`Scene::hit_rect`](./scene-model.md#hit-tests): the box 2 units around the pointer
+against their outlines under the non-zero rule, painted or not, front to back, a shape flagged opaque
+hiding what is behind it, as Rive hits them) and makes what they do. A pointer pressed on a listener's
+shape drags it as it moves, wherever it goes, from its second move (Rive's web runtime starts the drag with
+the first). An event a listener fires reaches the listeners listening for it: its machine's own, then its
+nested artboard's parent's, and on up (only the file's own reach the app, as cues). Each change reads the
+file again (`import()`). A press, a release and a finger lifted act at once, as Rive's web runtime
 advances the machine by nothing after them; a move, a leaving and an input set by hand act from the next
 frame. A node moved to the pointer holds there, or moves as far as the pointer did when it keeps its
 offset, until a key moves it again.
@@ -118,9 +128,10 @@ let player: VectorAnimationRef | undefined;
 <Button onPress={() => player?.setInput("open", true)}><Text>Open</Text></Button>
 ```
 
-The CLI renders with changes (`--input open=true@0.5`, `--input bounce@1` fires a trigger) and pointers
-(`--pointer down:215,212@1 --pointer lift:215,212@1.05`), and `inspect` lists the inputs and the listeners
-with where their shapes are.
+The CLI renders with changes (`--input open=true@0.5`, `--input bounce@1` fires a trigger,
+`--input '#7/hover=true@1'` a nested artboard's machine's) and pointers (`--pointer down:215,212@1 --pointer
+lift:215,212@1.05`, printing what they change), and `inspect` lists the machines, their inputs and their
+listeners with where their shapes are.
 
 ```sh
 vector-animation inspect icons.riv                      # artboard size, one marker per animation
@@ -145,9 +156,9 @@ The player reports each cue as playback passes it (`onCue`), and those listeners
 
 What a file holds beyond that is left out with a warning (`Import::warnings`, `inspect`, `onLoad`):
 
-- conditions and blends on view models, other state machines than the default, listeners on nested
-  artboards and drags, listeners changing view models, a nested artboard's events, audio and data
-  binding;
+- conditions and blends on view models, other state machines than the default, listeners changing view
+  models, the events a nested artboard's state machine fires as it plays (those its listeners fire reach
+  its parent), audio and data binding;
 - text variation and follow-path modifiers and text ellipses, layout, draggable and scroll constraints,
   scripting and audio.
 

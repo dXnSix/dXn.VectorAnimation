@@ -213,8 +213,18 @@ The core gains what Rive needs, each with the reference renderer's drawing and t
    `reportKeyedCallbacks` passes them, with their delays) are the timeline's cues (`Timeline::cues`) at the
    moments they happen, with their custom properties and links; listeners' `ListenerFireEvent` come from
    `Interaction::take_fired`. The player reports cues as playback passes them (`onCue`). Rive's web runtime
-   reports the same events a frame later, with their delays. **Still to come**: listeners on nested
-   artboards and drags, a nested artboard's events.
+   reports the same events a frame later, with their delays. **Done: nested listeners and drags**:
+   `machine` reads the machines nested artboards play as a tree at paths (`#index/#index`), their
+   listeners' shapes under scene ids scoped by their nested artboard (`12/5`); `InputChange::path` and
+   `Aligned::path` address them, the nested converter plays them in the parent's spans (no longer sharing
+   windows), and the root plays on until changed nested machines settle. `Interaction` hit-tests every
+   machine's listeners front to back in the scene's draw order (opaque targets block), runs drags from the
+   second move after a press (as the web runtime does), and passes listener-fired events up through
+   `ListenerType::event` listeners. Fixed on the way: in the frame a layer changes state, what the new state
+   leaves alone keeps the previous frame's value (the icon set's flower, 4.5% → 0.08%). Checked against
+   Rive's web runtime: the test files draw the same; the icon set hovered and the tabbar's nested buttons
+   clicked stay at their baselines. **Still to come**: the events a nested artboard's machine fires as it
+   plays.
 9. **View models and data binding** (phase 4): view models, instances and bindings to properties and
    conditions, with converters; layout components laid out at import for the artboard's size.
 10. **Out of scope for now:** Luau scripting, audio, open-URL events (reported to the app as events), text
