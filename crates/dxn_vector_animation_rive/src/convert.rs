@@ -212,7 +212,7 @@ const VM_TRIGGER: usize = 1 << 30;
 pub(crate) const DT: f64 = 1.0 / 60.0;
 
 /// The frames a state machine is played over at most (ten minutes).
-const MAX_FRAMES: usize = 10 * 60 * 60;
+pub(crate) const MAX_FRAMES: usize = 10 * 60 * 60;
 
 /// A state machine ready to play: its layers' states, the animations they
 /// play, their frame rates, and its inputs' values.

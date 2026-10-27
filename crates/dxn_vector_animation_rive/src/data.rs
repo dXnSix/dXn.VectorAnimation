@@ -8,10 +8,14 @@
 //! machine's bindable property (what view model conditions and blends
 //! read).
 
-use std::collections::{BTreeSet, HashMap};
+use std::{
+    cell::RefCell,
+    collections::{BTreeSet, HashMap},
+};
 
 use crate::{
-    convert::interpolator,
+    convert::{DT, interpolator},
+    curve::Interp,
     defs::{self, Field, props as p, types as t},
     file::{BindTarget, Converter, File, Instance, Object, Value, is_a},
 };
@@ -206,6 +210,7 @@ fn contexts(file: &File, root: usize) -> Option<HashMap<usize, Context>> {
                 converters: &file.converters,
                 context: &context,
                 overlay: &empty,
+                clock: None,
             };
             let path = varuints(o.bytes(p::NESTED_ARTBOARD_DATA_BIND_PATH_IDS));
             let inner = binder
@@ -247,7 +252,15 @@ pub(crate) fn bind_default(
     }
     let root = contexts[&artboard].clone();
     let empty = HashMap::new();
-    let (converters, sets) = evaluate(file, &contexts, &root, &empty, &mut warnings);
+    let advancers: Advancers = RefCell::new(HashMap::new());
+    let (converters, sets) = evaluate(
+        file,
+        &contexts,
+        &root,
+        &empty,
+        Some((&advancers, 0)),
+        &mut warnings,
+    );
     file.converters = converters;
     let mut previous: HashMap<(BindTarget, u16), Value> = HashMap::new();
     for (target, key, value, _) in sets {
@@ -258,19 +271,37 @@ pub(crate) fn bind_default(
             previous.insert((target, key), value);
         }
     }
-    // The changes, each time they are made at in turn.
+    // The changes, each in the frame Rive makes it in; frame by frame
+    // while an interpolating converter eases one: what the bindings set
+    // in a frame, before its converters advance.
+    let frame_of =
+        |t: f64| ((t.max(0.0) / DT - 1e-6).ceil() as usize).min(crate::convert::MAX_FRAMES);
     let mut changes: Vec<&crate::ValueChange> =
         changes.iter().filter(|c| c.time.is_finite()).collect();
     changes.sort_by(|a, b| a.time.total_cmp(&b.time));
     let mut overlay: HashMap<Slot, Data> = HashMap::new();
     let mut k = 0;
-    while k < changes.len() {
-        let time = changes[k].time.max(0.0);
+    let mut frame = 0;
+    let mut first = true;
+    // Whether a converter moved in the last frame: the next shows where.
+    let mut moved = false;
+    loop {
+        let moving = std::mem::take(&mut moved);
+        let next = changes.get(k).map(|c| frame_of(c.time));
+        frame = match (moving, next) {
+            (true, _) if !first => frame + 1,
+            (_, Some(n)) => n.max(if first { 0 } else { frame + 1 }),
+            (true, None) => frame,
+            (false, None) => break,
+        };
+        first = false;
+        if frame > crate::convert::MAX_FRAMES {
+            break;
+        }
+        let time = frame as f64 * DT;
         let mut changed: BTreeSet<Slot> = BTreeSet::new();
-        while k < changes.len() && changes[k].time.max(0.0) == time {
-            let c = changes[k];
-            k += 1;
-            match change(file, &root, &mut overlay, c) {
+        while k < changes.len() && frame_of(changes[k].time) <= frame {
+            match change(file, &root, &mut overlay, changes[k]) {
                 Ok(Some(slot)) => {
                     changed.insert(slot);
                 }
@@ -279,43 +310,60 @@ pub(crate) fn bind_default(
                     warnings.insert(warning);
                 }
             }
-        }
-        if changed.is_empty() {
-            continue;
+            k += 1;
         }
         let mut ignored = BTreeSet::new();
-        let (_, sets) = evaluate(file, &contexts, &root, &overlay, &mut ignored);
-        for (target, key, value, slot) in sets {
-            let at = match target {
-                BindTarget::Object { artboard, index } => Some((artboard, index, usize::MAX)),
-                BindTarget::Bindable {
-                    artboard,
-                    machine,
-                    index,
-                } => Some((artboard, machine, index)),
-                BindTarget::Converter { .. } | BindTarget::Other => None,
-            };
-            let Some(at) = at else { continue };
-            if changed.contains(&slot) && at.2 != usize::MAX {
-                file.bound.changed.entry(at).or_default().push(time);
+        {
+            let (_, sets) = evaluate(
+                file,
+                &contexts,
+                &root,
+                &overlay,
+                Some((&advancers, frame)),
+                &mut ignored,
+            );
+            for (target, key, value, slot) in sets {
+                let at = match target {
+                    BindTarget::Object { artboard, index } => (artboard, index, None),
+                    BindTarget::Bindable {
+                        artboard,
+                        machine,
+                        index,
+                    } => (artboard, machine, Some(index)),
+                    BindTarget::Converter { .. } | BindTarget::Other => continue,
+                };
+                if let Some(index) = at.2
+                    && changed.contains(&slot)
+                {
+                    file.bound
+                        .changed
+                        .entry((at.0, at.1, index))
+                        .or_default()
+                        .push(time);
+                }
+                let Some(value) = value else { continue };
+                if previous.get(&(target, key)) == Some(&value) {
+                    continue;
+                }
+                previous.insert((target, key), value.clone());
+                match at.2 {
+                    None => file
+                        .bound
+                        .objects
+                        .entry((at.0, at.1, key))
+                        .or_default()
+                        .push((time, value)),
+                    Some(index) => file
+                        .bound
+                        .bindables
+                        .entry((at.0, at.1, index))
+                        .or_default()
+                        .push((time, key, value)),
+                }
             }
-            let Some(value) = value else { continue };
-            if previous.get(&(target, key)) == Some(&value) {
-                continue;
-            }
-            previous.insert((target, key), value.clone());
-            if at.2 == usize::MAX {
-                file.bound
-                    .objects
-                    .entry((at.0, at.1, key))
-                    .or_default()
-                    .push((time, value));
-            } else {
-                file.bound
-                    .bindables
-                    .entry(at)
-                    .or_default()
-                    .push((time, key, value));
+            for a in advancers.borrow_mut().values_mut() {
+                moved |= a.moving();
+                a.advance(DT as f32);
             }
         }
     }
@@ -336,6 +384,7 @@ fn change(
         converters: &file.converters,
         context,
         overlay,
+        clock: None,
     };
     let Some(slot) = binder.named(&c.path) else {
         return Err(format!("view model changes: no property {:?}", c.path));
@@ -400,6 +449,7 @@ pub(crate) fn listener_change(
         converters: &file.converters,
         context: contexts.get(&artboard)?,
         overlay: &overlay,
+        clock: None,
     };
     let o = &bind.object;
     let flags = o.uint(p::DATA_BIND_FLAGS);
@@ -455,6 +505,7 @@ pub(crate) fn bindable_source(
         converters: &file.converters,
         context: contexts.get(&artboard)?,
         overlay: &overlay,
+        clock: None,
     };
     binder.path_to(binder.source(&bind.object)?)
 }
@@ -476,6 +527,7 @@ pub(crate) fn trigger_path(
         converters: &file.converters,
         context: contexts.get(&artboard)?,
         overlay: &overlay,
+        clock: None,
     };
     let ids = varuints(o.bytes(p::STATE_MACHINE_FIRE_TRIGGER_VIEW_MODEL_PATH_IDS));
     let slot = if o.flag(crate::file::RELATIVE_PATH) {
@@ -536,6 +588,7 @@ fn evaluate(
     contexts: &HashMap<usize, Context>,
     root: &[(usize, Option<usize>)],
     overlay: &HashMap<Slot, Data>,
+    clock: Option<(&Advancers, usize)>,
     warnings: &mut BTreeSet<String>,
 ) -> (Vec<Converter>, Vec<Set>) {
     let mut converters = file.converters.clone();
@@ -544,7 +597,7 @@ fn evaluate(
     // with.
     for of_converters in [true, false] {
         let mut sets = Vec::new();
-        for bind in file.binds.iter().filter(|b| {
+        for (i, bind) in file.binds.iter().enumerate().filter(|(_, b)| {
             ours(b.target, contexts)
                 && matches!(b.target, BindTarget::Converter { .. }) == of_converters
         }) {
@@ -559,6 +612,11 @@ fn evaluate(
                 converters: &converters,
                 context,
                 overlay,
+                clock: clock.map(|(advancers, frame)| Clock {
+                    advancers,
+                    bind: i,
+                    frame,
+                }),
             };
             match binder.bound(&bind.object, bind.target) {
                 Ok(Some(set)) => sets.push(set),
@@ -675,6 +733,22 @@ struct Binder<'a> {
     context: &'a [(usize, Option<usize>)],
     /// Values changed from the instances'.
     overlay: &'a HashMap<Slot, Data>,
+    /// Where interpolating converters are, playing over time (else they
+    /// pass values on as they first do).
+    clock: Option<Clock<'a>>,
+}
+
+/// The interpolating converters of a file's bindings, each by its binding
+/// and converter (each binding's own, as Rive clones converters).
+type Advancers = RefCell<HashMap<(usize, usize), Advancer>>;
+
+/// Where a binding converts: the interpolating converters, the binding (an
+/// index of `File::binds`) and the frame.
+#[derive(Clone, Copy)]
+struct Clock<'a> {
+    advancers: &'a Advancers,
+    bind: usize,
+    frame: usize,
 }
 
 impl Binder<'_> {
@@ -1060,8 +1134,25 @@ impl Binder<'_> {
                     self.map_range(o, input, c, d, a, b)
                 }
             }
-            // As it first converts a value: the value, until it changes.
-            t::DATA_CONVERTER_INTERPOLATOR => input,
+            // Easing a change over its duration, frame by frame (with no
+            // clock, as it first converts a value: the value).
+            t::DATA_CONVERTER_INTERPOLATOR => match self.clock {
+                Some(clock) => {
+                    let duration = f32_of(o, p::DATA_CONVERTER_INTERPOLATOR_DURATION);
+                    let ease = o
+                        .id(p::DATA_CONVERTER_INTERPOLATOR_INTERPOLATOR_ID)
+                        .and_then(|i| self.file.interpolators.get(i))
+                        .map(interpolator);
+                    let mut advancers = clock.advancers.borrow_mut();
+                    let a = advancers
+                        .entry((clock.bind, c))
+                        .or_insert_with(Advancer::default);
+                    a.duration = duration;
+                    a.ease = ease;
+                    a.convert(input, clock.frame < 2)
+                }
+                None => input,
+            },
             t::DATA_CONVERTER_FORMULA => return unbound("formula"),
             t::DATA_CONVERTER_NUMBER_TO_LIST | t::DATA_CONVERTER_LIST_TO_LENGTH => {
                 return unbound("list");
@@ -1540,4 +1631,162 @@ fn varuints(bytes: &[u8]) -> Vec<u64> {
         }
     }
     out
+}
+
+/// An interpolating converter as it plays (`InterpolatorAdvancer`): the
+/// change it eases (a second while it smooths one made during another),
+/// and the value it puts out.
+#[derive(Debug, Clone, Default)]
+struct Advancer {
+    tracks: [Track; 2],
+    smoothing: bool,
+    current: Option<Data>,
+    duration: f32,
+    ease: Option<Interp>,
+}
+
+/// A change an [`Advancer`] eases (`InterpolatorAnimationData`).
+#[derive(Debug, Clone, Default)]
+struct Track {
+    from: Option<Data>,
+    to: Option<Data>,
+    elapsed: f32,
+}
+
+impl Track {
+    /// Its value `f` of the way (`DataValue::interpolate`): numbers mixed,
+    /// colors channel by channel; others as they were (`None`).
+    fn at(&self, f: f32) -> Option<Data> {
+        Some(match (self.from.as_ref()?, self.to.as_ref()?) {
+            (Data::Number(a), Data::Number(b)) => Data::Number(b * f + a * (1.0 - f)),
+            (Data::Color(a), Data::Color(b)) => {
+                let (a, b) = (a.to_be_bytes(), b.to_be_bytes());
+                let lerp = |x: u8, y: u8| {
+                    (f32::from(x) * (1.0 - f) + f32::from(y) * f)
+                        .clamp(0.0, 255.0)
+                        .round() as u8
+                };
+                Data::Color(u32::from_be_bytes([
+                    lerp(a[0], b[0]),
+                    lerp(a[1], b[1]),
+                    lerp(a[2], b[2]),
+                    lerp(a[3], b[3]),
+                ]))
+            }
+            _ => return None,
+        })
+    }
+}
+
+impl Advancer {
+    /// The track playing (the second while smoothing).
+    fn which(&self) -> usize {
+        usize::from(self.smoothing)
+    }
+
+    /// Whether it has a change still to ease.
+    fn moving(&self) -> bool {
+        self.current.is_some() && self.tracks[self.which()].to != self.current
+    }
+
+    /// `input` converted (`DataConverterInterpolator::convert`): in its
+    /// first runs taken as it is, after them eased toward.
+    fn convert(&mut self, input: Data, first_run: bool) -> Data {
+        if !matches!(input, Data::Number(_) | Data::Color(_)) {
+            return input;
+        }
+        if self.duration == 0.0 && self.current.is_some() {
+            self.reset(&input);
+            self.smoothing = false;
+            self.tracks[0].elapsed = 0.0;
+            self.tracks[1].elapsed = 0.0;
+            return input;
+        }
+        if self.current.is_none() || first_run {
+            self.reset(&input);
+        } else {
+            self.update(input);
+        }
+        self.current.clone().unwrap_or(Data::Other)
+    }
+
+    /// Holds `input` (`resetValues`).
+    fn reset(&mut self, input: &Data) {
+        let t = &mut self.tracks[usize::from(self.smoothing)];
+        t.from = Some(input.clone());
+        t.to = Some(input.clone());
+        self.current = Some(input.clone());
+    }
+
+    /// Eases toward `input` from where it is (`updateValues`).
+    fn update(&mut self, input: Data) {
+        let w = self.which();
+        if self.tracks[w].to.as_ref() == Some(&input) {
+            return;
+        }
+        if self.tracks[w].elapsed != 0.0 {
+            if self.smoothing {
+                self.tracks[0] = self.tracks[1].clone();
+            }
+            self.smoothing = true;
+        } else {
+            self.smoothing = false;
+        }
+        let w = self.which();
+        self.tracks[w].from = self.current.clone();
+        self.tracks[w].to = Some(input);
+        self.tracks[w].elapsed = 0.0;
+    }
+
+    /// The fraction of its duration `elapsed` is, eased.
+    fn eased(&self, elapsed: f32) -> f32 {
+        let f = if self.duration > 0.0 {
+            (elapsed / self.duration).min(1.0)
+        } else {
+            1.0
+        };
+        match self.ease {
+            Some(ease) => ease.transform(f64::from(f)) as f32,
+            None => f,
+        }
+    }
+
+    /// Plays on `seconds` (`InterpolatorAdvancer::advance`).
+    fn advance(&mut self, seconds: f32) {
+        if !self.moving() || seconds == 0.0 {
+            return;
+        }
+        if self.smoothing {
+            let f = self.eased(self.tracks[0].elapsed);
+            if let Some(v) = self.tracks[0].at(f) {
+                self.tracks[1].from = Some(v);
+            }
+            if f == 1.0 {
+                self.tracks[0] = self.tracks[1].clone();
+                self.smoothing = false;
+            } else {
+                self.tracks[0].elapsed += seconds;
+            }
+        }
+        // The track playing once the smoothing is done with (as Rive's web
+        // runtime has it: no frame lost handing over).
+        let w = self.which();
+        if self.tracks[w].elapsed >= self.duration {
+            self.current = self.tracks[w].to.clone();
+            if self.smoothing {
+                self.smoothing = false;
+                self.tracks[0] = self.tracks[1].clone();
+                self.tracks[0].elapsed = 0.0;
+                self.tracks[1].elapsed = 0.0;
+            } else {
+                self.tracks[0].elapsed = 0.0;
+            }
+            return;
+        }
+        self.tracks[w].elapsed += seconds;
+        let f = self.eased(self.tracks[w].elapsed);
+        if let Some(v) = self.tracks[w].at(f) {
+            self.current = Some(v);
+        }
+    }
 }

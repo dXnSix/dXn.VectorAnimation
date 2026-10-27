@@ -61,6 +61,8 @@ mod dt {
     pub const DATA_BIND_PATH_PATH: u16 = 920;
     pub const DATA_BIND_PATH_RELATIVE: u16 = 921;
     pub const FIRE_TRIGGER: u16 = 614;
+    pub const INTERPOLATOR: u16 = 534;
+    pub const INTERPOLATOR_DURATION: u16 = 756;
 }
 
 /// A view model with a number "level" (property 0) and a color "tint"
@@ -1045,4 +1047,72 @@ fn a_layer_before_the_one_firing_a_trigger_follows_in_its_frame() {
     let s = scene(&firing(false));
     assert_eq!(color_at(&s, 0.48, 10, 25), RED);
     assert_eq!(color_at(&s, 0.5, 70, 25), RED);
+}
+
+/// "level" (10) eased by an interpolating converter of 1 s into a red
+/// square's x, 25 down, and "tint" (red) through the same converter into
+/// the color of another at (80, 50), under an empty state machine.
+fn eased() -> Riv {
+    let riv = Riv::new()
+        .obj(dt::INTERPOLATOR, &[(dt::INTERPOLATOR_DURATION, V::D(1.0))])
+        .obj(ty::VIEW_MODEL, &[(key::VM_NAME, V::S("Game"))])
+        .obj(ty::VM_NUMBER, &[(key::VM_NAME, V::S("level"))])
+        .obj(ty::VM_COLOR, &[(key::VM_NAME, V::S("tint"))])
+        .obj(ty::VM_INSTANCE, &[(key::VM_INSTANCE_VM, V::U(0))])
+        .obj(
+            ty::VM_INSTANCE_NUMBER,
+            &[
+                (key::VM_VALUE_PROPERTY, V::U(0)),
+                (key::VM_NUMBER_VALUE, V::D(10.0)),
+            ],
+        )
+        .obj(
+            ty::VM_INSTANCE_COLOR,
+            &[
+                (key::VM_VALUE_PROPERTY, V::U(1)),
+                (key::VM_COLOR_VALUE, V::C(0xFFFF_0000)),
+            ],
+        );
+    let riv = square(
+        bound_artboard(riv),
+        0,
+        (0.0, 25.0),
+        0xFFFF_0000,
+        Some((&[0, 0], Some(0))),
+        None,
+    );
+    let riv = riv.rect_shape(0, 80.0, 50.0, 10.0, 10.0, 0xFF00_0000);
+    bind(riv, key::COLOR, &[0, 1], Some(0))
+        .obj(
+            ty::STATE_MACHINE,
+            &[(key::ANIMATION_NAME, V::S("State Machine 1"))],
+        )
+        .obj(ty::STATE_MACHINE_LAYER, &[])
+        .obj(ty::ENTRY_STATE, &[])
+        .obj(ty::ANY_STATE, &[])
+        .obj(ty::EXIT_STATE, &[])
+}
+
+#[test]
+fn interpolating_converters_ease_changes_over_their_duration() {
+    let riv = eased();
+    // To 70 at 0.5 s: halfway (40) at 1 s, there at 1.5 s.
+    let s = changed(&riv, &[(0.5, "level", PropertyValue::Number(70.0))]);
+    assert_eq!(color_at(&s, 0.4, 10, 25), RED);
+    assert_eq!(color_at(&s, 1.0, 40, 25), RED);
+    assert_eq!(color_at(&s, 1.0, 10, 25), WHITE);
+    assert_eq!(color_at(&s, 1.7, 70, 25), RED);
+    // Red to blue, halfway at 1 s.
+    let s = changed(&riv, &[(0.5, "tint", PropertyValue::Color(0xFF00_00FF))]);
+    assert_eq!(color_at(&s, 1.0, 80, 50), [127, 0, 128]);
+    assert_eq!(color_at(&s, 1.6, 80, 50), BLUE);
+    // Back to 10 at 1 s, from where it is.
+    let s = changed(
+        &riv,
+        &[
+            (0.5, "level", PropertyValue::Number(70.0)),
+            (1.0, "level", PropertyValue::Number(10.0)),
+        ],
+    );
+    assert_eq!(color_at(&s, 2.2, 10, 25), RED);
 }
