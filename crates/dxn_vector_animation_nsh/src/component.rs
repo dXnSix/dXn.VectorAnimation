@@ -163,6 +163,10 @@ fn passed(
 pub struct AnimationInput {
     /// Its name.
     pub name: String,
+    /// The nested artboards whose state machine it is (`#` and each one's
+    /// index, `/` between), empty for the file's own: what `setInputAt`
+    /// and `fireAt` take.
+    pub path: String,
     /// What it holds: `"bool"`, `"number"` or `"trigger"`.
     pub kind: String,
     /// Its value at first (a bool's 0 or 1; a trigger's 0).
@@ -237,7 +241,20 @@ impl VectorAnimationApi {
     /// a number, as the load info's `inputs` has it) now: the machine plays
     /// on from here as Rive plays it with the change.
     pub fn set_input(&self, name: String, value: InputSetting) {
+        self.set_input_at(String::new(), name, value);
+    }
+
+    /// Fires a Rive file's state machine trigger `name` now.
+    pub fn fire(&self, name: String) {
+        self.fire_at(String::new(), name);
+    }
+
+    /// Sets input `name` of the state machine a nested artboard plays,
+    /// at `path` (the nested artboards' names, or `#` and their indices,
+    /// `/` between, as the load info's `inputs` has it), to `value` now.
+    pub fn set_input_at(&self, path: String, name: String, value: InputSetting) {
         (self.act)(Act::Set(
+            path,
             name,
             match value {
                 InputSetting::Bool(b) => InputValue::Bool(b),
@@ -246,9 +263,10 @@ impl VectorAnimationApi {
         ));
     }
 
-    /// Fires a Rive file's state machine trigger `name` now.
-    pub fn fire(&self, name: String) {
-        (self.act)(Act::Set(name, InputValue::Fire));
+    /// Fires trigger `name` of the state machine a nested artboard plays,
+    /// at `path`, now.
+    pub fn fire_at(&self, path: String, name: String) {
+        (self.act)(Act::Set(path, name, InputValue::Fire));
     }
 }
 
@@ -260,8 +278,8 @@ pub const POINTER_TEST_ID: &str = "vector-animation-pointer";
 enum Act {
     /// A pointer over the scene (in its coordinates).
     Pointer(Pointer, Point),
-    /// An input set.
-    Set(String, InputValue),
+    /// An input set: the path of its machine, its name.
+    Set(String, String, InputValue),
 }
 
 /// A Rive file's state machine as the user plays it: the changes still to
@@ -287,7 +305,7 @@ fn make(play: &mut Interaction, batch: Vec<(f64, Act)>) -> bool {
     for (t, act) in batch {
         let made = match act {
             Act::Pointer(kind, at) => play.pointer(t, kind, at),
-            Act::Set(name, value) => play.set(t, &name, value).map(|()| true),
+            Act::Set(path, name, value) => play.set_at(t, &path, &name, value).map(|()| true),
         };
         match made {
             Ok(c) => changed |= c,
@@ -410,6 +428,7 @@ pub fn VectorAnimation(
                             };
                             AnimationInput {
                                 name: c.input.clone(),
+                                path: c.path.clone(),
                                 kind: kind.into(),
                                 value,
                             }
@@ -544,7 +563,7 @@ pub fn VectorAnimation(
                     let listens = play
                         .as_ref()
                         .and_then(Interaction::machine)
-                        .is_some_and(|m| !m.listeners.is_empty());
+                        .is_some_and(|m| m.all().iter().any(|m| !m.listeners.is_empty()));
                     interacting.with(|i| i.play = play);
                     ready.set(Some(Rc::new(Ready::of(loaded, listens))));
                     cx.emit(VectorAnimationEvent::Load(info));
@@ -1042,19 +1061,22 @@ fn info(loaded: &Loaded) -> AnimationInfo {
             .as_ref()
             .and_then(Interaction::machine)
             .map(|m| {
-                m.inputs
-                    .iter()
-                    .map(|i| {
-                        let (kind, value) = match i.kind {
-                            InputKind::Bool(b) => ("bool", f64::from(u8::from(b))),
-                            InputKind::Number(n) => ("number", n),
-                            InputKind::Trigger => ("trigger", 0.0),
-                        };
-                        AnimationInput {
-                            name: i.name.clone(),
-                            kind: kind.into(),
-                            value,
-                        }
+                m.all()
+                    .into_iter()
+                    .flat_map(|m| {
+                        m.inputs.iter().map(|i| {
+                            let (kind, value) = match i.kind {
+                                InputKind::Bool(b) => ("bool", f64::from(u8::from(b))),
+                                InputKind::Number(n) => ("number", n),
+                                InputKind::Trigger => ("trigger", 0.0),
+                            };
+                            AnimationInput {
+                                name: i.name.clone(),
+                                path: m.path.clone(),
+                                kind: kind.into(),
+                                value,
+                            }
+                        })
                     })
                     .collect()
             })
