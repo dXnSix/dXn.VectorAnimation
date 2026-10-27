@@ -11,13 +11,13 @@
   "status": "",
   "createdAt": "2026-10-27T20:14:29Z",
   "finishedAt": null,
-  "lastStableCommit": "100fa1665a284c95e4b3435c55c50d019f76e70c",
+  "lastStableCommit": "005e0f9d7835d4afafd5771f00e15a52c10c3a2a",
   "repositories": [
     {
       "name": "main",
       "path": ".",
       "role": "main",
-      "lastStableCommit": "100fa1665a284c95e4b3435c55c50d019f76e70c"
+      "lastStableCommit": "005e0f9d7835d4afafd5771f00e15a52c10c3a2a"
     }
   ],
   "atomicDiscipline": {
@@ -28,8 +28,8 @@
     "successfulAttemptRequiresCommitBeforeNextExperiment": true,
     "rule": "Run exactly the printed hypothesis. If the attempted change fails, degrades, or suggests a different fix, revert to the checkpoint and finish this experiment as failure. Start a new experiment for the next idea."
   },
-  "currentExperimentId": "bf7511e3-3004-478d-a1b6-388b89e43ce4",
-  "nextExperimentIndex": 43,
+  "currentExperimentId": "451658a6-9fb8-4d38-b5d3-adaafdead367",
+  "nextExperimentIndex": 44,
   "experiments": [
     {
       "id": "f0287285-7a36-4cb5-8eef-94cdd163e5a7",
@@ -526,6 +526,18 @@
       "name": "Still scenes known without sampled frames",
       "path": "2026-10-27-42-still-scenes-known-without-sampled-frames.json",
       "startedAt": "2026-10-27T21:52:28Z",
+      "finishedAt": "2026-10-27T21:54:06Z",
+      "state": "done",
+      "status": "success",
+      "resultCommit": "005e0f9d7835d4afafd5771f00e15a52c10c3a2a"
+    },
+    {
+      "id": "451658a6-9fb8-4d38-b5d3-adaafdead367",
+      "index": 43,
+      "type": "hypothesis",
+      "name": "Blur written back in a flat pass",
+      "path": "2026-10-27-43-blur-written-back-in-a-flat-pass.json",
+      "startedAt": "2026-10-27T21:54:55Z",
       "finishedAt": null,
       "state": "running",
       "status": ""

@@ -1049,6 +1049,11 @@ fn blur(pixmap: &mut sk::Pixmap, sx: f64, sy: f64) {
     if sy > 0.0 {
         blur_columns(&mut data, w * 4, sy);
     }
+    // Rounded into bytes, all at once; then no channel above its alpha
+    // (premultiplied).
+    for v in &mut data {
+        *v = v.round().clamp(0.0, 255.0);
+    }
     let out = pixmap.data_mut();
     for (px, v) in out
         .as_chunks_mut::<4>()
@@ -1056,12 +1061,13 @@ fn blur(pixmap: &mut sk::Pixmap, sx: f64, sy: f64) {
         .iter_mut()
         .zip(data.as_chunks::<4>().0)
     {
-        let a = v[3].round().clamp(0.0, 255.0);
-        px[3] = a as u8;
-        for c in 0..3 {
-            // Premultiplied: no channel above the alpha.
-            px[c] = v[c].round().clamp(0.0, a) as u8;
-        }
+        let a = v[3];
+        *px = [
+            v[0].clamp(0.0, a) as u8,
+            v[1].clamp(0.0, a) as u8,
+            v[2].clamp(0.0, a) as u8,
+            a as u8,
+        ];
     }
 }
 
