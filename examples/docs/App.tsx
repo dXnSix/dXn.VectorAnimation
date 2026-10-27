@@ -9,8 +9,10 @@
 // plays one of them alone on the page's background (the home page's hero).
 // The Rive files (`--rive fixtures/docs`, written as their bytes) play live:
 // `rive-switch` (a listener), `rive-events` (the cues it fires) and
-// `rive-progress` (a view model set from the page); `rive-files`, a grid of
-// community files fetched from beside the app (`rive/`, `--rive-files`).
+// `rive-progress` (a view model set from the page). The Rive community files
+// are fetched from beside the app (`rive/`, `--rive-files`): `rive-file-<name>`
+// plays one with its name under it, `rive-hero-<name>` plays it alone on the
+// page's background (the home page's hero).
 import { host, mount, Scroll, signal, Text, View } from "nsh";
 import { Button } from "nsh/base";
 import { VectorAnimation, type VectorAnimationRef } from "dxn-vector-animation";
@@ -270,48 +272,31 @@ function RiveProgress() {
 }
 
 /**
- * The Rive community files, a tile each, fetched from beside the app and
- * played as they are (a pointer over one reaches its listeners); the frame
- * is as tall as the grid.
+ * One Rive community file filling the frame, fetched from beside the app;
+ * `bare`, alone on the page's background, else with its name under it.
  */
-function RiveFiles() {
-  // Each file's URL beside the page, made absolute by the page's host.
-  const urls = signal<string[] | undefined>(undefined);
-  // The tiles given their file so far: one after another, as the web reads
-  // a file on the page's one thread (a few seconds for the largest).
-  const shown = signal(1);
-  const next = (i: number) => shown.set(Math.max(shown(), i + 2));
-  Promise.all(riveFiles.map(([, url]) => host.call("url", url).then((u) => String(u))))
-    .then((list) => urls.set(list))
-    .catch(() => urls.set([]));
+function RiveFile(props: { name: string; url: string; bare?: boolean }) {
+  const src = signal<string | undefined>(undefined);
+  const error = signal("");
+  host
+    .call("url", props.url)
+    .then((u) => src.set(String(u)))
+    .catch(() => error.set("no URL"));
   return (
-    <View
-      style={{ padding: 12, flexDirection: "row", flexWrap: "wrap", gap: 14, justifyContent: "center" }}
-      onLayout={(e) => {
-        host.call("height", Math.ceil(e.size.height)).catch(() => {});
-      }}
-    >
-      {(urls() ?? []).map((url, i) => {
-        const name = riveFiles[i]?.[0] ?? url;
-        const error = signal("");
-        return (
-          <View style={{ width: 240, flexShrink: 0, gap: 4, alignItems: "center" }}>
-            <VectorAnimation
-              ignoreReduceMotion
-              src={i < shown() ? url : undefined}
-              style={{ width: 240, height: 180, borderWidth: 1, borderColor: "#e5e7eb", borderRadius: 8 }}
-              accessibilityLabel={name}
-              onLoad={() => next(i)}
-              onError={(e) => {
-                error.set(e);
-                next(i);
-              }}
-            />
-            <Text style={{ fontSize: 12, opacity: 0.7 }}>{error() ? `${name}: ${error()}` : name}</Text>
-          </View>
-        );
-      })}
-      {riveFiles.length === 0 ? <Text style={{ opacity: 0.7 }}>No Rive files.</Text> : null}
+    <View style={{ flex: 1, padding: props.bare ? 0 : 10, gap: 8 }}>
+      <View style={{ flex: 1 }}>
+        <VectorAnimation
+          ignoreReduceMotion
+          src={src()}
+          style={{ width: "100%", height: "100%" }}
+          accessibilityLabel={props.name}
+          onLoad={ready}
+          onError={(e) => error.set(e)}
+        />
+      </View>
+      {props.bare && !error() ? null : (
+        <Text style={{ fontSize: 12, opacity: 0.6, textAlign: "center" }}>{error() || props.name}</Text>
+      )}
     </View>
   );
 }
@@ -408,7 +393,7 @@ function App() {
     .then((d) => demo.set(typeof d === "string" ? d : ""))
     .catch(() => demo.set(""));
   return (
-    <View style={{ flex: 1, backgroundColor: demo()?.startsWith("file-") ? "transparent" : "#ffffff" }}>
+    <View style={{ flex: 1, backgroundColor: /^(file|rive-hero)-/.test(demo() ?? "") ? "transparent" : "#ffffff" }}>
       {(() => {
         const d = demo();
         if (d === undefined) return null;
@@ -419,7 +404,8 @@ function App() {
         if (d === "rive-switch") return <RiveSwitch />;
         if (d === "rive-events") return <RiveEvents />;
         if (d === "rive-progress") return <RiveProgress />;
-        if (d === "rive-files") return <RiveFiles />;
+        const riveFile = riveFiles.find(([name]) => `rive-file-${name}` === d || `rive-hero-${name}` === d);
+        if (riveFile) return <RiveFile name={riveFile[0]} url={riveFile[1]} bare={d.startsWith("rive-hero-")} />;
         if (d in GALLERY) return <Files group={GALLERY[d as keyof typeof GALLERY]} />;
         const src = named.get(d);
         if (src !== undefined) return <Single src={src} name={d} />;

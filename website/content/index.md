@@ -13,14 +13,14 @@ install: |
   dxn_vector_animation = { git = "https://github.com/dXnSix/dXn.VectorAnimation", branch = "main" }
   dxn_vector_animation_svg = { git = "https://github.com/dXnSix/dXn.VectorAnimation", branch = "main" }
 facts:
-  - { label: Inputs, value: "SVG (CSS, SMIL), Lottie, dotLottie" }
+  - { label: Inputs, value: "SVG (CSS, SMIL), Lottie, dotLottie, Rive" }
   - { label: Rust, value: "1.97+, edition 2024" }
   - { label: Core targets, value: "native and wasm32" }
   - { label: Player, value: "NSH, 7 platforms checked" }
   - { label: Unsafe, value: "forbidden" }
   - { label: License, value: "MIT OR Apache-2.0" }
-heroExample: file-dotlottie-alphabet-a
-heroExampleTitle: An animated letter A, playing from a dotLottie file
+heroExample: rive-hero-dress-up
+heroExampleTitle: An owl to dress up, playing live from a Rive file (hover over the flowers, click one)
 features:
   - title: Figma Motion's SVG
     text: CSS @keyframes the way Figma Motion writes them, SMIL with begin and end times, events and accumulation, filters as effects, live text and patterns.

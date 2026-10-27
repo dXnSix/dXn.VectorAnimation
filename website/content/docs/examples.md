@@ -1,6 +1,6 @@
 ---
 title: Examples
-description: A gallery of free animations, Rive files played live (the importer's and the Rive community's), and every check scene of the NSH player, in the browser, and how the examples app is built.
+description: A gallery of free animations, Rive files played live, and every check scene of the NSH player, in the browser, and how the examples app is built.
 group: Examples
 order: 150
 ---
@@ -89,32 +89,26 @@ caption: The bar's view model sets its width (through an interpolating converter
 
 ### Files from the Rive community
 
-Files from the [Rive community](https://rive.app/community/), each in a tile playing its artboard's default state
-machine with its view model bound, as Rive's players binding automatically do; a pointer over one reaches its
-listeners. They are fetched from beside the examples app and read in the browser one after another (the largest
-take a few seconds each). Their names leave out the community's ids; the files are in
+Files from the [Rive community](https://rive.app/community/), each on a page of its own in the Rive group, playing its
+artboard's default state machine with its view model bound, as Rive's players binding automatically do; a pointer
+over one reaches its listeners. They are fetched from beside the examples app and read in the browser (the largest
+take a few seconds). Their names leave out the community's ids; the files are in
 [`examples/gallery/animations-rive/`](https://github.com/dXnSix/dXn.VectorAnimation/tree/main/examples/gallery/animations-rive).
-
-```example
-demo: rive-files
-height: 900
-caption: Rive community files, each in a tile, played as they are.
-```
 
 | File | What it exercises |
 |---|---|
-| `weather-app-concept` | Nested artboards, inner feathers, hover listeners |
-| `glowing-subscribe-button` | Hover and click listeners firing events, layers looping over different lengths |
-| `tabbar-animation` | Clicks on nested tabs, Rive events reaching listeners |
-| `dress-up` | Images, a click on a nested artboard setting its inputs |
-| `posture-animation` | Hundreds of images, hover and click listeners |
-| `boopkin-kill-count` | Images, a view model counter bound through converters |
-| `interactive-icon-set` | Hover listeners on nested icons |
-| `slot-machine-game-with-scripting` | Luau scripting and layout, left out: it draws little of what it should |
-| `studiorun-a-cosmic-game-by-thelittlelabs` | Thousands of shapes, blend states, nested artboards' state machines |
-| `futuristic-driving-ui-concept` | Bindings by name and nested view models; layout is left out, so it is drawn where the file puts it |
-| `snake-raster-animation` | Hundreds of raster images |
-| `sobo` | A nested artboard's tap firing a view model trigger |
+| [Weather app](./rive-files/weather-app-concept.md) | Nested artboards, inner feathers, hover listeners |
+| [Subscribe button](./rive-files/glowing-subscribe-button.md) | Hover and click listeners firing events, layers looping over different lengths |
+| [Tab bar](./rive-files/tabbar-animation.md) | Clicks on nested tabs, Rive events reaching listeners |
+| [Dress-up owl](./rive-files/dress-up.md) | Images, a click on a nested artboard setting its inputs |
+| [Posture](./rive-files/posture-animation.md) | Hundreds of images, hover and click listeners |
+| [Boopkin kill count](./rive-files/boopkin-kill-count.md) | Images, a view model counter bound through converters |
+| [Icon set](./rive-files/interactive-icon-set.md) | Hover listeners on nested icons |
+| [Slot machine](./rive-files/slot-machine-game-with-scripting.md) | Luau scripting and layout, left out: it draws little of what it should |
+| [StudioRun](./rive-files/studiorun-a-cosmic-game-by-thelittlelabs.md) | Thousands of shapes, blend states, nested artboards' state machines |
+| [Driving dashboard](./rive-files/futuristic-driving-ui-concept.md) | Bindings by name and nested view models; layout is left out, so it is drawn where the file puts it |
+| [Snake](./rive-files/snake-raster-animation.md) | Hundreds of raster images |
+| [Sobo](./rive-files/sobo.md) | A nested artboard's tap firing a view model trigger |
 
 ## The scenes
 
@@ -160,7 +154,7 @@ caption: The check scenes, each in a tile.
 | `clear-stops` | A gradient whose middle stop fades in from clear as it moves, then out again |
 
 The two examples of [Playback](./playback.md), `playback` and `events`, and the Rive files' three, `rive-switch`,
-`rive-events` and `rive-progress`, belong to the examples app itself; `rive-files` plays the community files.
+`rive-events` and `rive-progress`, belong to the examples app itself; `rive-file-<name>` plays a community file.
 
 ## How the examples are built
 
