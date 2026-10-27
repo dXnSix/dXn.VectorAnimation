@@ -452,6 +452,11 @@ pub fn VectorAnimation(
     let clock = signal(0.0f64);
     let seek_to = signal(None::<(f64, u64)>);
     let event = signal(None::<(String, u64)>);
+    // The time playback holds still at, when it does (a run ended, a
+    // progress, a still frame, a seek): read so, as the graph's time is
+    // read on the UI thread's next frame, and the web draws none while
+    // nothing moves.
+    let held = stored(None::<f64>);
     let interacting = stored(Interacting::default());
     // A change to a Rive file's state machine, made at the time playback
     // is at: queued, and made with those queued after it off the engine
@@ -460,10 +465,10 @@ pub fn VectorAnimation(
     let act = move |what: Act| {
         spawn(async move {
             let native = ready.get_untracked().is_some_and(|r| r.native);
-            let now = if native {
-                f64::from(time.value().await)
-            } else {
-                clock.get_untracked()
+            let now = match held.with(|h| *h) {
+                Some(t) => t,
+                None if native => f64::from(time.value().await),
+                None => clock.get_untracked(),
             };
             let go = interacting.with(|i| {
                 i.queue.push((now, what));
@@ -544,10 +549,10 @@ pub fn VectorAnimation(
                 if let Some(r) = swapped {
                     // What the new scene fires between the change and now
                     // has passed already.
-                    let now = if r.native {
-                        f64::from(time.value().await)
-                    } else {
-                        clock.get_untracked()
+                    let now = match held.with(|h| *h) {
+                        Some(t) => t,
+                        None if r.native => f64::from(time.value().await),
+                        None => clock.get_untracked(),
                     };
                     for c in passed(&r.loaded.scene.timeline.cues, changed_at, now, false, None) {
                         cx.emit(VectorAnimationEvent::Cue(AnimationCue::of(c)));
@@ -740,6 +745,7 @@ pub fn VectorAnimation(
             let show = |t: f64| {
                 time.set(t as f32);
                 clock.set(t);
+                held.replace(Some(t));
             };
             if let Some(p) = progress {
                 show(playback.start + (playback.end - playback.start) * p.clamp(0.0, 1.0));
@@ -756,10 +762,10 @@ pub fn VectorAnimation(
                 return;
             }
             playing.replace(Some(spawn(async move {
-                let from = if native {
-                    f64::from(time.value().await)
-                } else {
-                    clock.get_untracked()
+                let from = match held.with(|h| *h) {
+                    Some(t) => t,
+                    None if native => f64::from(time.value().await),
+                    None => clock.get_untracked(),
                 };
                 // A run that ended starts over.
                 let at_end = (from - playback.last()).abs() < 1e-9 && seek.is_none();
@@ -812,17 +818,20 @@ pub fn VectorAnimation(
                     }
                     time.set(from as f32);
                     let animation = playback.animation(&time, from);
+                    held.replace(None);
                     let end = animation.start();
                     run.replace(Some(animation));
                     let ended = end.await;
                     over.set(true);
                     if ended {
                         clock.set(playback.last());
+                        held.replace(Some(playback.last()));
                         cx.emit(VectorAnimationEvent::End);
                     }
                 } else {
                     // The engine's clock, frame by frame.
                     clock.set(from);
+                    held.replace(None);
                     let started = next_frame().await;
                     loop {
                         let now = next_frame().await;
