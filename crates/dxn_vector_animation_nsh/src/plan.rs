@@ -1404,6 +1404,37 @@ impl Compiler {
     }
 
     fn group(&mut self, g: &Group, time: NodeId, depth: usize) -> Result<(), Unsupported> {
+        // Past the graph's size: nothing more is compiled.
+        if self.g.nodes().len() > MAX_GRAPH_NODES {
+            return Ok(());
+        }
+        // A blur of one shape of one color (a Rive feather): the shadow the
+        // shape casts from past the view, the shape not drawn.
+        if self.casting.is_none()
+            && let Some(shadow) = shadow::blur_alone(g)
+        {
+            let as_shadow = Group {
+                effects: vec![dxn_vector_animation::Effect::DropShadow(shadow)],
+                ..g.clone()
+            };
+            let mark = self.mark();
+            match self.group_with(&as_shadow, time, depth, true) {
+                Ok(()) => return Ok(()),
+                // Else rastered.
+                Err(_) => self.undo(mark),
+            }
+        }
+        self.group_with(g, time, depth, false)
+    }
+
+    /// Group `g`, or where `alone`, only the shadows it casts.
+    fn group_with(
+        &mut self,
+        g: &Group,
+        time: NodeId,
+        depth: usize,
+        alone: bool,
+    ) -> Result<(), Unsupported> {
         if depth > 128 {
             return unsupported("groups nested too deep");
         }
@@ -1436,7 +1467,10 @@ impl Compiler {
                 }
             }
         }
-        let shadows = self.canvas_shadows(g, local)?;
+        let mut shadows = self.canvas_shadows(g, local)?;
+        if alone {
+            shadows.alone();
+        }
         let mut frame = vec![Op::Save];
         frame.extend(self.transform(&g.transform, local)?);
         if let Some(clip) = &g.clip {
@@ -1593,6 +1627,11 @@ impl Compiler {
                 };
                 match self.shadow_units(g, local, depth, content, shadows) {
                     Ok(list) => {
+                        if alone {
+                            // Its shadows only.
+                            self.open().units.truncate(units);
+                            self.open().canvas.clear();
+                        }
                         let (over, under): (Vec<_>, Vec<_>) =
                             list.into_iter().partition(|(_, inner)| *inner);
                         for (i, (unit, _)) in under.into_iter().enumerate() {

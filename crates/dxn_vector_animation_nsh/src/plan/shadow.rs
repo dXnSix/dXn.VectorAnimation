@@ -65,6 +65,9 @@ pub(super) struct CanvasShadow {
     hard: bool,
     /// Cast inside the content by what is around it, over it.
     pub(super) inner: bool,
+    /// Cast alone, the content not drawn ([`blur_alone`]): from past the
+    /// view, nothing of the content taken away.
+    alone: bool,
 }
 
 /// What casts a group's shadows: the setup of the groups it is in (the
@@ -83,6 +86,66 @@ pub(super) struct Shadows {
     /// How the group's lengths move in the view, where it turns or scales
     /// (the shadows are then in its lengths).
     turning: Option<LayerTransform>,
+}
+
+impl Shadows {
+    /// Cast alone: the content is not drawn.
+    pub(super) fn alone(&mut self) {
+        for s in &mut self.list {
+            s.alone = true;
+            s.knockout = false;
+        }
+    }
+}
+
+/// The blur of group `g` as a drop shadow its content casts where it is,
+/// where the canvas can draw the blur so (the content then not drawn): `g`
+/// blurs one shape, filled or stroked with one color. A Rive feather.
+pub(super) fn blur_alone(g: &Group) -> Option<dxn_vector_animation::DropShadow> {
+    let [Effect::Blur(blur)] = g.effects.as_slice() else {
+        return None;
+    };
+    let [Node::Shape(shape)] = g.children.as_slice() else {
+        return None;
+    };
+    let (paint, opacity) = match (&shape.fill, &shape.stroke) {
+        (Some(f), None) => (&f.paint, &f.opacity),
+        (None, Some(s)) => (&s.paint, &s.opacity),
+        _ => return None,
+    };
+    let ScenePaint::Solid { color } = paint else {
+        return None;
+    };
+    // The shadow's alpha: the color's times the paint's opacity.
+    let color = match (color, opacity) {
+        (_, Animated::Static(o)) => mapped(color, |c| Color {
+            a: c.a * o.clamp(0.0, 1.0),
+            ..*c
+        }),
+        (Animated::Static(c), Animated::Track(t)) => Animated::Track(Track::new(
+            t.keyframes
+                .iter()
+                .map(|k| {
+                    Keyframe::new(
+                        k.time,
+                        Color {
+                            a: c.a * k.value.clamp(0.0, 1.0),
+                            ..*c
+                        },
+                        k.easing.clone(),
+                    )
+                })
+                .collect(),
+        )),
+        _ => return None,
+    };
+    Some(dxn_vector_animation::DropShadow {
+        color,
+        offset: dxn_vector_animation::AnimatedPoint::fixed(0.0, 0.0),
+        blur: blur.radius.clone(),
+        knockout: false,
+        hard: false,
+    })
 }
 
 impl Shadows {
@@ -509,6 +572,7 @@ impl Compiler {
                     knockout: shadow.knockout,
                     hard: shadow.hard,
                     inner,
+                    alone: false,
                 });
             }
         }
@@ -988,7 +1052,7 @@ impl Compiler {
                 continue;
             }
             let moving = shadow.offset.iter().any(|n| matches!(n, Num::Node(_)));
-            let past = moving || (!shadow.knockout && see_through);
+            let past = moving || shadow.alone || (!shadow.knockout && see_through);
             let unit = match (&turning, past) {
                 _ if shadow.inner => self.cast_inner(setup, &cast, &shadow),
                 (None, true) => self.cast_past(setup, &cast, &shadow),
@@ -1009,10 +1073,18 @@ impl Compiler {
     }
 
     /// Where casters `drawing` (moved by `offset` over time) go past the
-    /// view to cast into it: the canvas's margin past each edge, and how
-    /// far left they are moved. `None` where they draw nothing.
-    fn past_view(&mut self, drawing: &[Op], offset: [Num; 2]) -> Option<([f64; 4], f64)> {
+    /// view to cast into it, their shadows blurred by `blur` (twice the
+    /// deviation): the canvas's margin past each edge (room for the blur
+    /// on the left, which a canvas may cut where it ends), and how far left
+    /// they are moved. `None` where they draw nothing.
+    fn past_view(
+        &mut self,
+        drawing: &[Op],
+        offset: [Num; 2],
+        blur: f64,
+    ) -> Option<([f64; 4], f64)> {
         let b = self.drawn_bounds(drawing, offset)?;
+        let reach = 1.5 * blur;
         // The view's bottom, about: the scene's in it.
         let (w, h) = (self.stage.width, self.stage.height);
         let bottom = [(0.0, 0.0), (w, 0.0), (0.0, h), (w, h)]
@@ -1021,7 +1093,7 @@ impl Compiler {
             .fold(0.0, f64::max);
         let dx = -(b.x + b.width) - PAST;
         let margin = [
-            b.width + PAST,
+            b.width + PAST + reach,
             (-b.y).max(0.0),
             0.0,
             (b.y + b.height - bottom).max(0.0),
@@ -1038,7 +1110,7 @@ impl Compiler {
         let transforms = transforms_only(setup);
         let mut drawing = transforms.clone();
         drawing.extend(cast.iter().cloned());
-        let Some((margin, dx)) = self.past_view(&drawing, s.offset) else {
+        let Some((margin, dx)) = self.past_view(&drawing, s.offset, s.blur) else {
             return Unit::Canvas(Vec::new());
         };
         let at = Op::Translate(Num::Const(margin[0]), Num::Const(margin[1]));
@@ -1164,7 +1236,7 @@ impl Compiler {
         let mut drawing = transforms.clone();
         drawing.extend(cast.iter().cloned());
         // Moved left past the view, the canvas reaching over them.
-        let Some((margin, dx)) = self.past_view(&drawing, s.offset) else {
+        let Some((margin, dx)) = self.past_view(&drawing, s.offset, s.blur) else {
             return Unit::Canvas(Vec::new());
         };
         let at = Op::Translate(Num::Const(margin[0]), Num::Const(margin[1]));
@@ -1347,6 +1419,14 @@ impl Compiler {
         } else {
             vec![0.0]
         };
+        // Probed many times: the outlines that hold still taken in once.
+        let condensed;
+        let ops = if moves {
+            condensed = condense(ops);
+            &condensed
+        } else {
+            ops
+        };
         let mut out: Option<Rect> = None;
         for t in times {
             let Some(r) = self.bounds_at(ops, t) else {
@@ -1361,7 +1441,8 @@ impl Compiler {
 
     /// Where `ops` draw at `time` (see [`Self::drawn_bounds`]).
     fn bounds_at(&self, ops: &[Op], time: f64) -> Option<Rect> {
-        let n = |v: Num| self.g.num(v, time);
+        let memo = std::cell::RefCell::new(std::collections::HashMap::new());
+        let n = |v: Num| self.g.num_memo(v, time, &mut memo.borrow_mut());
         let mut m = Matrix::IDENTITY;
         let mut stack = Vec::new();
         let (mut reach, mut miter) = (0.0f64, 1.0f64);
@@ -1439,6 +1520,51 @@ impl Compiler {
         }
         Some(Rect::new(x0, y0, x1 - x0, y1 - y0).grown(reach * miter.max(1.5) / 2.0 + 1.0))
     }
+}
+
+/// `ops` with each run of path points that hold still (between the
+/// transforms) as the corners of the box around them, which bound the same.
+fn condense(ops: &[Op]) -> Vec<Op> {
+    let mut out = Vec::with_capacity(ops.len());
+    let mut run: Option<Rect> = None;
+    let flush = |run: &mut Option<Rect>, out: &mut Vec<Op>| {
+        if let Some(r) = run.take() {
+            for (x, y) in [
+                (r.x, r.y),
+                (r.x + r.width, r.y),
+                (r.x, r.y + r.height),
+                (r.x + r.width, r.y + r.height),
+            ] {
+                out.push(Op::MoveTo(Num::Const(x), Num::Const(y)));
+            }
+        }
+    };
+    for op in ops {
+        let points: Option<Vec<f64>> = match op {
+            Op::MoveTo(..) | Op::LineTo(..) | Op::QuadTo(_) | Op::CubicTo(_) => op_nums(op)
+                .iter()
+                .map(|n| match n {
+                    Num::Const(c) => Some(*c),
+                    Num::Node(_) => None,
+                })
+                .collect(),
+            _ => None,
+        };
+        match points {
+            Some(v) => {
+                for p in v.chunks(2) {
+                    let at = Rect::new(p[0], p[1], 0.0, 0.0);
+                    run = Some(run.map_or(at, |r| r.union(at)));
+                }
+            }
+            None => {
+                flush(&mut run, &mut out);
+                out.push(op.clone());
+            }
+        }
+    }
+    flush(&mut run, &mut out);
+    out
 }
 
 /// The numbers `op` reads.

@@ -25,7 +25,26 @@ use nsh_core::{
 use nsh_engine::EngineConfig;
 use nsh_testing::Headless;
 
-/// A disc whose blur grows, playing once in half a second.
+/// A disc.
+fn disc(x: f64, color: Color) -> Node {
+    Node::shape(Shape {
+        paths: vec![ShapePath::new(Geometry::Ellipse {
+            center: AnimatedPoint::fixed(x, 50.0),
+            radius: AnimatedPoint::fixed(25.0, 25.0),
+            direction: Direction::Clockwise,
+            start: EllipseStart::Top,
+        })],
+        fill: Some(Fill {
+            paint: Paint::solid(color),
+            opacity: Animated::Static(1.0),
+            rule: Default::default(),
+        }),
+        ..Default::default()
+    })
+}
+
+/// Two discs whose blur grows (the blur of more than one shape is an
+/// image), playing once in half a second.
 fn scene() -> Scene {
     let radius = Animated::Track(Track::new(vec![
         Keyframe::new(0.0, 2.0, Easing::Linear),
@@ -44,20 +63,10 @@ fn scene() -> Scene {
         },
         root: Group {
             effects: vec![Effect::Blur(Blur { radius })],
-            children: vec![Node::shape(Shape {
-                paths: vec![ShapePath::new(Geometry::Ellipse {
-                    center: AnimatedPoint::fixed(50.0, 50.0),
-                    radius: AnimatedPoint::fixed(25.0, 25.0),
-                    direction: Direction::Clockwise,
-                    start: EllipseStart::Top,
-                })],
-                fill: Some(Fill {
-                    paint: Paint::solid(Color::rgba(0.9, 0.2, 0.1, 1.0)),
-                    opacity: Animated::Static(1.0),
-                    rule: Default::default(),
-                }),
-                ..Default::default()
-            })],
+            children: vec![
+                disc(40.0, Color::rgba(0.9, 0.2, 0.1, 1.0)),
+                disc(60.0, Color::rgba(0.1, 0.2, 0.9, 1.0)),
+            ],
             ..Group::new()
         },
     }

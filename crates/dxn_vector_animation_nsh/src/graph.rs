@@ -637,6 +637,71 @@ impl Graph {
         }
     }
 
+    /// [`Self::num`], the nodes evaluated kept in `memo` (of this time): for
+    /// many numbers at one time that share what they read.
+    pub fn num_memo(
+        &self,
+        n: Num,
+        time: f64,
+        memo: &mut std::collections::HashMap<NodeId, f64>,
+    ) -> f64 {
+        match n {
+            Num::Const(c) => c,
+            Num::Node(id) => self.eval_memo(id, time, 0, memo),
+        }
+    }
+
+    fn eval_memo(
+        &self,
+        id: NodeId,
+        time: f64,
+        depth: u32,
+        memo: &mut std::collections::HashMap<NodeId, f64>,
+    ) -> f64 {
+        if let Some(&v) = memo.get(&id) {
+            return v;
+        }
+        if depth > 64 {
+            return 0.0;
+        }
+        let v = match self.nodes.get(id) {
+            Some(Expr::Time) => time,
+            Some(Expr::Interp {
+                input,
+                inputs,
+                outputs,
+                curve,
+            }) => {
+                let x = self.eval_memo(*input, time, depth + 1, memo);
+                interpolate(
+                    x,
+                    inputs,
+                    *curve,
+                    |seg, t| outputs[seg] + (outputs[seg + 1] - outputs[seg]) * t,
+                    |i| outputs[i],
+                )
+            }
+            Some(Expr::Math(op, a, b)) => {
+                let a = self.eval_memo(*a, time, depth + 1, memo);
+                let b = match b {
+                    Operand::Node(n) => self.eval_memo(*n, time, depth + 1, memo),
+                    Operand::Const(c) => *c,
+                };
+                match op {
+                    MathOp::Add => a + b,
+                    MathOp::Sub => a - b,
+                    MathOp::Mul => a * b,
+                    MathOp::Div if b != 0.0 => a / b,
+                    MathOp::Mod if b != 0.0 => a.rem_euclid(b),
+                    _ => 0.0,
+                }
+            }
+            Some(Expr::InterpColor { .. }) | None => 0.0,
+        };
+        memo.insert(id, v);
+        v
+    }
+
     /// The color of node `id` at playback time `time`.
     pub fn eval_color(&self, id: NodeId, time: f64) -> u32 {
         match self.nodes.get(id) {
