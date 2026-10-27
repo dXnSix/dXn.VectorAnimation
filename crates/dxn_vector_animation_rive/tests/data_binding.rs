@@ -8,8 +8,10 @@
 mod common;
 
 use common::{Riv, V, color_at, inked, key, scene, ty};
-use dxn_vector_animation::Limits;
-use dxn_vector_animation_rive::{Options, PropertyValue, ValueChange, read_options};
+use dxn_vector_animation::{Limits, Point};
+use dxn_vector_animation_rive::{
+    Action, Interaction, Options, Pointer, PropertyValue, ValueChange, read_options,
+};
 
 const RED: [u8; 3] = [255, 0, 0];
 const BLUE: [u8; 3] = [0, 0, 255];
@@ -49,6 +51,10 @@ mod dt {
     pub const VALUE_TRIGGER_COMPARATOR: u16 = 505;
     pub const SELF_COMPARATOR: u16 = 593;
     pub const BINDABLE_TRIGGER_VALUE: u16 = 686;
+    pub const BINDABLE_NUMBER_VALUE: u16 = 636;
+    pub const TRIGGER_CONVERTER: u16 = 504;
+    pub const BIND_FLAGS: u16 = 587;
+    pub const LISTENER_VIEW_MODEL_CHANGE: u16 = 487;
 }
 
 /// A view model with a number "level" (property 0) and a color "tint"
@@ -598,4 +604,145 @@ fn triggers_and_changing_values_hold_in_the_frame_they_change() {
     assert_eq!(color_at(&s, 1.25, 10, 25), RED);
     assert_eq!(color_at(&s, 1.75, 70, 25), RED);
     assert_eq!(color_at(&s, 2.25, 70, 25), RED);
+}
+
+/// A view model with a trigger "go" and a number "level" of 80; a red
+/// square (shape 1) at (10, 15) its state machine sends right (to 70) when
+/// "go" is fired, and a 6 × 6 one (shape 5) at "level" across, 40 down. A
+/// press on the red square fires "go" (through a trigger converter, as
+/// Rive's editor writes it); one on the other sets "level" to 50.
+fn listened() -> Riv {
+    let riv = Riv::new()
+        .obj(dt::TRIGGER_CONVERTER, &[])
+        .obj(ty::VIEW_MODEL, &[(key::VM_NAME, V::S("Game"))])
+        .obj(dt::VM_TRIGGER, &[(key::VM_NAME, V::S("go"))])
+        .obj(ty::VM_NUMBER, &[(key::VM_NAME, V::S("level"))])
+        .obj(ty::VM_INSTANCE, &[(key::VM_INSTANCE_VM, V::U(0))])
+        .obj(
+            dt::VM_INSTANCE_TRIGGER,
+            &[(key::VM_VALUE_PROPERTY, V::U(0))],
+        )
+        .obj(
+            ty::VM_INSTANCE_NUMBER,
+            &[
+                (key::VM_VALUE_PROPERTY, V::U(1)),
+                (key::VM_NUMBER_VALUE, V::D(80.0)),
+            ],
+        );
+    let riv = bound_artboard(riv).rect_shape(0, 10.0, 15.0, 10.0, 10.0, 0xFFFF_0000);
+    let mut riv = square(
+        riv,
+        0,
+        (0.0, 40.0),
+        0xFF00_00FF,
+        Some((&[0, 1], None)),
+        None,
+    );
+    for (name, x) in [("left", 10.0), ("right", 70.0)] {
+        riv = riv
+            .obj(
+                ty::LINEAR_ANIMATION,
+                &[
+                    (key::ANIMATION_NAME, V::S(name)),
+                    (key::FPS, V::U(10)),
+                    (key::DURATION, V::U(1)),
+                ],
+            )
+            .obj(ty::KEYED_OBJECT, &[(key::OBJECT_ID, V::U(1))])
+            .obj(
+                ty::KEYED_PROPERTY,
+                &[(key::PROPERTY_KEY, V::U(u64::from(key::X)))],
+            )
+            .obj(
+                ty::KEY_FRAME_DOUBLE,
+                &[(key::FRAME, V::U(0)), (key::VALUE, V::D(x))],
+            );
+    }
+    let to_view_model = |riv: Riv, property: u16, path: &[u8], converter: Option<u64>| {
+        let mut props = vec![
+            (key::BIND_PROPERTY_KEY, V::U(u64::from(property))),
+            (dt::BIND_FLAGS, V::U(1)),
+            (key::BIND_PATH, V::Bytes(path.to_vec())),
+        ];
+        if let Some(c) = converter {
+            props.push((dt::BIND_CONVERTER, V::U(c)));
+        }
+        riv.obj(ty::DATA_BIND_CONTEXT, &props)
+    };
+    let riv = riv
+        .obj(
+            ty::STATE_MACHINE,
+            &[(key::ANIMATION_NAME, V::S("State Machine 1"))],
+        )
+        .obj(ty::STATE_MACHINE_LAYER, &[])
+        .obj(ty::ENTRY_STATE, &[])
+        .obj(ty::STATE_TRANSITION, &[(key::STATE_TO_ID, V::U(3))])
+        .obj(ty::ANY_STATE, &[])
+        .obj(ty::EXIT_STATE, &[])
+        .obj(ty::ANIMATION_STATE, &[(key::ANIMATION_ID, V::U(0))])
+        .obj(ty::STATE_TRANSITION, &[(key::STATE_TO_ID, V::U(4))])
+        .obj(ty::VM_CONDITION, &[])
+        .obj(dt::BINDABLE_TRIGGER, &[]);
+    let riv = bind(riv, dt::BINDABLE_TRIGGER_VALUE, &[0, 0], None)
+        .obj(ty::VM_PROPERTY_COMPARATOR, &[])
+        .obj(dt::VALUE_TRIGGER_COMPARATOR, &[])
+        .obj(ty::ANIMATION_STATE, &[(key::ANIMATION_ID, V::U(1))])
+        .obj(
+            ty::LISTENER_SINGLE,
+            &[
+                (key::LISTENER_TARGET, V::U(1)),
+                (key::LISTENER_TYPE, V::U(2)),
+            ],
+        )
+        .obj(dt::BINDABLE_TRIGGER, &[]);
+    let riv = to_view_model(riv, dt::BINDABLE_TRIGGER_VALUE, &[0, 0], Some(0));
+    let riv = bind(riv, dt::BINDABLE_TRIGGER_VALUE, &[0, 0], None)
+        .obj(dt::LISTENER_VIEW_MODEL_CHANGE, &[])
+        .obj(
+            ty::LISTENER_SINGLE,
+            &[
+                (key::LISTENER_TARGET, V::U(5)),
+                (key::LISTENER_TYPE, V::U(2)),
+            ],
+        )
+        .obj(
+            ty::BINDABLE_NUMBER,
+            &[(dt::BINDABLE_NUMBER_VALUE, V::D(50.0))],
+        );
+    to_view_model(riv, dt::BINDABLE_NUMBER_VALUE, &[0, 1], None)
+        .obj(dt::LISTENER_VIEW_MODEL_CHANGE, &[])
+}
+
+#[test]
+fn listeners_change_view_model_values() {
+    let riv = listened();
+    let _ = scene(&riv);
+    let m = dxn_vector_animation_rive::machine(&riv.bytes(), &Options::default())
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        m.listeners[0].actions,
+        [Action::Value {
+            property: "go".into(),
+            bindable: 1
+        }]
+    );
+    let mut play = Interaction::new(riv.bytes(), Limits::default(), Options::default()).unwrap();
+    // A press on the red square fires "go": it goes right.
+    assert!(
+        play.pointer(0.3, Pointer::Down, Point::new(15.0, 15.0))
+            .unwrap()
+    );
+    assert_eq!(play.values().len(), 1);
+    // One on the other sets "level" to 50.
+    assert!(
+        play.pointer(0.6, Pointer::Down, Point::new(80.0, 40.0))
+            .unwrap()
+    );
+    let s = &play.import().scene;
+    assert_eq!(color_at(s, 0.2, 10, 15), RED);
+    assert_eq!(color_at(s, 0.4, 70, 15), RED);
+    assert_eq!(color_at(s, 0.5, 80, 40), BLUE);
+    assert_eq!(color_at(s, 0.7, 50, 40), BLUE);
+    assert_eq!(color_at(s, 0.7, 80, 40), WHITE);
 }

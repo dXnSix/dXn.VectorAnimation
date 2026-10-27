@@ -219,28 +219,14 @@ pub(crate) fn bind_default(
         while k < changes.len() && changes[k].time.max(0.0) == time {
             let c = changes[k];
             k += 1;
-            let binder = Binder {
-                file,
-                converters: &file.converters,
-                vm,
-                instance,
-                overlay: &overlay,
-            };
-            let Some(slot) = binder.named(&c.path) else {
-                warnings.insert(format!("view model changes: no property {:?}", c.path));
-                continue;
-            };
-            let now = binder.slot_value(slot);
-            let Some(value) = changed_to(file, &c.value, &now) else {
-                warnings.insert(format!(
-                    "view model changes: {:?} cannot be set to {:?}",
-                    c.path, c.value
-                ));
-                continue;
-            };
-            if value != now {
-                overlay.insert(slot, value);
-                changed.insert(slot);
+            match change(file, vm, instance, &mut overlay, c) {
+                Ok(Some(slot)) => {
+                    changed.insert(slot);
+                }
+                Ok(None) => {}
+                Err(warning) => {
+                    warnings.insert(warning);
+                }
             }
         }
         if changed.is_empty() {
@@ -283,6 +269,180 @@ pub(crate) fn bind_default(
         }
     }
     warnings
+}
+
+/// Makes change `c` to `overlay` (the values view model `vm`'s instance
+/// `instance` holds changed): the property it changes, if it changes it.
+fn change(
+    file: &File,
+    vm: usize,
+    instance: Option<usize>,
+    overlay: &mut HashMap<Slot, Data>,
+    c: &crate::ValueChange,
+) -> Result<Option<Slot>, String> {
+    let binder = Binder {
+        file,
+        converters: &file.converters,
+        vm,
+        instance,
+        overlay,
+    };
+    let Some(slot) = binder.named(&c.path) else {
+        return Err(format!("view model changes: no property {:?}", c.path));
+    };
+    let now = binder.slot_value(slot);
+    let Some(value) = changed_to(file, &c.value, &now) else {
+        return Err(format!(
+            "view model changes: {:?} cannot be set to {:?}",
+            c.path, c.value
+        ));
+    };
+    if value == now {
+        return Ok(None);
+    }
+    overlay.insert(slot, value);
+    Ok(Some(slot))
+}
+
+/// The change a listener's `ListenerViewModelChange` of bindable property
+/// `bindable` of state machine `machine` of artboard `artboard` makes at
+/// `time`, with `values` made before (`file` read afresh): the value its
+/// bindable property holds then, through its binding to the view model
+/// and its converter, to the property that binding reads.
+pub(crate) fn listener_change(
+    file: &mut File,
+    (artboard, machine, bindable): (usize, usize, usize),
+    values: &[crate::ValueChange],
+    time: f64,
+) -> Option<crate::ValueChange> {
+    let before: Vec<crate::ValueChange> =
+        values.iter().filter(|c| c.time <= time).cloned().collect();
+    bind_default(file, artboard, &before);
+    let target = BindTarget::Bindable {
+        artboard,
+        machine,
+        index: bindable,
+    };
+    // What the bindable property holds then.
+    let mut object = self::target(file, target)?.clone();
+    for (_, key, v) in file
+        .bound
+        .bindables
+        .get(&(artboard, machine, bindable))
+        .into_iter()
+        .flatten()
+        .filter(|c| c.0 <= time)
+    {
+        object.set(*key, v.clone());
+    }
+    let value = bindable_value(&object)?;
+    let bind = file.binds.iter().find(|b| {
+        b.target == target && b.object.uint(p::DATA_BIND_FLAGS) & (TO_SOURCE | TWO_WAY) != 0
+    })?;
+    let vm = file.artboards[artboard]
+        .object()
+        .id(p::ARTBOARD_VIEW_MODEL_ID)?;
+    let instance = (!file.view_models.get(vm)?.instances.is_empty()).then_some(0);
+    let mut overlay = HashMap::new();
+    for c in &before {
+        let _ = change(file, vm, instance, &mut overlay, c);
+    }
+    let binder = Binder {
+        file,
+        converters: &file.converters,
+        vm,
+        instance,
+        overlay: &overlay,
+    };
+    let o = &bind.object;
+    let flags = o.uint(p::DATA_BIND_FLAGS);
+    let ids = varuints(o.bytes(p::DATA_BIND_CONTEXT_SOURCE_PATH_IDS));
+    let slot = binder.resolve(&ids)?;
+    // To the view model, the main direction converts, else the reverse.
+    let value = match o
+        .id(p::DATA_BIND_CONVERTER_ID)
+        .filter(|&c| c < binder.converters.len())
+    {
+        Some(c) => binder
+            .convert(c, value, flags & TO_SOURCE != 0, flags, 0)
+            .ok()?,
+        None => value,
+    };
+    let now = binder.slot_value(slot);
+    let value = match (value, &now) {
+        (Data::Number(v), Data::Number(_)) => PropertyValue::Number(f64::from(v)),
+        (Data::Bool(b), Data::Bool(_)) => PropertyValue::Bool(b),
+        (Data::Color(c), Data::Color(_)) => PropertyValue::Color(c),
+        (Data::Text(s), Data::Text(_)) => PropertyValue::Text(s),
+        (Data::Enum(i, _), Data::Enum(..)) => PropertyValue::Enum(Some(u64::from(i))),
+        // A count other than the trigger's fires it.
+        (Data::Trigger(n), Data::Trigger(m)) if n != *m => PropertyValue::Trigger,
+        _ => return None,
+    };
+    Some(crate::ValueChange {
+        time,
+        path: binder.names(&ids)?,
+        value,
+    })
+}
+
+/// The property of the view model instance bound that bindable property
+/// `bindable` of state machine `machine` of artboard `artboard` is bound to
+/// (by a binding to the view model), by name.
+pub(crate) fn bindable_source(
+    file: &File,
+    (artboard, machine, bindable): (usize, usize, usize),
+) -> Option<String> {
+    let target = BindTarget::Bindable {
+        artboard,
+        machine,
+        index: bindable,
+    };
+    let bind = file.binds.iter().find(|b| {
+        b.target == target && b.object.uint(p::DATA_BIND_FLAGS) & (TO_SOURCE | TWO_WAY) != 0
+    })?;
+    let vm = file
+        .artboards
+        .get(artboard)?
+        .object()
+        .id(p::ARTBOARD_VIEW_MODEL_ID)?;
+    let overlay = HashMap::new();
+    let binder = Binder {
+        file,
+        converters: &file.converters,
+        vm,
+        instance: None,
+        overlay: &overlay,
+    };
+    binder.names(&varuints(
+        bind.object.bytes(p::DATA_BIND_CONTEXT_SOURCE_PATH_IDS),
+    ))
+}
+
+/// The value bindable property `o` holds.
+fn bindable_value(o: &Object) -> Option<Data> {
+    Some(match o.ty {
+        t::BINDABLE_PROPERTY_NUMBER => {
+            Data::Number(f32_of(o, p::BINDABLE_PROPERTY_NUMBER_PROPERTY_VALUE))
+        }
+        t::BINDABLE_PROPERTY_BOOLEAN => {
+            Data::Bool(o.flag(p::BINDABLE_PROPERTY_BOOLEAN_PROPERTY_VALUE))
+        }
+        t::BINDABLE_PROPERTY_STRING => {
+            Data::Text(o.string(p::BINDABLE_PROPERTY_STRING_PROPERTY_VALUE))
+        }
+        t::BINDABLE_PROPERTY_COLOR => {
+            Data::Color(o.color(p::BINDABLE_PROPERTY_COLOR_PROPERTY_VALUE))
+        }
+        t::BINDABLE_PROPERTY_ENUM => Data::Enum(
+            o.uint(p::BINDABLE_PROPERTY_ENUM_PROPERTY_VALUE) as u32,
+            None,
+        ),
+        t::BINDABLE_PROPERTY_TRIGGER => {
+            Data::Trigger(o.uint(p::BINDABLE_PROPERTY_INTEGER_PROPERTY_VALUE) as u32)
+        }
+        _ => return None,
+    })
 }
 
 /// Whether binding target `target` is in artboard `artboard` (or the file's,
@@ -493,6 +653,27 @@ impl Binder<'_> {
         }
         let slot = (vm, instance, usize::try_from(last).ok()?);
         self.exists(slot).then_some(slot)
+    }
+
+    /// The names of the properties source path `ids` goes through, `/`
+    /// between (as [`Binder::named`] reads them).
+    fn names(&self, ids: &[u64]) -> Option<String> {
+        let (&first, rest) = ids.split_first()?;
+        let mut vm = usize::try_from(first).ok()?;
+        let mut names = Vec::new();
+        for (n, &k) in rest.iter().enumerate() {
+            let property = self
+                .file
+                .view_models
+                .get(vm)?
+                .properties
+                .get(usize::try_from(k).ok()?)?;
+            names.push(property.string(p::VIEW_MODEL_COMPONENT_NAME));
+            if n + 1 < rest.len() {
+                vm = property.id(p::VIEW_MODEL_PROPERTY_VIEW_MODEL_VIEW_MODEL_REFERENCE_ID)?;
+            }
+        }
+        Some(names.join("/"))
     }
 
     /// The property named by `path` (property names, nested view models'

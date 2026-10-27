@@ -6,7 +6,7 @@
 use dxn_vector_animation::{Cue, Error, Import, Limits, Point, Rect};
 
 use crate::{
-    Aligned, InputChange, InputValue, Options,
+    Aligned, InputChange, InputValue, Options, PropertyValue, ValueChange,
     defs::{props as p, types as t},
     file::{self, Object},
     read_options,
@@ -118,6 +118,15 @@ pub enum Action {
     Fire {
         /// The event, by its index in the artboard.
         event: usize,
+    },
+    /// Changes a property of the view model instance bound
+    /// (`ListenerViewModelChange`): to the value its bindable property
+    /// holds then, through its binding (a trigger fired, often).
+    Value {
+        /// The property, by name (as [`ValueChange::path`] has it).
+        property: String,
+        /// Its bindable property, by index in the state machine.
+        bindable: usize,
     },
     /// Moves a node to the pointer.
     Align {
@@ -301,6 +310,19 @@ fn read_machine(
                 }
                 continue;
             }
+            if a.ty == t::LISTENER_VIEW_MODEL_CHANGE {
+                let bindable = a.uint(file::BINDABLE_INDEX) as usize;
+                let at = file
+                    .artboards
+                    .iter()
+                    .position(|x| std::ptr::eq(x, artboard));
+                if let Some(property) =
+                    at.and_then(|at| crate::data::bindable_source(file, (at, index, bindable)))
+                {
+                    actions.push(Action::Value { property, bindable });
+                }
+                continue;
+            }
             let Some(input) = name_of(a) else { continue };
             let change = match a.ty {
                 t::LISTENER_BOOL_CHANGE => match a.uint(p::LISTENER_BOOL_CHANGE_VALUE) {
@@ -450,6 +472,8 @@ pub struct Interaction {
     fired: Vec<Cue>,
     /// The artboard's objects, for the events' names and properties.
     objects: Vec<Option<file::Object>>,
+    /// The artboard's index and its default state machine's.
+    root: Option<(usize, usize)>,
 }
 
 /// An event a listener fired: the path of its machine, the event's index
@@ -475,6 +499,19 @@ impl Interaction {
             .unwrap_or_default();
         let n = listeners.len();
         let objects = artboard_objects(&data, &options)?;
+        let root = {
+            let file = file::read(&data)?;
+            chosen(&file, &options)?.and_then(|a| {
+                let at = file.artboards.iter().position(|x| std::ptr::eq(x, a))?;
+                let machines = a.state_machines.len();
+                let m = a
+                    .object()
+                    .id(p::ARTBOARD_DEFAULT_STATE_MACHINE_ID)
+                    .filter(|&i| i < machines)
+                    .or((machines > 0).then_some(0))?;
+                Some((at, m))
+            })
+        };
         Ok(Interaction {
             data,
             limits,
@@ -488,6 +525,7 @@ impl Interaction {
             dragging: vec![false; n],
             fired: Vec::new(),
             objects,
+            root,
         })
     }
 
@@ -518,6 +556,27 @@ impl Interaction {
         &self.options.aligned
     }
 
+    /// The changes made to the view model instance bound so far.
+    pub fn values(&self) -> &[ValueChange] {
+        &self.options.values
+    }
+
+    /// Sets property `path` of the view model instance bound (see
+    /// [`ValueChange::path`]) to `value` at `time`
+    /// ([`PropertyValue::Trigger`] fires a trigger), reading the scene
+    /// again.
+    pub fn set_value(&mut self, time: f64, path: &str, value: PropertyValue) -> Result<(), Error> {
+        self.make(
+            Vec::new(),
+            Vec::new(),
+            vec![ValueChange {
+                time,
+                path: path.to_owned(),
+                value,
+            }],
+        )
+    }
+
     /// Sets input `input` of the default state machine to `value` at
     /// `time`, reading the scene again.
     pub fn set(&mut self, time: f64, input: &str, value: InputValue) -> Result<(), Error> {
@@ -540,6 +599,7 @@ impl Interaction {
                 input: input.to_owned(),
                 value,
             }],
+            Vec::new(),
             Vec::new(),
         )
     }
@@ -578,6 +638,7 @@ impl Interaction {
         );
         let mut changes = Vec::new();
         let mut aligned = Vec::new();
+        let mut values = Vec::new();
         let mut fired = Vec::new();
         let steps: &[Pointer] = match kind {
             Pointer::Lift => &[Pointer::Up, Pointer::Exit],
@@ -669,6 +730,7 @@ impl Interaction {
                             (point, from),
                             &mut changes,
                             &mut aligned,
+                            &mut values,
                             &mut fired,
                         );
                     }
@@ -711,6 +773,7 @@ impl Interaction {
                         (point, point),
                         &mut changes,
                         &mut aligned,
+                        &mut values,
                         &mut more,
                     );
                 }
@@ -718,10 +781,10 @@ impl Interaction {
             queue.extend(more);
         }
         self.listeners = listeners;
-        if changes.is_empty() && aligned.is_empty() {
+        if changes.is_empty() && aligned.is_empty() && values.is_empty() {
             return Ok(false);
         }
-        self.make(changes, aligned)?;
+        self.make(changes, aligned, values)?;
         Ok(true)
     }
 
@@ -749,6 +812,7 @@ impl Interaction {
         (point, from): (Point, Point),
         changes: &mut Vec<InputChange>,
         aligned: &mut Vec<Aligned>,
+        values: &mut Vec<ValueChange>,
         fired: &mut Vec<Fired>,
     ) {
         for a in &l.actions {
@@ -771,6 +835,29 @@ impl Interaction {
                     path: path.to_owned(),
                     event,
                 }),
+                // The artboard's own machine's (its nested artboards bind
+                // no view model here).
+                &Action::Value { bindable, .. } => {
+                    let Some((artboard, machine)) = self.root.filter(|_| path.is_empty()) else {
+                        continue;
+                    };
+                    let Ok(mut file) = file::read(&self.data) else {
+                        continue;
+                    };
+                    let before: Vec<ValueChange> = self
+                        .options
+                        .values
+                        .iter()
+                        .chain(&*values)
+                        .cloned()
+                        .collect();
+                    values.extend(crate::data::listener_change(
+                        &mut file,
+                        (artboard, machine, bindable),
+                        &before,
+                        acts,
+                    ));
+                }
                 &Action::Align { node, keep_offset } => aligned.push(Aligned {
                     time,
                     path: path.to_owned(),
@@ -807,6 +894,7 @@ impl Interaction {
         &mut self,
         mut changes: Vec<InputChange>,
         mut aligned: Vec<Aligned>,
+        mut values: Vec<ValueChange>,
     ) -> Result<(), Error> {
         // Never before what was made already.
         let last = self.options.inputs.last().map_or(0.0, |c| c.time);
@@ -817,9 +905,14 @@ impl Interaction {
         for a in &mut aligned {
             a.time = a.time.max(last);
         }
+        let last = self.options.values.last().map_or(0.0, |v| v.time);
+        for v in &mut values {
+            v.time = v.time.max(last);
+        }
         let mut options = self.options.clone();
         options.inputs.extend(changes);
         options.aligned.extend(aligned);
+        options.values.extend(values);
         self.import = read_options(&self.data, &self.limits, &options)?;
         self.options = options;
         Ok(())
