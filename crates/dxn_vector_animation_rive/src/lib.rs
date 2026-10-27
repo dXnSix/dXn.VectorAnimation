@@ -63,11 +63,12 @@
 //! binding automatically bind it: through converters and nested view
 //! models, into the artboards it nests too, its values set what they are
 //! bound to and what the state machines' conditions read; values changed
-//! at times ([`Options::values`]) and by listeners follow.
+//! at times ([`Options::values`]), by listeners and by states firing
+//! triggers follow, eased by interpolating converters.
 //!
 //! What a file holds beyond that (text variation and follow-path modifiers,
-//! text ellipses, layout, formula and interpolating converters, scripting,
-//! audio) is left out with a warning in [`Import::warnings`].
+//! text ellipses, layout, formula converters, scripting, audio) is left out
+//! with a warning in [`Import::warnings`].
 
 mod convert;
 mod cues;

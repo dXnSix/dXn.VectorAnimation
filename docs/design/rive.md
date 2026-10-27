@@ -248,9 +248,17 @@ The core gains what Rive needs, each with the reference renderer's drawing and t
    binding to the view model (a trigger converter counting the trigger once more), made by `Interaction`
    as the pointer reaches it. Checked against Rive's web runtime setting values and pressing at times: the
    test files draw the same frame for frame, and Sobo, its nested artboard's tap firing a view model
-   trigger, within 0.02%. **Still to come**: formula, list and interpolating converters, bindings by name,
-   states and transitions firing view model triggers, properties both animated and changed, two-way
-   bindings read back from what they target.
+   trigger, within 0.02%. **Done: bindings by name, interpolating converters, triggers fired by states,
+   values over animations.** The manifest asset's names and paths are read: a binding by name, and a
+   relative `DataBindPath`, read their property by names up the data context
+   (`getRelativeViewModelProperty`). An interpolating converter is a port of `InterpolatorAdvancer`, each
+   binding's own: bindings are read frame by frame while one moves, before the converters advance (Rive's
+   web runtime hands a smoothed change over without the frame the C++ source loses). A
+   `StateMachineFireTrigger` is an event the simulator fires: the frames it fires in are trigger changes,
+   and the file is read again with them until they fire the same. A change to a property an animation keys
+   enters the plan's baking as a frame of its own, the bound value there (bindings apply after
+   animations), held on where no layer keys it. Each checked frame for frame against Rive's web runtime.
+   **Still to come**: formula and list converters, two-way bindings read back from what they target.
 10. **Out of scope for now:** Luau scripting, audio, open-URL events (reported to the app as events), text
     input, scrolling.
 
@@ -284,5 +292,5 @@ The core gains what Rive needs, each with the reference renderer's drawing and t
 3. **State machines**: done as they play untouched, with their inputs changed, their listeners acting on a
    pointer in the core, the CLI and the player, blend states and events.
 4. **Data binding and layout**: the default instance bound through converters and nested view models and
-   contexts, changed over time by the app and listeners; formulas, interpolating converters and layout to
-   come.
+   contexts, by name, eased by interpolators, changed over time by the app, listeners and states;
+   formulas and layout to come.

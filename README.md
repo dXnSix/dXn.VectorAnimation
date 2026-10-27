@@ -225,12 +225,13 @@ them alone.
   scale, transform, distance, IK, follow-path) applied as Rive's runtime applies them. Draw rules, keyed too.
   Text modifiers moving, turning, scaling and fading glyphs by their ranges.
 - Left out with a warning, for the phases of [its design](docs/design/rive.md) to come: other
-  state machines, text variation and follow-path modifiers and ellipses, layout, formula and
-  interpolating data converters, scripting and audio.
+  state machines, text variation and follow-path modifiers and ellipses, layout, formula data
+  converters, scripting and audio.
 - Data binding: the artboard's view model's first instance bound (in the artboards it nests too), its
   values set through converters and nested view models into what they are bound to, the state machine's
-  conditions and blends on view models reading them; values changed over time by the app
-  (`Options::values`, the player's `setValue`) and by listeners.
+  conditions and blends on view models reading them; bindings by name; values changed over time by the
+  app (`Options::values`, the player's `setValue`), by listeners and by states firing triggers, eased by
+  interpolating converters.
 
 ## Untrusted input
 
