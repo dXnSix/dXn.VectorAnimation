@@ -152,17 +152,30 @@ too: `Interaction::take_fired` gives those the pointer fired, as cues at their t
 The player reports each cue as playback passes it (`onCue`), and those listeners fire as the pointer acts;
 `inspect` lists the timeline's cues.
 
+## Data binding
+
+An artboard bound to a view model plays with its first instance bound, as Rive's editor and players binding
+automatically (`autoBind`) do: each binding to its target sets the property it binds, an object's (a color,
+a number, a text run's text, ...; its value from then on, where no animation keys it) or one the state machine
+reads, so that its conditions on view model values hold as the values compare (numbers ordered; booleans,
+enums, strings and colors equal or not) and a 1D blend on a view model blends at its value.
+`Options::unbound` reads the file as a player binding nothing does. `view_model(data, &options)` gives the
+view model bound and its instance's values; `inspect` prints them.
+
+Bindings through converters or by name and nested view models are left unbound for now; a trigger, or a
+condition on a value changing, never holds, since nothing changes the instance.
+
 ## Left out for now
 
 What a file holds beyond that is left out with a warning (`Import::warnings`, `inspect`, `onLoad`):
 
-- conditions and blends on view models, other state machines than the default, listeners changing view
-  models, the events a nested artboard's state machine fires as it plays (those its listeners fire reach
-  its parent), audio and data binding;
+- other state machines than the default, listeners changing view models, the events a nested artboard's
+  state machine fires as it plays (those its listeners fire reach its parent), audio; data converters,
+  bindings by name, nested view models and changes to view model values;
 - text variation and follow-path modifiers and text ellipses, layout, draggable and scroll constraints,
   scripting and audio.
 
 These come in the phases of the [design](https://github.com/dXnSix/dXn.VectorAnimation/blob/main/docs/design/rive.md):
-what the runtime evaluates (what is left of text), then data binding and layout.
+what the runtime evaluates (what is left of text), what is left of data binding, then layout.
 
 Next: [Limits](./limits.md), which bound a Rive file as they bound the others.

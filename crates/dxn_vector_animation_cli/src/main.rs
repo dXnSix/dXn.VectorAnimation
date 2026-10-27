@@ -543,6 +543,33 @@ fn describe_machine(file: &Path, artboard: Option<&str>, scene: &Scene) -> Resul
         return Ok(String::new());
     };
     let mut out = String::new();
+    if let Some(vm) = dxn_vector_animation_rive::view_model(&data, &options)
+        .map_err(|e| format!("{}: {e}", file.display()))?
+    {
+        use dxn_vector_animation_rive::PropertyValue;
+        let values: Vec<String> = vm
+            .properties
+            .iter()
+            .map(|p| {
+                let v = match &p.value {
+                    PropertyValue::Number(n) => n.to_string(),
+                    PropertyValue::Bool(b) => b.to_string(),
+                    PropertyValue::Color(c) => format!("#{:06x}", c & 0xFF_FFFF),
+                    PropertyValue::Text(t) => format!("{t:?}"),
+                    PropertyValue::Enum(e) => e.map_or("none".to_owned(), |e| format!("value {e}")),
+                    PropertyValue::Trigger => "trigger".to_owned(),
+                    PropertyValue::Other => "…".to_owned(),
+                };
+                format!("{} = {v}", p.name)
+            })
+            .collect();
+        out.push_str(&format!(
+            "  view model   {} (instance {:?}): {}\n",
+            vm.name,
+            vm.instance,
+            values.join(", ")
+        ));
+    }
     let all = machine.all();
     for m in &all {
         let at = if m.path.is_empty() {

@@ -225,8 +225,10 @@ them alone.
   scale, transform, distance, IK, follow-path) applied as Rive's runtime applies them. Draw rules, keyed too.
   Text modifiers moving, turning, scaling and fading glyphs by their ranges.
 - Left out with a warning, for the phases of [its design](docs/design/rive.md) to come: other
-  state machines, text variation and follow-path modifiers and ellipses, layout,
-  data binding, scripting and audio.
+  state machines, text variation and follow-path modifiers and ellipses, layout, data converters and
+  changing view model values, scripting and audio.
+- Data binding: the artboard's view model's first instance bound, its values setting what they are
+  bound to, the state machine's conditions and blends on view models reading them.
 
 ## Untrusted input
 
@@ -568,7 +570,7 @@ The scene model and its inputs:
    markers with their loops; feathered edges; strokes that do not scale; nested artboards; text; joysticks;
    bones, skins and image meshes; constraints; draw rules; text modifiers.
 4. Rive, as [its design](docs/design/rive.md) says: what the runtime evaluates (what is
-   left of text), then data binding and layout.
+   left of text), what is left of data binding, then layout.
 
 The NSH player:
 

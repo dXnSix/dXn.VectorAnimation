@@ -67,6 +67,7 @@
 mod convert;
 mod cues;
 mod curve;
+mod data;
 mod defs;
 mod file;
 mod geometry;
@@ -79,6 +80,7 @@ mod text;
 
 use dxn_vector_animation::{Error, Import, Limits, Point};
 
+pub use data::{Property, PropertyValue, ViewModel};
 pub use defs::RUNTIME_TAG;
 pub use interact::{
     Action, Change, Input, InputKind, Interaction, Listener, Machine, Pointer, PointerEvent,
@@ -96,6 +98,12 @@ pub struct Options {
     pub inputs: Vec<InputChange>,
     /// The nodes its listeners moved to the pointer, in time order.
     pub aligned: Vec<Aligned>,
+    /// Reads the file as a player binding no view model instance to the
+    /// artboard (Rive's `autoBind: false`): data bindings leave their
+    /// targets as the file sets them. By default the artboard's view
+    /// model's first instance is bound, as Rive's editor and players that
+    /// bind automatically do.
+    pub unbound: bool,
 }
 
 /// A node a listener moved to the pointer at a time (Rive's
@@ -169,13 +177,35 @@ pub fn read_options(data: &[u8], limits: &Limits, options: &Options) -> Result<I
             limit: limits.max_bytes as f64,
         });
     }
-    let file = file::read(data)?;
-    let (scene, warnings) = convert::Converter::run(&file, options, *limits)?;
+    let mut file = file::read(data)?;
+    let mut bound = std::collections::BTreeSet::new();
+    if !options.unbound {
+        let index = match &options.artboard {
+            Some(name) => file.artboards.iter().position(|a| a.name() == *name),
+            None => Some(0),
+        };
+        if let Some(index) = index.filter(|&i| i < file.artboards.len()) {
+            bound = data::bind_default(&mut file, index);
+        }
+    }
+    let (scene, mut warnings) = convert::Converter::run(&file, options, *limits)?;
+    warnings.extend(bound);
     scene.check(limits)?;
     Ok(Import {
         scene,
         warnings: warnings.into_iter().collect(),
     })
+}
+
+/// The view model the artboard `options` names in the Rive file `data` is
+/// bound to (its first instance's values), if it has one.
+pub fn view_model(data: &[u8], options: &Options) -> Result<Option<ViewModel>, Error> {
+    let file = file::read(data)?;
+    let index = match &options.artboard {
+        Some(name) => file.artboards.iter().position(|a| a.name() == *name),
+        None => Some(0),
+    };
+    Ok(index.and_then(|i| data::view_model(&file, i)))
 }
 
 /// The names of the artboards in the Rive file `data`.

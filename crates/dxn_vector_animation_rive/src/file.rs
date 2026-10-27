@@ -43,6 +43,19 @@ impl Object {
         self.props.iter().find(|(k, _)| *k == key).map(|(_, v)| v)
     }
 
+    /// Property `key` as the object writes it.
+    pub fn value(&self, key: u16) -> Option<&Value> {
+        self.get(key)
+    }
+
+    /// Sets property `key` to `value`.
+    pub fn set(&mut self, key: u16, value: Value) {
+        match self.props.iter_mut().find(|(k, _)| *k == key) {
+            Some((_, v)) => *v = value,
+            None => self.props.push((key, value)),
+        }
+    }
+
     /// Whether the object writes property `key`.
     pub fn has(&self, key: u16) -> bool {
         self.get(key).is_some()
@@ -134,10 +147,59 @@ pub(crate) struct File {
     pub minor: u64,
     pub artboards: Vec<Artboard>,
     pub assets: Vec<Asset>,
+    /// Its view models, with their properties and instances.
+    pub view_models: Vec<ViewModel>,
+    /// Its data converters (what bindings' `converterId` points at).
+    pub converters: Vec<Object>,
+    /// Its data bindings, each with what it binds.
+    pub binds: Vec<Bind>,
     /// Objects of types the runtime of the tables' tag does not know, by
     /// type key.
     pub unknown: BTreeMap<u64, usize>,
 }
+
+/// A view model: its properties and instances, in order.
+#[derive(Debug)]
+pub(crate) struct ViewModel {
+    pub object: Object,
+    pub properties: Vec<Object>,
+    pub instances: Vec<Instance>,
+}
+
+/// An instance of a view model: its values.
+#[derive(Debug, Clone)]
+pub(crate) struct Instance {
+    pub object: Object,
+    pub values: Vec<Object>,
+}
+
+/// A data binding and what it binds (the object read last before it).
+#[derive(Debug, Clone)]
+pub(crate) struct Bind {
+    pub object: Object,
+    pub target: BindTarget,
+}
+
+/// What a binding binds.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) enum BindTarget {
+    /// An artboard's object, by index.
+    Object { artboard: usize, index: usize },
+    /// A state machine's bindable property, by index.
+    Bindable {
+        artboard: usize,
+        machine: usize,
+        index: usize,
+    },
+    /// Something else (a converter, a script's input).
+    Other,
+}
+
+/// The key of a hidden property an object that reads a bindable property
+/// (a comparator, a view model blend, a listener changing a view model)
+/// is given: the index of that bindable property in its state machine
+/// (the one read just before it, as Rive's importer takes it).
+pub(crate) const BINDABLE_INDEX: u16 = 0xFFF0;
 
 /// An artboard: its objects (index 0 is the artboard), animations and state
 /// machines.
@@ -198,6 +260,9 @@ pub(crate) struct StateMachine {
     pub inputs: Vec<Option<Object>>,
     pub layers: Vec<Layer>,
     pub listeners: Vec<Listener>,
+    /// Its bindable properties (what view model conditions, blends and
+    /// listeners read, bound to a view model's properties).
+    pub bindables: Vec<Object>,
 }
 
 /// A layer of a state machine: its states (index into it by the
@@ -274,6 +339,9 @@ pub(crate) fn read(data: &[u8]) -> Result<File, Error> {
         ..File::default()
     };
     let mut recent: Vec<Open> = Vec::new();
+    // What a data binding read next binds (`File::read`'s
+    // `lastBindableObject`).
+    let mut last = BindTarget::Other;
     let open = |recent: &mut Vec<Open>, o: Open| {
         recent.retain(|r| *r != o);
         recent.push(o);
@@ -309,9 +377,55 @@ pub(crate) fn read(data: &[u8]) -> Result<File, Error> {
             }
             continue;
         };
+        if object.is(types::DATA_BIND) {
+            file.binds.push(Bind {
+                object,
+                target: last,
+            });
+            continue;
+        }
+        let before = counts(&file);
         place(&mut file, &mut recent, &open, object);
+        last = placed(&file, before);
     }
     Ok(file)
+}
+
+/// How many objects the last artboard and its last state machine's
+/// bindable properties hold.
+fn counts(file: &File) -> (usize, usize, usize) {
+    let ab = file.artboards.last();
+    (
+        file.artboards.len(),
+        ab.map_or(0, |a| a.objects.len()),
+        ab.and_then(|a| a.state_machines.last())
+            .map_or(0, |m| m.bindables.len()),
+    )
+}
+
+/// What the object placed after `before` was counted is, as a binding's
+/// target.
+fn placed(file: &File, before: (usize, usize, usize)) -> BindTarget {
+    let after = counts(file);
+    let artboard = file.artboards.len().saturating_sub(1);
+    if after.0 == before.0 && after.1 > before.1 {
+        BindTarget::Object {
+            artboard,
+            index: after.1 - 1,
+        }
+    } else if after.0 == before.0 && after.2 > before.2 {
+        let machine = file
+            .artboards
+            .last()
+            .map_or(0, |a| a.state_machines.len().saturating_sub(1));
+        BindTarget::Bindable {
+            artboard,
+            machine,
+            index: after.2 - 1,
+        }
+    } else {
+        BindTarget::Other
+    }
 }
 
 fn last_machine(file: &mut File) -> Option<&mut StateMachine> {
@@ -323,7 +437,7 @@ fn place(
     file: &mut File,
     recent: &mut Vec<Open>,
     open: &impl Fn(&mut Vec<Open>, Open),
-    object: Object,
+    mut object: Object,
 ) {
     let ty = object.ty;
     if ty == types::ARTBOARD {
@@ -340,6 +454,44 @@ fn place(
             object,
             contents: None,
         });
+        return;
+    }
+    // View models, their instances and converters: the file's.
+    if ty == types::VIEW_MODEL {
+        file.view_models.push(ViewModel {
+            object,
+            properties: Vec::new(),
+            instances: Vec::new(),
+        });
+        return;
+    }
+    if is_a(ty, types::VIEW_MODEL_PROPERTY) {
+        if let Some(vm) = file.view_models.last_mut() {
+            vm.properties.push(object);
+        }
+        return;
+    }
+    if is_a(ty, types::VIEW_MODEL_INSTANCE) {
+        if let Some(vm) = file.view_models.last_mut() {
+            vm.instances.push(Instance {
+                object,
+                values: Vec::new(),
+            });
+        }
+        return;
+    }
+    if is_a(ty, types::VIEW_MODEL_INSTANCE_VALUE) {
+        if let Some(i) = file
+            .view_models
+            .last_mut()
+            .and_then(|vm| vm.instances.last_mut())
+        {
+            i.values.push(object);
+        }
+        return;
+    }
+    if is_a(ty, types::DATA_CONVERTER) {
+        file.converters.push(object);
         return;
     }
     if ty == types::FILE_ASSET_CONTENTS {
@@ -400,9 +552,20 @@ fn place(
             inputs: Vec::new(),
             layers: Vec::new(),
             listeners: Vec::new(),
+            bindables: Vec::new(),
         });
         open(recent, Open::StateMachine);
     } else if let Some(sm) = artboard.state_machines.last_mut() {
+        // What reads a bindable property reads the one read just before it.
+        if matches!(
+            ty,
+            types::TRANSITION_PROPERTY_VIEW_MODEL_COMPARATOR
+                | types::BLEND_STATE1_D_VIEW_MODEL
+                | types::LISTENER_VIEW_MODEL_CHANGE
+        ) && let Some(i) = sm.bindables.len().checked_sub(1)
+        {
+            object.props.push((BINDABLE_INDEX, Value::Uint(i as u64)));
+        }
         if is_a(ty, types::STATE_MACHINE_INPUT) {
             sm.inputs.push(Some(object));
         } else if ty == types::STATE_MACHINE_LAYER {
@@ -447,6 +610,8 @@ fn place(
             && let Some(state) = sm.layers.last_mut().and_then(|l| l.states.last_mut())
         {
             state.parts.push(object);
+        } else if is_a(ty, types::BINDABLE_PROPERTY) {
+            sm.bindables.push(object);
         } else if is_a(ty, types::STATE_MACHINE_FIRE_ACTION)
             && let Some(state) = sm.layers.last_mut().and_then(|l| l.states.last_mut())
         {

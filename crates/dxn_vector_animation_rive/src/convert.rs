@@ -804,10 +804,7 @@ impl<'a> Converter<'a> {
                             .filter(|a| *a < anims.len()),
                     ),
                     Some(t::BLEND_STATE1_D_INPUT | t::BLEND_STATE_DIRECT) => machine::Kind::Blend,
-                    Some(t::BLEND_STATE1_D_VIEW_MODEL) => {
-                        unread.insert("BlendState1DViewModel (blending at 0)");
-                        machine::Kind::Blend
-                    }
+                    Some(t::BLEND_STATE1_D_VIEW_MODEL) => machine::Kind::Blend,
                     Some(ty) => {
                         unread.extend(defs::type_name(ty));
                         machine::Kind::Other
@@ -821,7 +818,23 @@ impl<'a> Converter<'a> {
                         continue;
                     };
                     let mut conditions = Vec::new();
-                    for c in &tr.conditions {
+                    let mut parts = tr.conditions.iter();
+                    while let Some(c) = parts.next() {
+                        // A view model condition and its two comparators.
+                        if c.ty == t::TRANSITION_VIEW_MODEL_CONDITION {
+                            let (Some(left), Some(right)) = (parts.next(), parts.next()) else {
+                                conditions.push(machine::Cond::Fixed(false));
+                                break;
+                            };
+                            conditions.push(machine::Cond::Fixed(view_model_holds(
+                                &sm.bindables,
+                                c.uint(p::TRANSITION_VIEW_MODEL_CONDITION_OP_VALUE),
+                                left,
+                                right,
+                                &mut unread,
+                            )));
+                            continue;
+                        }
                         let input = c
                             .id(p::TRANSITION_INPUT_CONDITION_INPUT_ID)
                             .unwrap_or(usize::MAX);
@@ -906,6 +919,15 @@ impl<'a> Converter<'a> {
                         parts,
                         by: if direct {
                             machine::By::Direct
+                        } else if let Some(o) = o.filter(|o| o.ty == t::BLEND_STATE1_D_VIEW_MODEL) {
+                            // At the value bound to its bindable property.
+                            machine::By::Value(
+                                sm.bindables
+                                    .get(o.uint(crate::file::BINDABLE_INDEX) as usize)
+                                    .map_or(0.0, |b| {
+                                        b.num(p::BINDABLE_PROPERTY_NUMBER_PROPERTY_VALUE)
+                                    }),
+                            )
                         } else {
                             machine::By::OneD(
                                 o.and_then(|o| o.id(p::BLEND_STATE1_D_INPUT_INPUT_ID)),
@@ -3636,6 +3658,7 @@ impl<'a> Converter<'a> {
         };
         let options = crate::Options {
             artboard: None,
+            unbound: true,
             inputs: self
                 .changes
                 .iter()
@@ -4668,6 +4691,109 @@ fn settle(played: &[Vec<machine::Applied>], anims: &[machine::Anim]) -> (usize, 
         }
     }
     (settled, periods, steady)
+}
+
+/// A comparand of a view model condition as the instance bound holds it.
+#[derive(Debug, Clone, PartialEq)]
+enum Comparand {
+    Number(f64),
+    Bool(bool),
+    Id(u64),
+    Text(String),
+    Color(u32),
+}
+
+/// Whether a view model condition (`TransitionViewModelCondition`)
+/// comparing `left` with `right` by operation `op` holds for the values
+/// bound (`bindables`, the state machine's bindable properties): held still,
+/// a comparison of a trigger or of a value with itself changing never does.
+fn view_model_holds(
+    bindables: &[Object],
+    op: u64,
+    left: &Object,
+    right: &Object,
+    unread: &mut BTreeSet<&'static str>,
+) -> bool {
+    let comparand = |c: &Object| -> Option<Comparand> {
+        Some(match c.ty {
+            t::TRANSITION_PROPERTY_VIEW_MODEL_COMPARATOR => {
+                let b = bindables.get(c.uint(crate::file::BINDABLE_INDEX) as usize)?;
+                match b.ty {
+                    t::BINDABLE_PROPERTY_NUMBER => {
+                        Comparand::Number(b.num(p::BINDABLE_PROPERTY_NUMBER_PROPERTY_VALUE))
+                    }
+                    t::BINDABLE_PROPERTY_BOOLEAN => {
+                        Comparand::Bool(b.flag(p::BINDABLE_PROPERTY_BOOLEAN_PROPERTY_VALUE))
+                    }
+                    t::BINDABLE_PROPERTY_ENUM => {
+                        Comparand::Id(b.uint(p::BINDABLE_PROPERTY_ENUM_PROPERTY_VALUE))
+                    }
+                    t::BINDABLE_PROPERTY_STRING => {
+                        Comparand::Text(b.string(p::BINDABLE_PROPERTY_STRING_PROPERTY_VALUE))
+                    }
+                    t::BINDABLE_PROPERTY_COLOR => {
+                        Comparand::Color(b.color(p::BINDABLE_PROPERTY_COLOR_PROPERTY_VALUE))
+                    }
+                    _ => return None,
+                }
+            }
+            t::TRANSITION_VALUE_NUMBER_COMPARATOR => {
+                Comparand::Number(c.num(p::TRANSITION_VALUE_NUMBER_COMPARATOR_VALUE))
+            }
+            t::TRANSITION_VALUE_BOOLEAN_COMPARATOR => {
+                Comparand::Bool(c.flag(p::TRANSITION_VALUE_BOOLEAN_COMPARATOR_VALUE))
+            }
+            t::TRANSITION_VALUE_ENUM_COMPARATOR => {
+                Comparand::Id(c.uint(p::TRANSITION_VALUE_ID_COMPARATOR_VALUE))
+            }
+            t::TRANSITION_VALUE_STRING_COMPARATOR => {
+                Comparand::Text(c.string(p::TRANSITION_VALUE_STRING_COMPARATOR_VALUE))
+            }
+            t::TRANSITION_VALUE_COLOR_COMPARATOR => {
+                Comparand::Color(c.color(p::TRANSITION_VALUE_COLOR_COMPARATOR_VALUE))
+            }
+            _ => return None,
+        })
+    };
+    // A value changing (`TransitionSelfComparator`) or a trigger fired:
+    // nothing changes the instance here.
+    if right.ty == t::TRANSITION_SELF_COMPARATOR
+        || right.ty == t::TRANSITION_VALUE_TRIGGER_COMPARATOR
+    {
+        return false;
+    }
+    let (Some(a), Some(b)) = (comparand(left), comparand(right)) else {
+        for c in [left, right] {
+            if comparand(c).is_none() {
+                unread.extend(defs::type_name(c.ty));
+            }
+        }
+        return false;
+    };
+    let order = match (&a, &b) {
+        (Comparand::Number(x), Comparand::Number(y)) => x.partial_cmp(y),
+        (x, y) if std::mem::discriminant(x) == std::mem::discriminant(y) => Some(if x == y {
+            std::cmp::Ordering::Equal
+        } else {
+            std::cmp::Ordering::Less
+        }),
+        _ => None,
+    };
+    let Some(order) = order else {
+        return false;
+    };
+    use std::cmp::Ordering::{Equal, Greater, Less};
+    // Only numbers order; the others are equal or not.
+    let ordered = matches!(a, Comparand::Number(_));
+    match op {
+        0 => order == Equal,
+        1 => order != Equal,
+        2 => ordered && order != Greater,
+        3 => ordered && order != Less,
+        4 => ordered && order == Less,
+        5 => ordered && order == Greater,
+        _ => false,
+    }
 }
 
 /// The events `objects` (a state's or a transition's fire actions) fire.

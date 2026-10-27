@@ -226,7 +226,16 @@ The core gains what Rive needs, each with the reference renderer's drawing and t
    clicked stay at their baselines. **Still to come**: the events a nested artboard's machine fires as it
    plays.
 9. **View models and data binding** (phase 4): view models, instances and bindings to properties and
-   conditions, with converters; layout components laid out at import for the artboard's size.
+   conditions, with converters; layout components laid out at import for the artboard's size. **Done:
+   the default instance bound** (`data.rs`): the reader keeps view models, instances, converters and
+   bindings (each binding the object read just before it, as `File::read`'s `lastBindableObject`), and a
+   state machine's bindable properties (what comparators, view model blends and listeners read: the one read
+   just before them); the artboard's view model's first instance is bound into the objects before
+   conversion, so a bound value is the property's setup value, and view model conditions evaluate on it
+   (`TransitionViewModelCondition`'s comparisons of numbers, booleans, enums, strings and colors).
+   Checked against Rive's web runtime with `autoBind`: the test files draw the same; Boopkin moves closer.
+   **Still to come**: converters, bindings by name, nested view models (and nested artboards' contexts),
+   view model values changed over time (by the app, listeners, triggers) and two-way bindings.
 10. **Out of scope for now:** Luau scripting, audio, open-URL events (reported to the app as events), text
     input, scrolling.
 
@@ -259,4 +268,4 @@ The core gains what Rive needs, each with the reference renderer's drawing and t
    ellipses left), elastic easing.
 3. **State machines**: done as they play untouched, with their inputs changed, their listeners acting on a
    pointer in the core, the CLI and the player, blend states and events.
-4. **Data binding and layout.**
+4. **Data binding and layout**: the default instance bound; converters, changes over time and layout to come.

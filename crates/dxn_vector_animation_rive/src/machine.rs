@@ -136,6 +136,9 @@ pub(crate) enum By {
     /// The number input (none: 0) between the two animations whose values
     /// are around it.
     OneD(Option<usize>),
+    /// A fixed value (a view model's, bound), as `OneD` blends at its
+    /// input's.
+    Value(f64),
     /// Each animation its own mix, 0 to 100.
     Direct,
 }
@@ -526,8 +529,12 @@ impl Layer<'_> {
                     *w = (value / 100.0).clamp(0.0, 1.0);
                 }
             }
-            By::OneD(i) => {
-                let value = input(i);
+            By::OneD(_) | By::Value(_) => {
+                let value = match blend.by {
+                    By::Value(v) => v as f32,
+                    By::OneD(i) => input(i),
+                    By::Direct => 0.0,
+                };
                 let values: Vec<f32> = blend.parts.iter().map(|p| p.value as f32).collect();
                 let index = one_d_index(&values, value);
                 let to = values.get(index).copied();

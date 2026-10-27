@@ -49,6 +49,7 @@ lottie-motion.json
 | `marker` | Each named marker: start and duration |
 | `event` | Each event the file plays something on, and the `render` flag that plays it |
 | `cue` | Each cue of the timeline (a Rive event): its time, name, link and properties |
+| `view model` | A Rive file's bound view model: its name, its instance's and each property's value |
 | `machine`, `input`, `listener` | A Rive file's default state machine and those its nested artboards play (at their paths): their inputs with their values at first, their listeners (what they act on, pointer events or Rive events, the shapes they listen on and where those are at 0 s, what they do), and the `render` flags that change them |
 | `nodes`, `animation`, `path points` | The scene's [`Stats`](./limits.md#checking-a-scene) |
 | `left out` | Each warning, or `nothing` |

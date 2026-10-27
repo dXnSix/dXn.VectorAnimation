@@ -36,7 +36,7 @@ The NSH player:
 
 - Lottie expressions on paths and text documents, and layer space transforms (`toComp`, `fromComp`).
 - Rive, as its [design](https://github.com/dXnSix/dXn.VectorAnimation/blob/main/docs/design/rive.md) says: what
-  the runtime evaluates (what is left of text), then data binding and layout.
+  the runtime evaluates (what is left of text), what is left of data binding, then layout.
 - Real phones and their frame times.
 - Why GTK in a slow virtual machine sometimes takes the check app's steps seconds late.
 
