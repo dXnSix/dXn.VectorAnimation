@@ -11,13 +11,13 @@
   "status": "",
   "createdAt": "2026-10-27T20:14:29Z",
   "finishedAt": null,
-  "lastStableCommit": "2b26404ef1647c2aaed5dcbba0f3ff614aca047a",
+  "lastStableCommit": "50e8c0113f0cc375519ae3d31812b2cdd98c9b9f",
   "repositories": [
     {
       "name": "main",
       "path": ".",
       "role": "main",
-      "lastStableCommit": "2b26404ef1647c2aaed5dcbba0f3ff614aca047a"
+      "lastStableCommit": "50e8c0113f0cc375519ae3d31812b2cdd98c9b9f"
     }
   ],
   "atomicDiscipline": {
@@ -28,8 +28,8 @@
     "successfulAttemptRequiresCommitBeforeNextExperiment": true,
     "rule": "Run exactly the printed hypothesis. If the attempted change fails, degrades, or suggests a different fix, revert to the checkpoint and finish this experiment as failure. Start a new experiment for the next idea."
   },
-  "currentExperimentId": "a7c475ba-954d-4ff0-adce-c54a79783544",
-  "nextExperimentIndex": 33,
+  "currentExperimentId": "e0241a04-0d41-41c2-8bab-4631398cb2cc",
+  "nextExperimentIndex": 35,
   "experiments": [
     {
       "id": "f0287285-7a36-4cb5-8eef-94cdd163e5a7",
@@ -408,6 +408,29 @@
       "name": "Faded source-over layers composited directly",
       "path": "2026-10-27-32-faded-source-over-layers-composited-directly.json",
       "startedAt": "2026-10-27T21:32:36Z",
+      "finishedAt": "2026-10-27T21:34:19Z",
+      "state": "done",
+      "status": "success",
+      "resultCommit": "50e8c0113f0cc375519ae3d31812b2cdd98c9b9f"
+    },
+    {
+      "id": "3d07ae3a-9609-408d-8bc0-800bf8151a8e",
+      "index": 33,
+      "type": "hypothesis",
+      "name": "Chain prefix kept across siblings",
+      "path": "2026-10-27-33-chain-prefix-kept-across-siblings.json",
+      "startedAt": "2026-10-27T21:34:57Z",
+      "finishedAt": "2026-10-27T21:35:52Z",
+      "state": "done",
+      "status": "failure"
+    },
+    {
+      "id": "e0241a04-0d41-41c2-8bab-4631398cb2cc",
+      "index": 34,
+      "type": "hypothesis",
+      "name": "Compiled scenes parsed once",
+      "path": "2026-10-27-34-compiled-scenes-parsed-once.json",
+      "startedAt": "2026-10-27T21:37:06Z",
       "finishedAt": null,
       "state": "running",
       "status": ""

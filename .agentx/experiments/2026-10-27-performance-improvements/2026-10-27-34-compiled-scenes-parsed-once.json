@@ -1,0 +1,52 @@
+{
+  "schemaVersion": 1,
+  "id": "e0241a04-0d41-41c2-8bab-4631398cb2cc",
+  "loopId": "9e7a8b6d-0104-4e72-a31e-3b168c0b3881",
+  "index": 34,
+  "type": "hypothesis",
+  "name": "Compiled scenes parsed once",
+  "slug": "compiled-scenes-parsed-once",
+  "path": "2026-10-27-34-compiled-scenes-parsed-once.json",
+  "createdAt": "2026-10-27T21:37:06Z",
+  "startedAt": "2026-10-27T21:37:06Z",
+  "finishedAt": null,
+  "state": "running",
+  "status": "",
+  "checkpointCommit": "50e8c0113f0cc375519ae3d31812b2cdd98c9b9f",
+  "resultCommit": "",
+  "rollbackCommand": "git -C \"/Users/dinko/work-private/projects/dXn/dXn.VectorAnimation\" reset --hard 50e8c0113f0cc375519ae3d31812b2cdd98c9b9f",
+  "repositories": [
+    {
+      "name": "main",
+      "path": ".",
+      "role": "main",
+      "checkpointCommit": "50e8c0113f0cc375519ae3d31812b2cdd98c9b9f",
+      "resultCommit": "",
+      "rollbackCommand": "git -C \"/Users/dinko/work-private/projects/dXn/dXn.VectorAnimation\" reset --hard 50e8c0113f0cc375519ae3d31812b2cdd98c9b9f",
+      "status": ""
+    }
+  ],
+  "repositoryCommits": [],
+  "atomicDiscipline": {
+    "oneHypothesisOnly": true,
+    "singleImplementationAttempt": true,
+    "noUnplannedFixesInsideExperiment": true,
+    "failedAttemptRequiresImmediateRevert": true,
+    "successfulAttemptRequiresCommitBeforeNextExperiment": true,
+    "rule": "Run exactly the printed hypothesis. If the attempted change fails, degrades, or suggests a different fix, revert to the checkpoint and finish this experiment as failure. Start a new experiment for the next idea."
+  },
+  "primaryTarget": "wasm/web with headed Playwright and WebGPU enabled",
+  "hypothesisMarkdown": "",
+  "measurementPlanMarkdown": "",
+  "expectedOutcomeMarkdown": "",
+  "diagnostics": {
+    "playwright": [],
+    "rayx": [],
+    "counters": [],
+    "artifacts": []
+  },
+  "measurements": [],
+  "reportMarkdown": "",
+  "decisionMarkdown": "",
+  "notes": ""
+}

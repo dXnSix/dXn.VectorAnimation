@@ -9,11 +9,11 @@
   "path": "2026-10-27-32-faded-source-over-layers-composited-directly.json",
   "createdAt": "2026-10-27T21:32:36Z",
   "startedAt": "2026-10-27T21:32:36Z",
-  "finishedAt": null,
-  "state": "running",
-  "status": "",
+  "finishedAt": "2026-10-27T21:34:19Z",
+  "state": "done",
+  "status": "success",
   "checkpointCommit": "2b26404ef1647c2aaed5dcbba0f3ff614aca047a",
-  "resultCommit": "",
+  "resultCommit": "50e8c0113f0cc375519ae3d31812b2cdd98c9b9f",
   "rollbackCommand": "git -C \"/Users/dinko/work-private/projects/dXn/dXn.VectorAnimation\" reset --hard 2b26404ef1647c2aaed5dcbba0f3ff614aca047a",
   "repositories": [
     {
@@ -21,12 +21,19 @@
       "path": ".",
       "role": "main",
       "checkpointCommit": "2b26404ef1647c2aaed5dcbba0f3ff614aca047a",
-      "resultCommit": "",
+      "resultCommit": "50e8c0113f0cc375519ae3d31812b2cdd98c9b9f",
       "rollbackCommand": "git -C \"/Users/dinko/work-private/projects/dXn/dXn.VectorAnimation\" reset --hard 2b26404ef1647c2aaed5dcbba0f3ff614aca047a",
-      "status": ""
+      "status": "success"
     }
   ],
-  "repositoryCommits": [],
+  "repositoryCommits": [
+    {
+      "name": "main",
+      "path": ".",
+      "role": "main",
+      "commit": "50e8c0113f0cc375519ae3d31812b2cdd98c9b9f"
+    }
+  ],
   "atomicDiscipline": {
     "oneHypothesisOnly": true,
     "singleImplementationAttempt": true,
@@ -36,17 +43,46 @@
     "rule": "Run exactly the printed hypothesis. If the attempted change fails, degrades, or suggests a different fix, revert to the checkpoint and finish this experiment as failure. Start a new experiment for the next idea."
   },
   "primaryTarget": "wasm/web with headed Playwright and WebGPU enabled",
-  "hypothesisMarkdown": "",
-  "measurementPlanMarkdown": "",
-  "expectedOutcomeMarkdown": "",
+  "hypothesisMarkdown": "## Faded source-over layers composited directly Hypothesis\n\nLayers of normal blend (faded groups, blurred ones fading in) were drawn over what is under them through tiny-skia's pipeline (a pattern shader, eight pixels at a time in single precision, staged). A direct loop computes the same: each channel and alpha over 255 in single precision, faded by the opacity unless it is 1, the destination times one less the source alpha plus the source, rounded to the nearest (ties to even, as every target tiny-skia supports rounds).\\n\\n**Tested mechanism:** direct source-over compositing at any opacity. **Allowed:** render compose, `over`, a unit test. **Forbidden:** other blends, masks, effects.",
+  "measurementPlanMarkdown": "### Measurement Plan\n\nRelease bench over the 53 corpus files (median of 3 runs, best of 5 each), plus the focused tests of the touched area.",
+  "expectedOutcomeMarkdown": "### Expected Outcome\n\nThe targeted metric improves with identical graph output and passing focused tests.",
   "diagnostics": {
     "playwright": [],
     "rayx": [],
     "counters": [],
     "artifacts": []
   },
-  "measurements": [],
-  "reportMarkdown": "",
-  "decisionMarkdown": "",
+  "measurements": [
+    {
+      "metric": "engine us/frame",
+      "before": "610",
+      "after": "529",
+      "delta": "",
+      "source": "scratchpad bench.sh: median of 3 `vector-animation-check bench artifacts-temp/corpus`"
+    },
+    {
+      "metric": "onboarding engine us/frame (3 runs)",
+      "before": "568",
+      "after": "496",
+      "delta": "",
+      "source": "scratchpad bench.sh: median of 3 `vector-animation-check bench artifacts-temp/corpus`"
+    },
+    {
+      "metric": "reference frames (4629 PNGs)",
+      "before": "identical",
+      "after": "identical",
+      "delta": "",
+      "source": "scratchpad bench.sh: median of 3 `vector-animation-check bench artifacts-temp/corpus`"
+    },
+    {
+      "metric": "corpus fidelity",
+      "before": "identical",
+      "after": "identical",
+      "delta": "",
+      "source": "scratchpad bench.sh: median of 3 `vector-animation-check bench artifacts-temp/corpus`"
+    }
+  ],
+  "reportMarkdown": "## Faded source-over layers composited directly Finished\n\n**Passed Status**: True\n\n**Attempt Count:** 1. **Out-of-scope changes:** none.\n\nEngine thread -13% a frame (onboarding's fading blurs). A unit test checks the loop against tiny-skia's `draw_pixmap` on all 8.4 million (channel, alpha, destination) combinations at four opacities; reference PNG hashes and fidelity identical; render and image tests pass; clippy clean.\n\n| Repo | Path | Checkpoint | Result Commit | Status |\n| --- | --- | --- | --- | --- |\n| main | . | 2b26404 | 50e8c01 | committed |",
+  "decisionMarkdown": "### Decision\n\nCommitted 50e8c01: perf(render): composite normal layers directly, as the pipeline would",
   "notes": ""
 }
