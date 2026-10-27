@@ -149,6 +149,25 @@ fn ToggleClicked() -> impl IntoElement {
     toggle(false)
 }
 
+const EVENTS: &[u8] = include_bytes!("../../../fixtures/rive-events.riv");
+
+/// A Rive file whose state machine fires "entered", then "left" and
+/// "leaving" at about 1 s and "arrived" at 1.5 s: the cues reported, in
+/// turn.
+#[component]
+fn Cues() -> impl IntoElement {
+    use dxn_vector_animation_nsh::AnimationCue;
+
+    let names = signal(Vec::<String>::new());
+    view()
+        .child(
+            vector_animation()
+                .src(Some(Source::Bytes(EVENTS.to_vec())))
+                .on_cue(move |c: &AnimationCue| names.update(|n| n.push(c.name.clone()))),
+        )
+        .child(text(move || format!("Cues {}", names.get().join(","))))
+}
+
 /// A player of something that is not an animation.
 #[component]
 fn Broken() -> impl IntoElement {
@@ -269,4 +288,10 @@ fn a_rive_files_listeners_hear_the_pointer() {
     app.drag(&pointer, nsh_core::geometry::point(px(1.0), px(0.0)))
         .unwrap();
     app.wait_for("Input on 1").unwrap();
+}
+
+#[test]
+fn reports_the_cues_playback_passes() {
+    let mut app = start::<Cues>();
+    app.wait_for("Cues entered,left,leaving,arrived").unwrap();
 }

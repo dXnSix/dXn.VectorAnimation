@@ -20,9 +20,9 @@ use nsh_core::ui::prelude::*;
 
 pub use crate::{
     component::{
-        AnimationInfo, AnimationInput, AnimationMarker, AnimationSize, POINTER_TEST_ID, ResizeMode,
-        VectorAnimation, VectorAnimationApi, VectorAnimationElement, VectorAnimationEvent,
-        VectorAnimationProps, fit, vector_animation,
+        AnimationCue, AnimationInfo, AnimationInput, AnimationMarker, AnimationSize,
+        POINTER_TEST_ID, ResizeMode, VectorAnimation, VectorAnimationApi, VectorAnimationElement,
+        VectorAnimationEvent, VectorAnimationProps, fit, vector_animation,
     },
     playback::Direction,
     source::{At, InputSetting, PosterFrame, Repeat, Segment, Source},

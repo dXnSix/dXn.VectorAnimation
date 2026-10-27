@@ -95,6 +95,69 @@ pub struct AnimationMarker {
     pub duration: f64,
 }
 
+/// A cue playback passed (a Rive event).
+#[derive(Debug, Clone, Default, PartialEq, JsObject)]
+pub struct AnimationCue {
+    /// Its name.
+    pub name: String,
+    /// Where it is on the timeline, in seconds.
+    pub time: f64,
+    /// The link it opens (a Rive open-URL event).
+    pub url: Option<String>,
+    /// Where it opens it: `_blank`, `_parent`, `_self` or `_top`.
+    pub target: Option<String>,
+    /// What it carries (a Rive event's custom properties), by name.
+    pub properties: serde_json::Value,
+}
+
+impl AnimationCue {
+    fn of(c: &dxn_vector_animation::Cue) -> AnimationCue {
+        use dxn_vector_animation::CueValue;
+        let properties = c
+            .properties
+            .iter()
+            .map(|(name, value)| {
+                let value = match value {
+                    CueValue::Number(n) => serde_json::json!(n),
+                    CueValue::Text(t) => serde_json::json!(t),
+                    CueValue::Bool(b) => serde_json::json!(b),
+                };
+                (name.clone(), value)
+            })
+            .collect::<serde_json::Map<_, _>>();
+        AnimationCue {
+            name: c.name.clone(),
+            time: c.time,
+            url: c.url.as_ref().map(|(u, _)| u.clone()),
+            target: c.url.as_ref().map(|(_, t)| t.clone()),
+            properties: serde_json::Value::Object(properties),
+        }
+    }
+}
+
+/// The cues of `cues` playback passes going from `from` to `to` (both
+/// included when `first`, else `from` left out): over the end and back to
+/// `loop_start` when it went forwards and came back.
+fn passed(
+    cues: &[dxn_vector_animation::Cue],
+    from: f64,
+    to: f64,
+    first: bool,
+    wraps: Option<(f64, f64)>,
+) -> impl Iterator<Item = &dxn_vector_animation::Cue> {
+    let within = move |t: f64| {
+        let after = |a: f64| if first { t >= a } else { t > a };
+        match wraps {
+            Some((loop_start, end)) if to < from => {
+                (after(from) && t <= end) || (t >= loop_start && t <= to)
+            }
+            _ if to >= from => after(from) && t <= to,
+            _ => t >= to && t < from,
+        }
+    };
+    cues.iter().filter(move |c| within(c.time))
+}
+
 /// An input of a Rive file's state machine.
 #[derive(Debug, Clone, Default, PartialEq, JsObject)]
 pub struct AnimationInput {
@@ -133,6 +196,9 @@ pub enum VectorAnimationEvent {
     Load(AnimationInfo),
     /// Playback reached its end (never while repeating forever).
     End,
+    /// Playback passed a cue: a Rive event its state machine fired (or a
+    /// listener did, as the pointer acted).
+    Cue(AnimationCue),
     /// An input of a Rive file's state machine changed: a listener set it
     /// as the pointer acted, or `setInput` or `fire` did (a trigger fired
     /// is 1).
@@ -329,6 +395,7 @@ pub fn VectorAnimation(
                 }
                 let batch = coalesced(batch);
                 let listens = ready.get_untracked().is_some_and(|r| r.listens);
+                let changed_at = batch.first().map_or(0.0, |(t, _)| *t);
                 let made = move || {
                     let before = play.changes().len();
                     let changed = make(&mut play, batch);
@@ -359,19 +426,33 @@ pub fn VectorAnimation(
                             listens,
                         )
                     });
-                    (play, swapped, inputs)
+                    let fired = play.take_fired();
+                    (play, swapped, inputs, fired)
                 };
                 #[cfg(not(target_arch = "wasm32"))]
-                let Ok((play, swapped, inputs)) = blocking(made).await else {
+                let Ok((play, swapped, inputs, fired)) = blocking(made).await else {
                     break;
                 };
                 #[cfg(target_arch = "wasm32")]
-                let (play, swapped, inputs) = made();
+                let (play, swapped, inputs, fired) = made();
                 if interacting.with(|i| i.generation) != generation {
                     // Another source is read meanwhile.
                     break;
                 }
+                for cue in &fired {
+                    cx.emit(VectorAnimationEvent::Cue(AnimationCue::of(cue)));
+                }
                 if let Some(r) = swapped {
+                    // What the new scene fires between the change and now
+                    // has passed already.
+                    let now = if r.native {
+                        f64::from(time.value().await)
+                    } else {
+                        clock.get_untracked()
+                    };
+                    for c in passed(&r.loaded.scene.timeline.cues, changed_at, now, false, None) {
+                        cx.emit(VectorAnimationEvent::Cue(AnimationCue::of(c)));
+                    }
                     ready.set(Some(Rc::new(r)));
                 }
                 for input in inputs {
@@ -419,12 +500,17 @@ pub fn VectorAnimation(
     // The engine's clock beside the graph's, for parts sampled frame by
     // frame.
     let ticking = stored(None::<Spawned<()>>);
+    // What reports the cues playback passes.
+    let cueing = stored(None::<Spawned<()>>);
     // Stops what plays: its tasks, its run, the time value.
     let halt = move || {
         if let Some(task) = playing.replace(None) {
             task.cancel();
         }
         if let Some(task) = ticking.replace(None) {
+            task.cancel();
+        }
+        if let Some(task) = cueing.replace(None) {
             task.cancel();
         }
         if let Some(run) = run.replace(None) {
@@ -544,6 +630,9 @@ pub fn VectorAnimation(
             None => seek,
         };
         let (native, mixed) = (r.native, r.mixed);
+        let cues: Rc<[dxn_vector_animation::Cue]> = scene.timeline.cues.clone().into();
+        let wraps = (direction == Direction::Normal && repeat != Repeat::Once)
+            .then_some((playback.loop_start, playback.end));
         untracked(move || {
             halt();
             let show = |t: f64| {
@@ -580,6 +669,25 @@ pub fn VectorAnimation(
                 } else {
                     from
                 };
+                if !cues.is_empty() {
+                    let cues = cues.clone();
+                    let first = from == playback.first();
+                    cueing.replace(Some(spawn(async move {
+                        let (mut last, mut first) = (from, first);
+                        loop {
+                            next_frame().await;
+                            let t = if native {
+                                f64::from(time.value().await)
+                            } else {
+                                clock.get_untracked()
+                            };
+                            for c in passed(&cues, last, t, first, wraps) {
+                                cx.emit(VectorAnimationEvent::Cue(AnimationCue::of(c)));
+                            }
+                            (last, first) = (t, false);
+                        }
+                    })));
+                }
                 if native {
                     // The parts sampled frame by frame read the graph's
                     // time each frame, so they stay with the rest: a clock
