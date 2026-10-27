@@ -983,9 +983,13 @@ fn blur_axis(data: &mut [f32], len: usize, count: usize, step: usize, stride: us
     let mut tmp = vec![0.0f32; len * 4];
     for i in 0..count {
         let start = i * stride;
-        for x in 0..len {
-            let at = start + x * step;
-            line[x * 4..x * 4 + 4].copy_from_slice(&data[at..at + 4]);
+        if step == 4 {
+            line.copy_from_slice(&data[start..start + len * 4]);
+        } else {
+            for x in 0..len {
+                let at = start + x * step;
+                line[x * 4..x * 4 + 4].copy_from_slice(&data[at..at + 4]);
+            }
         }
         if sigma < 2.0 {
             gaussian(&line, &mut tmp, sigma);
@@ -1008,9 +1012,13 @@ fn blur_axis(data: &mut [f32], len: usize, count: usize, step: usize, stride: us
                 std::mem::swap(&mut line, &mut tmp);
             }
         }
-        for x in 0..len {
-            let at = start + x * step;
-            data[at..at + 4].copy_from_slice(&line[x * 4..x * 4 + 4]);
+        if step == 4 {
+            data[start..start + len * 4].copy_from_slice(&line);
+        } else {
+            for x in 0..len {
+                let at = start + x * step;
+                data[at..at + 4].copy_from_slice(&line[x * 4..x * 4 + 4]);
+            }
         }
     }
 }

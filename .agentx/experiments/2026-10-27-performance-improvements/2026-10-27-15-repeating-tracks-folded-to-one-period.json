@@ -9,11 +9,11 @@
   "path": "2026-10-27-15-repeating-tracks-folded-to-one-period.json",
   "createdAt": "2026-10-27T20:43:43Z",
   "startedAt": "2026-10-27T20:43:43Z",
-  "finishedAt": null,
-  "state": "running",
-  "status": "",
+  "finishedAt": "2026-10-27T20:52:49Z",
+  "state": "done",
+  "status": "success",
   "checkpointCommit": "8b013420ff0005559d0af9e5689eda5656c4f5a3",
-  "resultCommit": "",
+  "resultCommit": "2eed04c9a0e696b7c1126e0895f808e9ef740298",
   "rollbackCommand": "git -C \"/Users/dinko/work-private/projects/dXn/dXn.VectorAnimation\" reset --hard 8b013420ff0005559d0af9e5689eda5656c4f5a3",
   "repositories": [
     {
@@ -21,12 +21,19 @@
       "path": ".",
       "role": "main",
       "checkpointCommit": "8b013420ff0005559d0af9e5689eda5656c4f5a3",
-      "resultCommit": "",
+      "resultCommit": "2eed04c9a0e696b7c1126e0895f808e9ef740298",
       "rollbackCommand": "git -C \"/Users/dinko/work-private/projects/dXn/dXn.VectorAnimation\" reset --hard 8b013420ff0005559d0af9e5689eda5656c4f5a3",
-      "status": ""
+      "status": "success"
     }
   ],
-  "repositoryCommits": [],
+  "repositoryCommits": [
+    {
+      "name": "main",
+      "path": ".",
+      "role": "main",
+      "commit": "2eed04c9a0e696b7c1126e0895f808e9ef740298"
+    }
+  ],
   "atomicDiscipline": {
     "oneHypothesisOnly": true,
     "singleImplementationAttempt": true,
@@ -36,17 +43,46 @@
     "rule": "Run exactly the printed hypothesis. If the attempted change fails, degrades, or suggests a different fix, revert to the checkpoint and finish this experiment as failure. Start a new experiment for the next idea."
   },
   "primaryTarget": "wasm/web with headed Playwright and WebGPU enabled",
-  "hypothesisMarkdown": "",
-  "measurementPlanMarkdown": "",
-  "expectedOutcomeMarkdown": "",
+  "hypothesisMarkdown": "## Repeating tracks folded to one period Hypothesis\n\nLooping animations of different lengths play over the least common multiple of their lengths (thunder.svg: 7 s, 3 s and 1.11 s over 777 s), each unrolled into thousands of keyframes the graph held as breakpoints. A track whose keyframes repeat at a period (times a period apart, same values and easings, whole repetitions, no jump at a repetition's edge; a repetition's end the next start repeats is dropped first) becomes one repetition read at `(clamp(t) - start) mod period`.\\n\\n**Tested mechanism:** periodic folding in `Graph::track`/`color_track`. **Allowed:** `graph.rs`, new test file, docs. **Forbidden:** importer changes, sampling elsewhere.",
+  "measurementPlanMarkdown": "### Measurement Plan\n\nRelease bench over the 53 corpus files (median of 3 runs, best of 5 each), plus the focused tests of the touched area.",
+  "expectedOutcomeMarkdown": "### Expected Outcome\n\nThe targeted metric improves with identical graph output and passing focused tests.",
   "diagnostics": {
     "playwright": [],
     "rayx": [],
     "counters": [],
     "artifacts": []
   },
-  "measurements": [],
-  "reportMarkdown": "",
-  "decisionMarkdown": "",
+  "measurements": [
+    {
+      "metric": "graph breakpoints",
+      "before": "115,936",
+      "after": "82,751",
+      "delta": "",
+      "source": "scratchpad bench.sh: median of 3 `vector-animation-check bench artifacts-temp/corpus`"
+    },
+    {
+      "metric": "graph nodes",
+      "before": "5026",
+      "after": "5042",
+      "delta": "",
+      "source": "scratchpad bench.sh: median of 3 `vector-animation-check bench artifacts-temp/corpus`"
+    },
+    {
+      "metric": "held MB",
+      "before": "68.4",
+      "after": "67.9",
+      "delta": "",
+      "source": "scratchpad bench.sh: median of 3 `vector-animation-check bench artifacts-temp/corpus`"
+    },
+    {
+      "metric": "corpus fidelity",
+      "before": "identical",
+      "after": "identical",
+      "delta": "",
+      "source": "scratchpad bench.sh: median of 3 `vector-animation-check bench artifacts-temp/corpus`"
+    }
+  ],
+  "reportMarkdown": "## Repeating tracks folded to one period Finished\n\n**Passed Status**: True\n\n**Attempt Count:** 1. **Out-of-scope changes:** none.\n\nBreakpoints -29% (the UI thread's graph and its memory; thunder.svg 29,142 to a few dozen). New test group `tests/repeating_tracks.rs` (numbers and colors against `Track::sample` over the whole timeline and past it, a short track left alone, a CSS scene of three loops against the reference); full player suite (graph contract) passes; fidelity identical; clippy clean; README and capabilities page updated.\n\n| Repo | Path | Checkpoint | Result Commit | Status |\n| --- | --- | --- | --- | --- |\n| main | . | 8b01342 | 2eed04c | committed |",
+  "decisionMarkdown": "### Decision\n\nCommitted 2eed04c: perf(nsh): read a repeating track as one repetition modulo its period",
   "notes": ""
 }
