@@ -40,6 +40,10 @@ const BLUR_LEVELS: usize = 10;
 /// How far past the view the casters drawn past it stay from it, in points.
 const PAST: f64 = 4.0;
 
+/// How many times a second a canvas that draws again each frame is sampled
+/// for where it draws.
+const BOUNDS_RATE: f64 = 15.0;
+
 /// How many times a second what moves is sampled for where it goes.
 pub(super) const PROBE_RATE: f64 = 60.0;
 
@@ -697,15 +701,23 @@ impl Compiler {
             .chain(self.ancestors.iter().map(|(a, _)| a))
             .chain(std::iter::once(g))
             .collect();
+        // A transform that does not move is the same at every time.
+        let still: Vec<Option<Matrix>> = chain
+            .iter()
+            .map(|group| {
+                (!group.transform.iter().any(TransformOp::is_animated))
+                    .then(|| transform_at(&group.transform, 0.0))
+            })
+            .collect();
         let mut last = Matrix::IDENTITY;
         times
             .iter()
             .map(|&t| {
                 let mut time = t;
                 let mut m = Matrix::IDENTITY;
-                let finite = chain.iter().all(|group| {
+                let finite = chain.iter().zip(&still).all(|(group, still)| {
                     time = group.local_time(time);
-                    m = m * transform_at(&group.transform, time);
+                    m = m * still.unwrap_or_else(|| transform_at(&group.transform, time));
                     m.is_finite()
                 });
                 if finite {
@@ -1335,16 +1347,44 @@ impl Compiler {
     /// what they fill, stroke and place (curves within their control
     /// points, lines grown by the widest), within their clips. `None` where
     /// they draw nothing.
+    ///
+    /// Sampled a few times a second: each edge is pushed out by half the
+    /// most an edge moves along its axis from one sample to the next. Between two samples an
+    /// edge moving one way stays within them; one turning back goes past
+    /// them by less, as it slows to turn.
     pub(super) fn clipped_bounds(&self, ops: &[Op]) -> Option<Rect> {
         let times = if ops.iter().any(Op::moves) {
-            probe_times(self.stage.timeline.duration)
+            let d = self.stage.timeline.duration.max(0.0);
+            let n = ((d * BOUNDS_RATE).ceil() as usize).clamp(1, PROBES);
+            (0..=n).map(|k| d * k as f64 / n as f64).collect()
         } else {
             vec![0.0]
         };
-        times
-            .into_iter()
-            .filter_map(|t| self.clipped_at(ops, t))
-            .reduce(Rect::union)
+        let mut all: Option<Rect> = None;
+        let mut last: Option<Rect> = None;
+        // The most an edge moves along x, and along y, from one sample to
+        // the next.
+        let (mut step_x, mut step_y) = (0.0f64, 0.0f64);
+        for t in times {
+            let Some(r) = self.clipped_at(ops, t) else {
+                last = None;
+                continue;
+            };
+            if let Some(p) = last {
+                let (right, bottom) = (
+                    r.x + r.width - p.x - p.width,
+                    r.y + r.height - p.y - p.height,
+                );
+                step_x = step_x.max((r.x - p.x).abs()).max(right.abs());
+                step_y = step_y.max((r.y - p.y).abs()).max(bottom.abs());
+            }
+            last = Some(r);
+            all = Some(all.map_or(r, |a| a.union(r)));
+        }
+        all.map(|a| {
+            let (gx, gy) = (step_x / 2.0, step_y / 2.0);
+            Rect::new(a.x - gx, a.y - gy, a.width + 2.0 * gx, a.height + 2.0 * gy)
+        })
     }
 
     /// Where `ops` draw at `time` (see [`Self::clipped_bounds`]).
