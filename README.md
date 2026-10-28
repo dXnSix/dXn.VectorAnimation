@@ -489,20 +489,23 @@ The cause is not found yet.
 folder: how long its plan takes to compile, its graph's nodes and breakpoints, what each frame draws
 (canvases, layers, operations), and the engine thread's work each frame for parts sampled frame by frame and
 for rasters of parts that move. On the 53 corpus files at 200 points and 3 pixels a point, plans compile in
-8.6 ms at most (a repeater of a hundred copies that move, each a layer of its own: 201 canvases, the most; 51
-files under 2 ms), and the engine thread does no work a frame but for three files: rasters of blurs that
+13 ms at most (a repeater of a hundred copies that move, each two layers of its own: 201 canvases, the most;
+50 files under 2 ms), and the engine thread does no work a frame but for three files: rasters of blurs that
 move (0.12 and 0.02 ms a frame, the first time round: each raster renders only where its part draws, a blur
 at fewer pixels, and a loop's frames are kept) and merge paths baked at every frame, sampled (0.015 ms). The
 graph's evaluation on the platforms' UI threads, and frame times on real phones, are not measured here.
 
 `vector-animation-check bench <dir> [--runs <n>] [--files]` sums, over a folder's files, what the player does from
 a file's bytes to its first drawing (reading, compiling, the first rasters and sampled frames: time, allocations,
-bytes allocated and held after), the engine thread's work a frame, the reference's `frame_at` a frame, and the
-graph's size; each the best of `runs` (5). `--values` reads JSON files as the values an app imports them as
-(`Source::Json`). Over the corpus (2026-10-27, an M-series Mac): 94 ms from bytes to first drawings in all
-(reading 63, compiling 31), 767,000 allocations and 382 MB allocated on the way, 67 MB held after; 0.20 ms of
-`frame_at` and 0.48 ms of the engine thread's work a frame in all; 4,972 graph nodes, 53,982 breakpoints and
-44,936 canvas operations.
+bytes allocated and held after), the engine thread's work a frame, the reference's `frame_at` a frame, the
+graph's size, and what the platform draws again each frame (the operations of canvases that read an animated
+value, and the pixels those canvases cover); each the best of `runs` (5). `--values` reads JSON files as the
+values an app imports them as (`Source::Json`). Over the corpus (2026-10-28, an M-series Mac): 110 ms from
+bytes to first drawings in all (reading 67, compiling 43), 801,000 allocations and 416 MB allocated on the way,
+67 MB held after; 0.22 ms of `frame_at` and 0.48 ms of the engine thread's work a frame in all; 5,202 graph
+nodes, 56,518 breakpoints and 44,501 canvas operations; each frame, 23,835 operations drawn again over 43
+million pixels (99 million before moving layers took in still groups carried by moving ones and groups inside
+frames' clips, and moving canvases were sized to where they draw).
 
 ## Development
 
