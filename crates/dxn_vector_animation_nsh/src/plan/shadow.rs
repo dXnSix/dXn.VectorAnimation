@@ -42,13 +42,13 @@ const PAST: f64 = 4.0;
 
 /// How many times a second a canvas that draws again each frame is sampled
 /// for where it draws.
-const BOUNDS_RATE: f64 = 15.0;
+pub(super) const BOUNDS_RATE: f64 = 15.0;
 
 /// How many times a second what moves is sampled for where it goes.
 pub(super) const PROBE_RATE: f64 = 60.0;
 
 /// The most times it is sampled.
-pub(super) const PROBES: usize = 600;
+pub(super) const PROBES: usize = 1200;
 
 /// The most pixels an image of content casting a shadow has.
 const CASTER_IMAGE_PIXELS: f64 = 2048.0 * 2048.0;

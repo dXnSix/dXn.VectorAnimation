@@ -57,7 +57,7 @@ corpus files at 200 points and 3 pixels a point:
 |---|---|
 | Plan compile time | 13 ms at most, 50 files under 2 ms |
 | Canvases | 201 at most (a repeater of a hundred copies that move, each two layers of its own) |
-| Drawn again each frame | 23,835 canvas operations over 43 million pixels in all (99 million before canvases that move were sized to where they draw and moving layers took in more groups) |
+| Drawn again each frame | 20,328 canvas operations over 41 million pixels in all (99 million before canvases that move were sized to where they draw and moving layers took in more groups) |
 | Engine thread work per frame | none, except three files: 0.12 and 0.02 ms for rasters of moving blurs, 0.015 ms for a part sampled frame by frame |
 
 The graph's evaluation on the platforms' UI threads and frame times on real phones are not measured yet.

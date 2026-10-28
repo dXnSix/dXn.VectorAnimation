@@ -177,8 +177,8 @@ fn a_still_group_in_a_moving_one_whose_content_moves_is_a_moving_layer() {
 
 #[test]
 fn over_a_playback_too_long_to_sample_whole_it_is_drawn_as_before() {
-    // 20 s: more frames than the matrix is sampled at.
-    let scene = turning_with_moving_content("20s");
+    // 30 s: more frames than the matrix is sampled at.
+    let scene = turning_with_moving_content("30s");
     let plan = plan::compile(&scene, Matrix::IDENTITY).unwrap();
     assert_eq!(moving_layers(&plan.units).0, 0);
 }

@@ -360,7 +360,7 @@ The view is the animation's own size unless the app sizes it.
   where it jumps). The canvases never draw again as it moves; as a whole the layer is resampled, so thin
   lines soften a little while it moves at one pixel a point. A still group inside a moving one whose other
   content changes (a repeater's copy holding a spinning star) is such a layer of its own, where the playback
-  is short enough (10 s) for its matrix to be sampled at every frame. Inside still rectangle clips along the
+  is short enough (20 s) for its matrix to be sampled at every frame. Inside still rectangle clips along the
   view's axes (a Figma frame), the layer is shown within a view clipping at their rectangle. Groups needing the
   view's coordinates (shadows, masks or other clips around them) are drawn as before.
 - **Canvases that draw again each frame** (they read an animated value) are as large as where they draw over
@@ -500,10 +500,10 @@ a file's bytes to its first drawing (reading, compiling, the first rasters and s
 bytes allocated and held after), the engine thread's work a frame, the reference's `frame_at` a frame, the
 graph's size, and what the platform draws again each frame (the operations of canvases that read an animated
 value, and the pixels those canvases cover); each the best of `runs` (5). `--values` reads JSON files as the
-values an app imports them as (`Source::Json`). Over the corpus (2026-10-28, an M-series Mac): 110 ms from
-bytes to first drawings in all (reading 67, compiling 43), 801,000 allocations and 416 MB allocated on the way,
-67 MB held after; 0.22 ms of `frame_at` and 0.48 ms of the engine thread's work a frame in all; 5,202 graph
-nodes, 56,518 breakpoints and 44,501 canvas operations; each frame, 23,835 operations drawn again over 43
+values an app imports them as (`Source::Json`). Over the corpus (2026-10-28, an M-series Mac): 113 ms from
+bytes to first drawings in all (reading 66, compiling 47), 817,000 allocations and 427 MB allocated on the way,
+66 MB held after; 0.22 ms of `frame_at` and 0.47 ms of the engine thread's work a frame in all; 5,225 graph
+nodes, 56,691 breakpoints and 44,512 canvas operations; each frame, 20,328 operations drawn again over 41
 million pixels (99 million before moving layers took in still groups carried by moving ones and groups inside
 frames' clips, and moving canvases were sized to where they draw).
 

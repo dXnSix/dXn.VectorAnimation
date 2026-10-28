@@ -1385,12 +1385,12 @@ impl Compiler {
     }
 
     /// Where the moving canvas `ops` draws over the playback, in whole
-    /// points a couple around, where that is known (what it draws is
-    /// sampled at every frame; no text, no shadow) and at most half the
-    /// scene.
+    /// points a couple around, where that is known (the playback short
+    /// enough for its bounds to be sampled throughout; no text, no shadow)
+    /// and at most half the scene.
     fn moving_area(&self, ops: &[Op]) -> Option<Rect> {
-        let frames = self.stage.timeline.duration * shadow::PROBE_RATE;
-        if frames > shadow::PROBES as f64
+        let samples = self.stage.timeline.duration * shadow::BOUNDS_RATE;
+        if samples > shadow::PROBES as f64
             || ops
                 .iter()
                 .any(|op| matches!(op, Op::Text { .. } | Op::Shadow { .. } | Op::Copy))
