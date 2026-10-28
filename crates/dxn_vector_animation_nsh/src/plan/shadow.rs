@@ -1308,7 +1308,7 @@ impl Compiler {
     /// Where `ops` (from the view's origin) draw over the playback, moved by
     /// `offset`, about: their path points (curves within their control
     /// points) through their transforms, grown by the widest line.
-    fn drawn_bounds(&self, ops: &[Op], offset: [Num; 2]) -> Option<Rect> {
+    pub(super) fn drawn_bounds(&self, ops: &[Op], offset: [Num; 2]) -> Option<Rect> {
         let moves = offset
             .iter()
             .copied()

@@ -34,6 +34,8 @@ flowchart TB
   the group's own lengths, and never again as the group moves. A still group carried by a moving one (a
   repeater's copies) is such a layer too, even where the rest of what moves with it changes, and so is one
   inside a frame's still rectangle clip, shown within a view clipping there.
+- **Canvases that draw again each frame** are only as large as where they draw over the playback, where that
+  is at most half the scene, so each frame clears and draws fewer pixels.
 
 ```example
 demo: moving-layers

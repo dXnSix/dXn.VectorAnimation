@@ -926,7 +926,8 @@ pub fn compile_for(scene: &Scene, base: Matrix, pixels: f64) -> Result<Plan, Uns
     };
     c.group(&scene.root, TIME, 0)?;
     c.flush();
-    let root = c.layers.pop().map(|l| l.units).unwrap_or_default();
+    let mut root = c.layers.pop().map(|l| l.units).unwrap_or_default();
+    c.fit_moving(&mut root);
     if c.g.nodes().len() > MAX_GRAPH_NODES {
         return unsupported(format!(
             "{} graph nodes, more than NSH's graph is given at once ({MAX_GRAPH_NODES})",
@@ -1353,6 +1354,60 @@ impl Compiler {
             let canvas = std::mem::take(&mut open.canvas);
             open.units.push(Unit::Canvas(closed(canvas)));
         }
+    }
+
+    /// The canvases of `units` (in the view's coordinates) that draw again
+    /// each frame, each over where it draws where that is at most half the
+    /// scene: fewer pixels drawn again.
+    fn fit_moving(&self, units: &mut [Unit]) {
+        for unit in units {
+            match unit {
+                Unit::Canvas(ops) if ops.iter().any(Op::moves) => {
+                    if let Some(area) = self.moving_area(ops) {
+                        let mut moved =
+                            vec![Op::Translate(Num::Const(-area.x), Num::Const(-area.y))];
+                        moved.append(ops);
+                        *unit = Unit::Area {
+                            area,
+                            shown: None,
+                            ops: closed(moved),
+                        };
+                    }
+                }
+                Unit::Layer {
+                    units,
+                    transform: None,
+                    ..
+                } => self.fit_moving(units),
+                _ => {}
+            }
+        }
+    }
+
+    /// Where the moving canvas `ops` draws over the playback, in whole
+    /// points a couple around, where that is known (what it draws is
+    /// sampled at every frame; no text, no shadow) and at most half the
+    /// scene.
+    fn moving_area(&self, ops: &[Op]) -> Option<Rect> {
+        let frames = self.stage.timeline.duration * shadow::PROBE_RATE;
+        if frames > shadow::PROBES as f64
+            || ops
+                .iter()
+                .any(|op| matches!(op, Op::Text { .. } | Op::Shadow { .. } | Op::Copy))
+        {
+            return None;
+        }
+        let b = self.drawn_bounds(ops, [Num::Const(0.0); 2])?;
+        let area = Rect::new(
+            b.x.floor() - 2.0,
+            b.y.floor() - 2.0,
+            b.width.ceil() + 4.0,
+            b.height.ceil() + 4.0,
+        );
+        let m = self.base;
+        let scale = (m.a * m.d - m.b * m.c).abs();
+        let scene = self.stage.width * self.stage.height * scale;
+        (area.width * area.height <= scene / 2.0).then_some(area)
     }
 
     /// Where it is now.
