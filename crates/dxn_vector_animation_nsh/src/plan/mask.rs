@@ -533,7 +533,7 @@ impl Compiler {
             *px = tiny_skia::PremultipliedColorU8::from_rgba(0, 0, 0, a)
                 .unwrap_or(tiny_skia::PremultipliedColorU8::TRANSPARENT);
         }
-        let Ok(bytes) = hidden.encode_png() else {
+        let Some(bytes) = super::png(&hidden) else {
             return Ok(None);
         };
         let half = 2.0 / k;

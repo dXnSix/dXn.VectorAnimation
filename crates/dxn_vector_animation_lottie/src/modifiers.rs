@@ -961,7 +961,8 @@ pub(crate) fn merge(paths: &[Path], mode: MergeMode, over: &std::cell::Cell<bool
 /// Whether the edges of `polygons` have at most `most` pairs whose boxes
 /// overlap (looking at no more than a hundred times as many pairs).
 fn few_crossings(polygons: &[Vec<Vec<[f64; 2]>>], most: usize) -> bool {
-    let mut boxes: Vec<[f64; 4]> = Vec::new();
+    let mut boxes: Vec<[f64; 4]> =
+        Vec::with_capacity(polygons.iter().flatten().map(Vec::len).sum());
     for contour in polygons.iter().flatten() {
         for (k, a) in contour.iter().enumerate() {
             let b = contour[(k + 1) % contour.len()];
@@ -1003,7 +1004,8 @@ fn flatten(path: &Path, tolerance: f64) -> Vec<Vec<[f64; 2]>> {
         }
     }
     let mut out = Vec::new();
-    let mut current: Vec<[f64; 2]> = Vec::new();
+    // At least a point an element.
+    let mut current: Vec<[f64; 2]> = Vec::with_capacity(path.elements().len());
     let mut start = [0.0, 0.0];
     kurbo::flatten(path.to_kurbo(), tolerance, |el| match el {
         kurbo::PathEl::MoveTo(p) => {

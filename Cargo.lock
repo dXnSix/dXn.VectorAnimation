@@ -373,6 +373,7 @@ dependencies = [
  "dxn_vector_animation_render",
  "dxn_vector_animation_svg",
  "serde_json",
+ "stats_alloc",
  "tiny-skia",
 ]
 
@@ -1043,7 +1044,7 @@ dependencies = [
 [[package]]
 name = "nsh-core"
 version = "0.3.0"
-source = "git+https://github.com/dXnSix/nsh?branch=main#960c314c910f37e99796225322753b03de2471fe"
+source = "git+https://github.com/dXnSix/nsh?branch=main#634fb48fe66a930d8491dafc55dd97f0f149cfea"
 dependencies = [
  "cap-std",
  "crc32fast",
@@ -1072,7 +1073,7 @@ dependencies = [
 [[package]]
 name = "nsh-engine"
 version = "0.3.0"
-source = "git+https://github.com/dXnSix/nsh?branch=main#960c314c910f37e99796225322753b03de2471fe"
+source = "git+https://github.com/dXnSix/nsh?branch=main#634fb48fe66a930d8491dafc55dd97f0f149cfea"
 dependencies = [
  "crossbeam-channel",
  "libc",
@@ -1087,7 +1088,7 @@ dependencies = [
 [[package]]
 name = "nsh-macros"
 version = "0.3.0"
-source = "git+https://github.com/dXnSix/nsh?branch=main#960c314c910f37e99796225322753b03de2471fe"
+source = "git+https://github.com/dXnSix/nsh?branch=main#634fb48fe66a930d8491dafc55dd97f0f149cfea"
 dependencies = [
  "imagesize",
  "proc-macro2",
@@ -1100,7 +1101,7 @@ dependencies = [
 [[package]]
 name = "nsh-shader"
 version = "0.3.0"
-source = "git+https://github.com/dXnSix/nsh?branch=main#960c314c910f37e99796225322753b03de2471fe"
+source = "git+https://github.com/dXnSix/nsh?branch=main#634fb48fe66a930d8491dafc55dd97f0f149cfea"
 dependencies = [
  "naga",
 ]
@@ -1108,7 +1109,7 @@ dependencies = [
 [[package]]
 name = "nsh-testing"
 version = "0.3.0"
-source = "git+https://github.com/dXnSix/nsh?branch=main#960c314c910f37e99796225322753b03de2471fe"
+source = "git+https://github.com/dXnSix/nsh?branch=main#634fb48fe66a930d8491dafc55dd97f0f149cfea"
 dependencies = [
  "crossbeam-channel",
  "log",
@@ -1519,6 +1520,12 @@ name = "stable_deref_trait"
 version = "1.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6ce2be8dc25455e1f91df71bfa12ad37d7af1092ae736f3a6cd0e37bc7810596"
+
+[[package]]
+name = "stats_alloc"
+version = "0.1.10"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5c0e04424e733e69714ca1bbb9204c1a57f09f5493439520f9f68c132ad25eec"
 
 [[package]]
 name = "strict-num"

@@ -98,7 +98,9 @@ pub fn widest_point(scene: &Scene, time: f64, w: u32, h: u32) -> f64 {
                     replay.run(ops, &mut p);
                     replay.widest.get()
                 }
-                Unit::Layer { units, .. } => walk(units, g, t, w, h, base),
+                Unit::Layer { units, .. } | Unit::Clip { units, .. } => {
+                    walk(units, g, t, w, h, base)
+                }
                 Unit::Sampled(part) => {
                     let plan = plan::from_frame(&part.frame_at(t), base);
                     walk(&plan.units, &plan.graph, t, w, h, base)
@@ -166,6 +168,12 @@ fn canvas_in(
         sk::Transform::identity(),
         None,
     );
+    keep_within(&mut p, win, keep);
+    p
+}
+
+/// `p` (placed in `win`) cleared outside `keep`, as a view clipping there.
+fn keep_within(p: &mut sk::Pixmap, win: Window, keep: dxn_vector_animation::Rect) {
     let (x0, y0) = (keep.x - f64::from(win.x), keep.y - f64::from(win.y));
     let (x1, y1) = (x0 + keep.width, y0 + keep.height);
     let width = win.w as usize;
@@ -175,7 +183,6 @@ fn canvas_in(
             *px = sk::PremultipliedColorU8::TRANSPARENT;
         }
     }
-    p
 }
 
 /// Where `list` draws in its coordinates, about (a canvas the size of the
@@ -298,6 +305,12 @@ fn units_in(
                         None,
                     );
                 }
+                (p, 1.0, BlendMode::Normal)
+            }
+            // A view clipping at a rectangle: what it holds, kept within.
+            Unit::Clip { rect, units: inner } => {
+                let mut p = units_in(inner, g, t, w, h, base, win);
+                keep_within(&mut p, win, *rect);
                 (p, 1.0, BlendMode::Normal)
             }
             // A part sampled frame by frame: its frame at `t`.

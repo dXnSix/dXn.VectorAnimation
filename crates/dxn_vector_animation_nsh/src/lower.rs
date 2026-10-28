@@ -203,6 +203,27 @@ pub(crate) fn elements(
                 }
                 layer.children(elements(units, nodes, part)).into_element()
             }
+            // A view clipping at the rectangle, what it holds moved back
+            // to the coordinates of what holds it (layers that move place
+            // what they draw whatever their size).
+            Unit::Clip { rect, units } => {
+                let within = view()
+                    .absolute()
+                    .left(px(-rect.x as f32))
+                    .top(px(-rect.y as f32))
+                    .w(px((rect.x + rect.width).max(0.0) as f32))
+                    .h(px((rect.y + rect.height).max(0.0) as f32))
+                    .children(elements(units, nodes, part));
+                view()
+                    .absolute()
+                    .left(px(rect.x as f32))
+                    .top(px(rect.y as f32))
+                    .w(px(rect.width as f32))
+                    .h(px(rect.height as f32))
+                    .overflow_hidden()
+                    .child(within)
+                    .into_element()
+            }
         })
         .collect()
 }

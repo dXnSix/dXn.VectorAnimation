@@ -1,0 +1,81 @@
+{
+  "schemaVersion": 1,
+  "id": "79380e69-705e-4935-a0aa-1f248175cac2",
+  "loopId": "9e7a8b6d-0104-4e72-a31e-3b168c0b3881",
+  "index": 40,
+  "type": "hypothesis",
+  "name": "Graph nodes hashed without SipHash",
+  "slug": "graph-nodes-hashed-without-sip-hash",
+  "path": "2026-10-27-40-graph-nodes-hashed-without-sip-hash.json",
+  "createdAt": "2026-10-27T21:49:20Z",
+  "startedAt": "2026-10-27T21:49:20Z",
+  "finishedAt": "2026-10-27T21:50:32Z",
+  "state": "done",
+  "status": "success",
+  "checkpointCommit": "8b6f7a2145e17f6ab09635b8e272d240156f718e",
+  "resultCommit": "100fa1665a284c95e4b3435c55c50d019f76e70c",
+  "rollbackCommand": "git -C \"/Users/dinko/work-private/projects/dXn/dXn.VectorAnimation\" reset --hard 8b6f7a2145e17f6ab09635b8e272d240156f718e",
+  "repositories": [
+    {
+      "name": "main",
+      "path": ".",
+      "role": "main",
+      "checkpointCommit": "8b6f7a2145e17f6ab09635b8e272d240156f718e",
+      "resultCommit": "100fa1665a284c95e4b3435c55c50d019f76e70c",
+      "rollbackCommand": "git -C \"/Users/dinko/work-private/projects/dXn/dXn.VectorAnimation\" reset --hard 8b6f7a2145e17f6ab09635b8e272d240156f718e",
+      "status": "success"
+    }
+  ],
+  "repositoryCommits": [
+    {
+      "name": "main",
+      "path": ".",
+      "role": "main",
+      "commit": "100fa1665a284c95e4b3435c55c50d019f76e70c"
+    }
+  ],
+  "atomicDiscipline": {
+    "oneHypothesisOnly": true,
+    "singleImplementationAttempt": true,
+    "noUnplannedFixesInsideExperiment": true,
+    "failedAttemptRequiresImmediateRevert": true,
+    "successfulAttemptRequiresCommitBeforeNextExperiment": true,
+    "rule": "Run exactly the printed hypothesis. If the attempted change fails, degrades, or suggests a different fix, revert to the checkpoint and finish this experiment as failure. Start a new experiment for the next idea."
+  },
+  "primaryTarget": "wasm/web with headed Playwright and WebGPU enabled",
+  "hypothesisMarkdown": "## Graph nodes hashed without SipHash Hypothesis\n\nEvery node the compiler adds is looked up among those made (equal ones are one), by a hash of its expression, its breakpoints included: hashed with SipHash, then the hash hashed again as the map's key. A fold of the words (FxHash's) hashes the expression, and the map takes it as its own hash; equal nodes are still found by comparing them.\\n\\n**Tested mechanism:** the graph index's hashing. **Allowed:** `graph.rs` hash and index. **Forbidden:** what nodes are equal.",
+  "measurementPlanMarkdown": "### Measurement Plan\n\nRelease bench over the 53 corpus files (median of 3 runs, best of 5 each), plus the focused tests of the touched area.",
+  "expectedOutcomeMarkdown": "### Expected Outcome\n\nThe targeted metric improves with identical graph output and passing focused tests.",
+  "diagnostics": {
+    "playwright": [],
+    "rayx": [],
+    "counters": [],
+    "artifacts": []
+  },
+  "measurements": [
+    {
+      "metric": "compile ms",
+      "before": "33.9",
+      "after": "32.6",
+      "delta": "",
+      "source": "scratchpad bench.sh: median of 3 `vector-animation-check bench artifacts-temp/corpus`"
+    },
+    {
+      "metric": "graph nodes/breakpoints/ops",
+      "before": "4972/53,982/44,936",
+      "after": "identical",
+      "delta": "",
+      "source": "scratchpad bench.sh: median of 3 `vector-animation-check bench artifacts-temp/corpus`"
+    },
+    {
+      "metric": "corpus fidelity",
+      "before": "identical",
+      "after": "identical",
+      "delta": "",
+      "source": "scratchpad bench.sh: median of 3 `vector-animation-check bench artifacts-temp/corpus`"
+    }
+  ],
+  "reportMarkdown": "## Graph nodes hashed without SipHash Finished\n\n**Passed Status**: True\n\n**Attempt Count:** 1. **Out-of-scope changes:** none.\n\nCompile -4%. Graph tests (plans, keyframe_jumps, repeating_tracks, constant_tracks, sampled_values, lib) pass; fidelity identical; clippy clean.\n\n| Repo | Path | Checkpoint | Result Commit | Status |\n| --- | --- | --- | --- | --- |\n| main | . | 8b6f7a2 | 100fa16 | committed |",
+  "decisionMarkdown": "### Decision\n\nCommitted 100fa16: perf(nsh): tell graph nodes apart by a fast hash",
+  "notes": ""
+}

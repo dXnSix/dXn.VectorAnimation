@@ -1,0 +1,81 @@
+{
+  "schemaVersion": 1,
+  "id": "7f45e5e2-6057-4abe-82d4-c6a31e8319f6",
+  "loopId": "9e7a8b6d-0104-4e72-a31e-3b168c0b3881",
+  "index": 47,
+  "type": "hypothesis",
+  "name": "Nodes read by their tag, not buffered",
+  "slug": "nodes-read-by-their-tag-not-buffered",
+  "path": "2026-10-27-47-nodes-read-by-their-tag-not-buffered.json",
+  "createdAt": "2026-10-27T22:03:02Z",
+  "startedAt": "2026-10-27T22:03:02Z",
+  "finishedAt": "2026-10-27T22:03:55Z",
+  "state": "done",
+  "status": "failure",
+  "checkpointCommit": "e08e517ed0a4c953c27e9007423c8b49d67778f9",
+  "resultCommit": "",
+  "rollbackCommand": "git -C \"/Users/dinko/work-private/projects/dXn/dXn.VectorAnimation\" reset --hard e08e517ed0a4c953c27e9007423c8b49d67778f9",
+  "repositories": [
+    {
+      "name": "main",
+      "path": ".",
+      "role": "main",
+      "checkpointCommit": "e08e517ed0a4c953c27e9007423c8b49d67778f9",
+      "resultCommit": "",
+      "rollbackCommand": "git -C \"/Users/dinko/work-private/projects/dXn/dXn.VectorAnimation\" reset --hard e08e517ed0a4c953c27e9007423c8b49d67778f9",
+      "status": "failure"
+    }
+  ],
+  "repositoryCommits": [],
+  "atomicDiscipline": {
+    "oneHypothesisOnly": true,
+    "singleImplementationAttempt": true,
+    "noUnplannedFixesInsideExperiment": true,
+    "failedAttemptRequiresImmediateRevert": true,
+    "successfulAttemptRequiresCommitBeforeNextExperiment": true,
+    "rule": "Run exactly the printed hypothesis. If the attempted change fails, degrades, or suggests a different fix, revert to the checkpoint and finish this experiment as failure. Start a new experiment for the next idea."
+  },
+  "primaryTarget": "wasm/web with headed Playwright and WebGPU enabled",
+  "hypothesisMarkdown": "## Nodes read by their tag, not buffered Hypothesis\n\nA scene node (internally tagged by `type`) was to be read by its tag where the tag comes first (as `to_json` writes it), the rest of the node its kind's at once, instead of serde buffering every node whole (children included, at every level); a node whose tag comes later read whole into a JSON value first.\\n\\n**Tested mechanism:** custom `Deserialize` for `Node`. **Allowed:** core `scene.rs`. **Forbidden:** the format.",
+  "measurementPlanMarkdown": "### Measurement Plan\n\nRelease bench over the 53 corpus files (median of 3 runs, best of 5 each), plus the focused tests of the touched area.",
+  "expectedOutcomeMarkdown": "### Expected Outcome\n\nThe targeted metric improves with identical graph output and passing focused tests.",
+  "diagnostics": {
+    "playwright": [],
+    "rayx": [],
+    "counters": [],
+    "artifacts": []
+  },
+  "measurements": [
+    {
+      "metric": "read ms, compiled corpus as bytes",
+      "before": "47.2",
+      "after": "45.9-47.2",
+      "delta": "",
+      "source": "scratchpad bench.sh: median of 3 `vector-animation-check bench artifacts-temp/corpus`"
+    },
+    {
+      "metric": "allocations, compiled corpus as bytes",
+      "before": "361,452",
+      "after": "327,215",
+      "delta": "",
+      "source": "scratchpad bench.sh: median of 3 `vector-animation-check bench artifacts-temp/corpus`"
+    },
+    {
+      "metric": "read ms, compiled corpus as values",
+      "before": "40.4",
+      "after": "63.4",
+      "delta": "",
+      "source": "scratchpad bench.sh: median of 3 `vector-animation-check bench artifacts-temp/corpus`"
+    },
+    {
+      "metric": "allocations, compiled corpus as values",
+      "before": "352,481",
+      "after": "950,416",
+      "delta": "",
+      "source": "scratchpad bench.sh: median of 3 `vector-animation-check bench artifacts-temp/corpus`"
+    }
+  ],
+  "reportMarkdown": "## Nodes read by their tag, not buffered Finished\n\n**Passed Status**: False\n\n**Attempt Count:** 1. **Out-of-scope changes:** none.\n\nFailed: bytes gain little (-1.5% time, -9% allocations) while values, an app's imports, read 57% slower: a JSON value's keys are sorted, so `type` comes after `children` and every level falls back to reading the node whole, copying its subtree once a level. Reverted.\n\n| Repo | Path | Checkpoint | Result Commit | Status |\n| --- | --- | --- | --- | --- |\n| main | . | e08e517 | none | reverted |",
+  "decisionMarkdown": "### Decision\n\nReverted to e08e517.",
+  "notes": ""
+}

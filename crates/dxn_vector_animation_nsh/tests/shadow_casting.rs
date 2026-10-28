@@ -1,6 +1,6 @@
 //! Shadows cast by a group's silhouette on the graph: offsets and hues that
 //! move, shadows seen through see-through content (cast from past the view,
-//! on a canvas reaching past it), Figma's all-or-nothing silhouettes, cards
+//! on a canvas reaching past it as far as their blur does), Figma's all-or-nothing silhouettes, cards
 //! clipping their content (the clip's outline casting where a shape fills
 //! it whole), groups that turn; what the canvas casts no silhouette of is
 //! drawn as the reference draws it.
@@ -79,7 +79,7 @@ fn kinds(units: &[Unit]) -> (usize, usize, usize) {
         Unit::Area {
             ops, shown: None, ..
         } => (a + casts(ops), b, c),
-        Unit::Layer { units, .. } => {
+        Unit::Layer { units, .. } | Unit::Clip { units, .. } => {
             let (x, y, z) = kinds(units);
             (a + x, b + y, c + z)
         }
@@ -225,6 +225,24 @@ fn a_shadow_seen_through_content_plays_on_the_graph() {
     );
     assert_eq!(native(&s), (0, 1, 0));
     assert_matches(&s);
+}
+
+#[test]
+fn a_wide_blur_cast_from_past_the_view_keeps_all_its_halo() {
+    // The casters past the view blur out past their own edges: the canvas
+    // reaches as far, or the halo is cut where it ends.
+    let s = scene(
+        vec![Effect::DropShadow(shadow(
+            dark(1.0),
+            AnimatedPoint::fixed(0.0, 0.0),
+            6.0,
+            false,
+        ))],
+        0.3,
+    );
+    assert_eq!(native(&s), (0, 1, 0));
+    // As the reference draws it all but a pixel here and there.
+    assert_within(&s, 0.001);
 }
 
 #[test]

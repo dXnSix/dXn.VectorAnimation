@@ -90,9 +90,10 @@ pub fn rect_path(
         RectStart::TopRight => [corner_br, corner_bl, corner_tl, corner_tr],
     };
     let begin = corners[3].1[2];
-    let mut path = Path::new();
-    path.move_to(begin);
     let rounded = rx > 0.0 && ry > 0.0;
+    // A move, four edges (and corners), a close.
+    let mut path = Path(Vec::with_capacity(if rounded { 10 } else { 6 }));
+    path.move_to(begin);
     for (edge_end, arc) in corners {
         path.line_to(edge_end);
         if rounded {
@@ -130,7 +131,7 @@ pub fn ellipse_path(
         EllipseStart::Right => (right, [from_right, from_bottom, from_left, from_top]),
         EllipseStart::Top => (top, [from_top, from_right, from_bottom, from_left]),
     };
-    let mut path = Path::new();
+    let mut path = Path(Vec::with_capacity(6));
     path.move_to(begin);
     for (end, c1, c2) in arcs {
         path.cubic_to(c1, c2, end);
@@ -190,10 +191,10 @@ pub fn star_path(star: &Star, time: f64) -> Path {
         long = !long;
         angle += step * dir;
     }
-    let mut path = Path::new();
     let Some(&(first, _, _)) = vertices.first() else {
-        return path;
+        return Path::new();
     };
+    let mut path = Path(Vec::with_capacity(vertices.len() + 2));
     path.move_to(first);
     for i in 0..vertices.len() {
         let (_, _, out) = vertices[i];

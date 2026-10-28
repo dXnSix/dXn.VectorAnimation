@@ -1,0 +1,74 @@
+{
+  "schemaVersion": 1,
+  "id": "9593b3ab-8cd0-4527-8907-c4d3e2285c3b",
+  "loopId": "9e7a8b6d-0104-4e72-a31e-3b168c0b3881",
+  "index": 50,
+  "type": "hypothesis",
+  "name": "PNG demultiplied by table",
+  "slug": "png-demultiplied-by-table",
+  "path": "2026-10-27-50-png-demultiplied-by-table.json",
+  "createdAt": "2026-10-27T22:07:02Z",
+  "startedAt": "2026-10-27T22:07:02Z",
+  "finishedAt": "2026-10-27T22:07:55Z",
+  "state": "done",
+  "status": "failure",
+  "checkpointCommit": "b2faedfc7591bc8c6e670117c2dd413eddc9d8cd",
+  "resultCommit": "",
+  "rollbackCommand": "git -C \"/Users/dinko/work-private/projects/dXn/dXn.VectorAnimation\" reset --hard b2faedfc7591bc8c6e670117c2dd413eddc9d8cd",
+  "repositories": [
+    {
+      "name": "main",
+      "path": ".",
+      "role": "main",
+      "checkpointCommit": "b2faedfc7591bc8c6e670117c2dd413eddc9d8cd",
+      "resultCommit": "",
+      "rollbackCommand": "git -C \"/Users/dinko/work-private/projects/dXn/dXn.VectorAnimation\" reset --hard b2faedfc7591bc8c6e670117c2dd413eddc9d8cd",
+      "status": "failure"
+    }
+  ],
+  "repositoryCommits": [],
+  "atomicDiscipline": {
+    "oneHypothesisOnly": true,
+    "singleImplementationAttempt": true,
+    "noUnplannedFixesInsideExperiment": true,
+    "failedAttemptRequiresImmediateRevert": true,
+    "successfulAttemptRequiresCommitBeforeNextExperiment": true,
+    "rule": "Run exactly the printed hypothesis. If the attempted change fails, degrades, or suggests a different fix, revert to the checkpoint and finish this experiment as failure. Start a new experiment for the next idea."
+  },
+  "primaryTarget": "wasm/web with headed Playwright and WebGPU enabled",
+  "hypothesisMarkdown": "## PNG demultiplied by table Hypothesis\n\nA PNG's pixels (moving rasters, every plan image) were to be demultiplied by a 256 by 256 table of tiny-skia's own expression, made once, instead of three double-precision divisions a pixel that is not opaque.\\n\\n**Tested mechanism:** table lookup for demultiplying. **Allowed:** `plan.rs` png, a unit test. **Forbidden:** the encoder.",
+  "measurementPlanMarkdown": "### Measurement Plan\n\nRelease bench over the 53 corpus files (median of 3 runs, best of 5 each), plus the focused tests of the touched area.",
+  "expectedOutcomeMarkdown": "### Expected Outcome\n\nThe targeted metric improves with identical graph output and passing focused tests.",
+  "diagnostics": {
+    "playwright": [],
+    "rayx": [],
+    "counters": [],
+    "artifacts": []
+  },
+  "measurements": [
+    {
+      "metric": "compile ms",
+      "before": "31.1",
+      "after": "32.6-32.8",
+      "delta": "",
+      "source": "scratchpad bench.sh: median of 3 `vector-animation-check bench artifacts-temp/corpus`"
+    },
+    {
+      "metric": "engine us/frame",
+      "before": "474",
+      "after": "483-485",
+      "delta": "",
+      "source": "scratchpad bench.sh: median of 3 `vector-animation-check bench artifacts-temp/corpus`"
+    },
+    {
+      "metric": "onboarding compile ms (3 runs)",
+      "before": "7.6",
+      "after": "8.7-8.9",
+      "delta": "",
+      "source": "scratchpad bench.sh: median of 3 `vector-animation-check bench artifacts-temp/corpus`"
+    }
+  ],
+  "reportMarkdown": "## PNG demultiplied by table Finished\n\n**Passed Status**: False\n\n**Attempt Count:** 1. **Out-of-scope changes:** none.\n\nFailed: slower. The table matched tiny-skia on every (channel, alpha) pair, but its 64 KB of lookups cost more than the divisions they replace. Reverted.\n\n| Repo | Path | Checkpoint | Result Commit | Status |\n| --- | --- | --- | --- | --- |\n| main | . | b2faedf | none | reverted |",
+  "decisionMarkdown": "### Decision\n\nReverted to b2faedf.",
+  "notes": ""
+}

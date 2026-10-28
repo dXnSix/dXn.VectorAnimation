@@ -111,10 +111,28 @@ pub fn read(bytes: &[u8]) -> Result<Loaded, String> {
         .map_err(|e| e.to_string())
 }
 
-/// Reads a JSON value (a Lottie or a compiled scene).
+/// Reads a JSON value (a Lottie or a compiled scene), as it is: not
+/// written as text to be read again.
 pub fn read_json(value: &serde_json::Value) -> Result<Loaded, String> {
-    let bytes = serde_json::to_vec(value).map_err(|e| e.to_string())?;
-    read(&bytes)
+    let limits = Limits::default();
+    if value.get("format").and_then(serde_json::Value::as_str) == Some(dxn_vector_animation::FORMAT)
+    {
+        return compiled::from_value(value, &limits)
+            .map(|scene| Loaded {
+                scene,
+                warnings: Vec::new(),
+            })
+            .map_err(|e| e.to_string());
+    }
+    if !value.is_object() {
+        return Err("neither SVG, Lottie nor a compiled scene".into());
+    }
+    dxn_vector_animation_lottie::read_value(value, &limits)
+        .map(|i| Loaded {
+            scene: i.scene,
+            warnings: i.warnings,
+        })
+        .map_err(|e| e.to_string())
 }
 
 /// How many times an animation plays (`repeat`): `true` forever, a count.

@@ -1,0 +1,88 @@
+{
+  "schemaVersion": 1,
+  "id": "c1e69e78-6e62-4cb3-bf50-ba437ac6d860",
+  "loopId": "9e7a8b6d-0104-4e72-a31e-3b168c0b3881",
+  "index": 24,
+  "type": "hypothesis",
+  "name": "JSON pointer keys escaped only when needed",
+  "slug": "json-pointer-keys-escaped-only-when-needed",
+  "path": "2026-10-27-24-json-pointer-keys-escaped-only-when-needed.json",
+  "createdAt": "2026-10-27T21:09:55Z",
+  "startedAt": "2026-10-27T21:09:55Z",
+  "finishedAt": "2026-10-27T21:10:42Z",
+  "state": "done",
+  "status": "success",
+  "checkpointCommit": "aa1593c17ef519d5c8798e153638555cf829e333",
+  "resultCommit": "97511e7d643ec46bd479fdce4d157e87dfd5cdda",
+  "rollbackCommand": "git -C \"/Users/dinko/work-private/projects/dXn/dXn.VectorAnimation\" reset --hard aa1593c17ef519d5c8798e153638555cf829e333",
+  "repositories": [
+    {
+      "name": "main",
+      "path": ".",
+      "role": "main",
+      "checkpointCommit": "aa1593c17ef519d5c8798e153638555cf829e333",
+      "resultCommit": "97511e7d643ec46bd479fdce4d157e87dfd5cdda",
+      "rollbackCommand": "git -C \"/Users/dinko/work-private/projects/dXn/dXn.VectorAnimation\" reset --hard aa1593c17ef519d5c8798e153638555cf829e333",
+      "status": "success"
+    }
+  ],
+  "repositoryCommits": [
+    {
+      "name": "main",
+      "path": ".",
+      "role": "main",
+      "commit": "97511e7d643ec46bd479fdce4d157e87dfd5cdda"
+    }
+  ],
+  "atomicDiscipline": {
+    "oneHypothesisOnly": true,
+    "singleImplementationAttempt": true,
+    "noUnplannedFixesInsideExperiment": true,
+    "failedAttemptRequiresImmediateRevert": true,
+    "successfulAttemptRequiresCommitBeforeNextExperiment": true,
+    "rule": "Run exactly the printed hypothesis. If the attempted change fails, degrades, or suggests a different fix, revert to the checkpoint and finish this experiment as failure. Start a new experiment for the next idea."
+  },
+  "primaryTarget": "wasm/web with headed Playwright and WebGPU enabled",
+  "hypothesisMarkdown": "## JSON pointer keys escaped only when needed Hypothesis\n\nFinding a file's expressions walks its whole JSON, building each property's JSON pointer; every key of every object was escaped (`~` and `/`) into two new strings first. Keys holding neither, all of them in practice, are written as they are.\\n\\n**Tested mechanism:** escaping on need. **Allowed:** lottie `expressions/host.rs` walk. **Forbidden:** the walk's order or skips.",
+  "measurementPlanMarkdown": "### Measurement Plan\n\nRelease bench over the 53 corpus files (median of 3 runs, best of 5 each), plus the focused tests of the touched area.",
+  "expectedOutcomeMarkdown": "### Expected Outcome\n\nThe targeted metric improves with identical graph output and passing focused tests.",
+  "diagnostics": {
+    "playwright": [],
+    "rayx": [],
+    "counters": [],
+    "artifacts": []
+  },
+  "measurements": [
+    {
+      "metric": "read ms",
+      "before": "68.3",
+      "after": "65.3",
+      "delta": "",
+      "source": "scratchpad bench.sh: median of 3 `vector-animation-check bench artifacts-temp/corpus`"
+    },
+    {
+      "metric": "ttff allocations",
+      "before": "1,048,340",
+      "after": "865,680",
+      "delta": "",
+      "source": "scratchpad bench.sh: median of 3 `vector-animation-check bench artifacts-temp/corpus`"
+    },
+    {
+      "metric": "ttff ms",
+      "before": "102.7",
+      "after": "99.4",
+      "delta": "",
+      "source": "scratchpad bench.sh: median of 3 `vector-animation-check bench artifacts-temp/corpus`"
+    },
+    {
+      "metric": "compiled scenes and warnings",
+      "before": "identical",
+      "after": "identical",
+      "delta": "",
+      "source": "scratchpad bench.sh: median of 3 `vector-animation-check bench artifacts-temp/corpus`"
+    }
+  ],
+  "reportMarkdown": "## JSON pointer keys escaped only when needed Finished\n\n**Passed Status**: True\n\n**Attempt Count:** 1. **Out-of-scope changes:** none.\n\nRead -4.5%, allocations at load -17% (every Lottie file). Compiled scenes identical; lottie tests pass; clippy clean.\n\n| Repo | Path | Checkpoint | Result Commit | Status |\n| --- | --- | --- | --- | --- |\n| main | . | aa1593c | 97511e7 | committed |",
+  "decisionMarkdown": "### Decision\n\nCommitted 97511e7: perf(lottie): escape a JSON pointer's key only where it holds ~ or /",
+  "notes": ""
+}

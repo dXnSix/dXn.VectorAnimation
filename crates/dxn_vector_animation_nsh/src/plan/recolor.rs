@@ -305,7 +305,7 @@ impl Compiler {
                 *px = p;
             }
         }
-        let Ok(bytes) = pixmap.encode_png() else {
+        let Some(bytes) = super::png(&pixmap) else {
             return unsupported("an image that does not encode");
         };
         Ok(Arc::new(ImageData {

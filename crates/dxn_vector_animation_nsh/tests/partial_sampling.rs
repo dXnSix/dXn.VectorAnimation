@@ -160,6 +160,10 @@ fn kinds(units: &[Unit]) -> (usize, usize, usize) {
             let (ci, si, li) = kinds(units);
             (c + ci, s + si, l + li + 1)
         }
+        Unit::Clip { units, .. } => {
+            let (ci, si, li) = kinds(units);
+            (c + ci, s + si, l + li)
+        }
     })
 }
 

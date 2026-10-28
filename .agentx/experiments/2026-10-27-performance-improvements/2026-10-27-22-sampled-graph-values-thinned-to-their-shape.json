@@ -1,0 +1,88 @@
+{
+  "schemaVersion": 1,
+  "id": "35bb1688-e81e-43c4-96eb-6d5fd1a25549",
+  "loopId": "9e7a8b6d-0104-4e72-a31e-3b168c0b3881",
+  "index": 22,
+  "type": "hypothesis",
+  "name": "Sampled graph values thinned to their shape",
+  "slug": "sampled-graph-values-thinned-to-their-shape",
+  "path": "2026-10-27-22-sampled-graph-values-thinned-to-their-shape.json",
+  "createdAt": "2026-10-27T21:04:28Z",
+  "startedAt": "2026-10-27T21:04:28Z",
+  "finishedAt": "2026-10-27T21:05:55Z",
+  "state": "done",
+  "status": "success",
+  "checkpointCommit": "066cc567f67e5cf8e1b16a451f96461d3a68a05f",
+  "resultCommit": "66c6207d8e6891d0a454878666cf6d63f7ef5c5e",
+  "rollbackCommand": "git -C \"/Users/dinko/work-private/projects/dXn/dXn.VectorAnimation\" reset --hard 066cc567f67e5cf8e1b16a451f96461d3a68a05f",
+  "repositories": [
+    {
+      "name": "main",
+      "path": ".",
+      "role": "main",
+      "checkpointCommit": "066cc567f67e5cf8e1b16a451f96461d3a68a05f",
+      "resultCommit": "66c6207d8e6891d0a454878666cf6d63f7ef5c5e",
+      "rollbackCommand": "git -C \"/Users/dinko/work-private/projects/dXn/dXn.VectorAnimation\" reset --hard 066cc567f67e5cf8e1b16a451f96461d3a68a05f",
+      "status": "success"
+    }
+  ],
+  "repositoryCommits": [
+    {
+      "name": "main",
+      "path": ".",
+      "role": "main",
+      "commit": "66c6207d8e6891d0a454878666cf6d63f7ef5c5e"
+    }
+  ],
+  "atomicDiscipline": {
+    "oneHypothesisOnly": true,
+    "singleImplementationAttempt": true,
+    "noUnplannedFixesInsideExperiment": true,
+    "failedAttemptRequiresImmediateRevert": true,
+    "successfulAttemptRequiresCommitBeforeNextExperiment": true,
+    "rule": "Run exactly the printed hypothesis. If the attempted change fails, degrades, or suggests a different fix, revert to the checkpoint and finish this experiment as failure. Start a new experiment for the next idea."
+  },
+  "primaryTarget": "wasm/web with headed Playwright and WebGPU enabled",
+  "hypothesisMarkdown": "## Sampled graph values thinned to their shape Hypothesis\n\n`Graph::sampled` (nonlinear functions of tracks: how far a moving gradient reaches, a skew's tangent, a mask's luminance and alpha) kept its 24 samples a keyframe segment however the value moved: blend-28's three gradient reaches were 6,913 breakpoints each, held for long stretches. Samples a line between their neighbors stands for within single precision (1e-7 of the largest value, the native graph's) are dropped, a value that holds is a constant.\\n\\n**Tested mechanism:** thinning sampled values. **Allowed:** `graph.rs` sampled, `plan::simplified` made crate-visible, a new test group. **Forbidden:** sampling rates.",
+  "measurementPlanMarkdown": "### Measurement Plan\n\nRelease bench over the 53 corpus files (median of 3 runs, best of 5 each), plus the focused tests of the touched area.",
+  "expectedOutcomeMarkdown": "### Expected Outcome\n\nThe targeted metric improves with identical graph output and passing focused tests.",
+  "diagnostics": {
+    "playwright": [],
+    "rayx": [],
+    "counters": [],
+    "artifacts": []
+  },
+  "measurements": [
+    {
+      "metric": "graph breakpoints",
+      "before": "82,751",
+      "after": "60,702",
+      "delta": "",
+      "source": "scratchpad bench.sh: median of 3 `vector-animation-check bench artifacts-temp/corpus`"
+    },
+    {
+      "metric": "graph nodes",
+      "before": "5042",
+      "after": "5037",
+      "delta": "",
+      "source": "scratchpad bench.sh: median of 3 `vector-animation-check bench artifacts-temp/corpus`"
+    },
+    {
+      "metric": "held MB",
+      "before": "67.89",
+      "after": "67.48",
+      "delta": "",
+      "source": "scratchpad bench.sh: median of 3 `vector-animation-check bench artifacts-temp/corpus`"
+    },
+    {
+      "metric": "corpus fidelity",
+      "before": "identical",
+      "after": "identical",
+      "delta": "",
+      "source": "scratchpad bench.sh: median of 3 `vector-animation-check bench artifacts-temp/corpus`"
+    }
+  ],
+  "reportMarkdown": "## Sampled graph values thinned to their shape Finished\n\n**Passed Status**: True\n\n**Attempt Count:** 1. **Out-of-scope changes:** none.\n\nBreakpoints -27%. New test group `tests/sampled_values.rs` (holds, lines, curves); gradient, mask, plan, effects tests pass; fidelity identical; clippy clean.\n\n| Repo | Path | Checkpoint | Result Commit | Status |\n| --- | --- | --- | --- | --- |\n| main | . | 066cc56 | 66c6207 | committed |",
+  "decisionMarkdown": "### Decision\n\nCommitted 66c6207: perf(nsh): keep only the samples a sampled value needs",
+  "notes": ""
+}

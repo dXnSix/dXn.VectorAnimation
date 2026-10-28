@@ -1,0 +1,88 @@
+{
+  "schemaVersion": 1,
+  "id": "070f8502-af1b-4c28-889b-d017a9051346",
+  "loopId": "9e7a8b6d-0104-4e72-a31e-3b168c0b3881",
+  "index": 12,
+  "type": "hypothesis",
+  "name": "Played scene shared, not cloned",
+  "slug": "played-scene-shared-not-cloned",
+  "path": "2026-10-27-12-played-scene-shared-not-cloned.json",
+  "createdAt": "2026-10-27T20:38:31Z",
+  "startedAt": "2026-10-27T20:38:31Z",
+  "finishedAt": "2026-10-27T20:39:27Z",
+  "state": "done",
+  "status": "success",
+  "checkpointCommit": "e5a3555b3b0349beb4812ff42c119f83237332fb",
+  "resultCommit": "846c2ee419657cbbf917b363af8177fb59715f1d",
+  "rollbackCommand": "git -C \"/Users/dinko/work-private/projects/dXn/dXn.VectorAnimation\" reset --hard e5a3555b3b0349beb4812ff42c119f83237332fb",
+  "repositories": [
+    {
+      "name": "main",
+      "path": ".",
+      "role": "main",
+      "checkpointCommit": "e5a3555b3b0349beb4812ff42c119f83237332fb",
+      "resultCommit": "846c2ee419657cbbf917b363af8177fb59715f1d",
+      "rollbackCommand": "git -C \"/Users/dinko/work-private/projects/dXn/dXn.VectorAnimation\" reset --hard e5a3555b3b0349beb4812ff42c119f83237332fb",
+      "status": "success"
+    }
+  ],
+  "repositoryCommits": [
+    {
+      "name": "main",
+      "path": ".",
+      "role": "main",
+      "commit": "846c2ee419657cbbf917b363af8177fb59715f1d"
+    }
+  ],
+  "atomicDiscipline": {
+    "oneHypothesisOnly": true,
+    "singleImplementationAttempt": true,
+    "noUnplannedFixesInsideExperiment": true,
+    "failedAttemptRequiresImmediateRevert": true,
+    "successfulAttemptRequiresCommitBeforeNextExperiment": true,
+    "rule": "Run exactly the printed hypothesis. If the attempted change fails, degrades, or suggests a different fix, revert to the checkpoint and finish this experiment as failure. Start a new experiment for the next idea."
+  },
+  "primaryTarget": "wasm/web with headed Playwright and WebGPU enabled",
+  "hypothesisMarkdown": "## Played scene shared, not cloned Hypothesis\n\nWhat the component plays without an event is the file's scene, yet it was cloned whole (`Rc::new(scene.clone())`) each time it was chosen: a second copy of every path and track held for the player's life. The ready state keeps the scene in an `Rc` and plays it shared; an event's scene is made as before.\\n\\n**Tested mechanism:** sharing the played scene. **Allowed:** `component.rs` Ready/played, the bench's model. **Forbidden:** other clones.",
+  "measurementPlanMarkdown": "### Measurement Plan\n\nRelease bench over the 53 corpus files (median of 3 runs, best of 5 each), plus the focused tests of the touched area.",
+  "expectedOutcomeMarkdown": "### Expected Outcome\n\nThe targeted metric improves with identical graph output and passing focused tests.",
+  "diagnostics": {
+    "playwright": [],
+    "rayx": [],
+    "counters": [],
+    "artifacts": []
+  },
+  "measurements": [
+    {
+      "metric": "held MB",
+      "before": "99.8",
+      "after": "68.4",
+      "delta": "",
+      "source": "scratchpad bench.sh: median of 3 `vector-animation-check bench artifacts-temp/corpus`"
+    },
+    {
+      "metric": "ttff MB allocated",
+      "before": "485",
+      "after": "454",
+      "delta": "",
+      "source": "scratchpad bench.sh: median of 3 `vector-animation-check bench artifacts-temp/corpus`"
+    },
+    {
+      "metric": "ttff allocations",
+      "before": "1,323,090",
+      "after": "1,306,340",
+      "delta": "",
+      "source": "scratchpad bench.sh: median of 3 `vector-animation-check bench artifacts-temp/corpus`"
+    },
+    {
+      "metric": "compile ms (bench, clone included before)",
+      "before": "36.3",
+      "after": "35.3",
+      "delta": "",
+      "source": "scratchpad bench.sh: median of 3 `vector-animation-check bench artifacts-temp/corpus`"
+    }
+  ],
+  "reportMarkdown": "## Played scene shared, not cloned Finished\n\n**Passed Status**: True\n\n**Attempt Count:** 1. **Out-of-scope changes:** none.\n\nHeld memory -31%. Tests: component, playback, graph_clock, playback_holds, loop_starts, lib pass; clippy clean.\n\n| Repo | Path | Checkpoint | Result Commit | Status |\n| --- | --- | --- | --- | --- |\n| main | . | e5a3555 | 846c2ee | committed |",
+  "decisionMarkdown": "### Decision\n\nCommitted 846c2ee: perf(nsh): share the loaded scene with what plays it",
+  "notes": ""
+}

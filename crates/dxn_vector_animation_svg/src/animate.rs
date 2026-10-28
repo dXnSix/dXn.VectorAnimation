@@ -230,24 +230,21 @@ fn unroll(
         };
         out.push(Keyframe::new(0.0, before, Easing::Hold));
     }
-    let mut last = None;
+    let before = out.len();
     for i in 0..count {
         let start = delay + i as f64 * spec.duration;
         if i > 0 && start >= total - 1e-9 {
             break;
         }
         for (offset, value, easing) in iteration_stops(stops, reversed(i)) {
-            out.push(Keyframe::new(
-                start + offset * spec.duration,
-                value.clone(),
-                easing,
-            ));
-            last = Some(value);
+            out.push(Keyframe::new(start + offset * spec.duration, value, easing));
         }
     }
     if let Iterations::Count(_) = spec.iterations {
         let end = delay + count as f64 * spec.duration;
         if end < total {
+            // The last value an iteration ended with.
+            let last = out[before..].last().map(|k| k.value.clone());
             let after = match (spec.fill, last) {
                 (FillMode::Forwards | FillMode::Both, Some(v)) => v,
                 _ => base.to_owned(),

@@ -1,0 +1,67 @@
+{
+  "schemaVersion": 1,
+  "id": "168c6604-ac17-44df-9ad2-21531308c023",
+  "loopId": "9e7a8b6d-0104-4e72-a31e-3b168c0b3881",
+  "index": 41,
+  "type": "hypothesis",
+  "name": "Expression walk appends pointers directly",
+  "slug": "expression-walk-appends-pointers-directly",
+  "path": "2026-10-27-41-expression-walk-appends-pointers-directly.json",
+  "createdAt": "2026-10-27T21:50:56Z",
+  "startedAt": "2026-10-27T21:50:56Z",
+  "finishedAt": "2026-10-27T21:51:23Z",
+  "state": "done",
+  "status": "failure",
+  "checkpointCommit": "100fa1665a284c95e4b3435c55c50d019f76e70c",
+  "resultCommit": "",
+  "rollbackCommand": "git -C \"/Users/dinko/work-private/projects/dXn/dXn.VectorAnimation\" reset --hard 100fa1665a284c95e4b3435c55c50d019f76e70c",
+  "repositories": [
+    {
+      "name": "main",
+      "path": ".",
+      "role": "main",
+      "checkpointCommit": "100fa1665a284c95e4b3435c55c50d019f76e70c",
+      "resultCommit": "",
+      "rollbackCommand": "git -C \"/Users/dinko/work-private/projects/dXn/dXn.VectorAnimation\" reset --hard 100fa1665a284c95e4b3435c55c50d019f76e70c",
+      "status": "failure"
+    }
+  ],
+  "repositoryCommits": [],
+  "atomicDiscipline": {
+    "oneHypothesisOnly": true,
+    "singleImplementationAttempt": true,
+    "noUnplannedFixesInsideExperiment": true,
+    "failedAttemptRequiresImmediateRevert": true,
+    "successfulAttemptRequiresCommitBeforeNextExperiment": true,
+    "rule": "Run exactly the printed hypothesis. If the attempted change fails, degrades, or suggests a different fix, revert to the checkpoint and finish this experiment as failure. Start a new experiment for the next idea."
+  },
+  "primaryTarget": "wasm/web with headed Playwright and WebGPU enabled",
+  "hypothesisMarkdown": "## Expression walk appends pointers directly Hypothesis\n\nThe expression finder's walk wrote each JSON pointer step through `write!` with a `&dyn Display` key, and escaped keys before knowing whether their value is walked; it was to append keys directly and only for objects and arrays.\\n\\n**Tested mechanism:** direct pointer building. **Allowed:** lottie `expressions/host.rs` walk/descend. **Forbidden:** the walk's order or skips.",
+  "measurementPlanMarkdown": "### Measurement Plan\n\nRelease bench over the 53 corpus files (median of 3 runs, best of 5 each), plus the focused tests of the touched area.",
+  "expectedOutcomeMarkdown": "### Expected Outcome\n\nThe targeted metric improves with identical graph output and passing focused tests.",
+  "diagnostics": {
+    "playwright": [],
+    "rayx": [],
+    "counters": [],
+    "artifacts": []
+  },
+  "measurements": [
+    {
+      "metric": "read ms, Lottie files (28)",
+      "before": "51.9",
+      "after": "51.3-51.9",
+      "delta": "",
+      "source": "scratchpad bench.sh: median of 3 `vector-animation-check bench artifacts-temp/corpus`"
+    },
+    {
+      "metric": "read ms, corpus",
+      "before": "63.6",
+      "after": "63.7",
+      "delta": "",
+      "source": "scratchpad bench.sh: median of 3 `vector-animation-check bench artifacts-temp/corpus`"
+    }
+  ],
+  "reportMarkdown": "## Expression walk appends pointers directly Finished\n\n**Passed Status**: False\n\n**Attempt Count:** 1. **Out-of-scope changes:** none.\n\nFailed: within noise. Since keys are no longer escaped needlessly (an earlier experiment), building the pointers costs little of the walk. Reverted.\n\n| Repo | Path | Checkpoint | Result Commit | Status |\n| --- | --- | --- | --- | --- |\n| main | . | 100fa16 | none | reverted |",
+  "decisionMarkdown": "### Decision\n\nReverted to 100fa16.",
+  "notes": ""
+}

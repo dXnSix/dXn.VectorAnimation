@@ -149,10 +149,14 @@ impl VectorAnimationApi {
 
 /// A scene ready to play: whether the native graph plays it.
 struct Ready {
-    loaded: Loaded,
+    /// The file's scene, shared with what plays it.
+    scene: Rc<Scene>,
     native: bool,
     /// Parts of it are sampled frame by frame, on the engine's clock.
     mixed: bool,
+    /// The plan made on load for the view's fit and pixels then: the first
+    /// drawing of the same takes it rather than compiling again.
+    compiled: RefCell<Option<(Matrix, f64, plan::Plan)>>,
 }
 
 /// Plays an animated SVG (CSS animations, as Figma Motion exports them) or a
@@ -179,7 +183,7 @@ pub fn VectorAnimation(
             played.set(None);
             return;
         };
-        let scene = &r.loaded.scene;
+        let scene = &r.scene;
         let on = event.get().and_then(|(name, _)| {
             let m = scene.timeline.markers.iter().find(|m| {
                 m.name
@@ -193,7 +197,7 @@ pub fn VectorAnimation(
         });
         played.set(Some(match on {
             Some((scene, duration)) => (scene, Some(duration)),
-            None => (Rc::new(scene.clone()), None),
+            None => (scene.clone(), None),
         }));
     });
     let loading = stored(None::<Spawned<()>>);
@@ -233,25 +237,38 @@ pub fn VectorAnimation(
                     for w in &loaded.warnings {
                         log::warn!("VectorAnimation: left out: {w}");
                     }
-                    let (native, mixed) = match plan::compile(&loaded.scene, Matrix::IDENTITY) {
-                        Ok(plan) => {
-                            for why in &plan.sampled {
-                                log::info!(
-                                    "VectorAnimation: a part sampled frame by frame ({why})"
-                                );
-                            }
-                            (true, !plan.sampled.is_empty())
-                        }
-                        Err(plan::Unsupported(why)) => {
-                            log::info!("VectorAnimation: sampled frame by frame ({why})");
-                            (false, false)
-                        }
+                    // Compiled for the view as measured, or, before it is (it
+                    // takes the scene's size unless the app sizes it), at the
+                    // scene's size: the first drawing of the same fit takes
+                    // the plan.
+                    let view = untracked(|| size.get());
+                    let (w, h) = match (f64::from(view.width.0), f64::from(view.height.0)) {
+                        (w, h) if w > 0.0 && h > 0.0 => (w, h),
+                        _ => (loaded.scene.width, loaded.scene.height),
                     };
+                    let base = fit(&loaded.scene, w, h, untracked(|| props.resize_mode.get()));
+                    let pixels = f64::from(pixel_ratio()).max(1.0);
+                    let (native, mixed, compiled) =
+                        match plan::compile_for(&loaded.scene, base, pixels) {
+                            Ok(plan) => {
+                                for why in &plan.sampled {
+                                    log::info!(
+                                        "VectorAnimation: a part sampled frame by frame ({why})"
+                                    );
+                                }
+                                (true, !plan.sampled.is_empty(), Some((base, pixels, plan)))
+                            }
+                            Err(plan::Unsupported(why)) => {
+                                log::info!("VectorAnimation: sampled frame by frame ({why})");
+                                (false, false, None)
+                            }
+                        };
                     let info = info(&loaded);
                     ready.set(Some(Rc::new(Ready {
-                        loaded,
+                        scene: Rc::new(loaded.scene),
                         native,
                         mixed,
+                        compiled: RefCell::new(compiled),
                     })));
                     cx.emit(VectorAnimationEvent::Load(info));
                 }
@@ -412,11 +429,7 @@ pub fn VectorAnimation(
         });
     });
 
-    let natural = move || {
-        ready
-            .get()
-            .map(|r| (r.loaded.scene.width, r.loaded.scene.height))
-    };
+    let natural = move || ready.get().map(|r| (r.scene.width, r.scene.height));
     let mut root = view()
         .relative()
         .overflow_hidden()
@@ -434,7 +447,7 @@ pub fn VectorAnimation(
         let Some(r) = ready.get() else {
             return Vec::new();
         };
-        let Some((scene, _)) = played.get() else {
+        let Some((scene, on_event)) = played.get() else {
             return Vec::new();
         };
         let size = size.get();
@@ -444,8 +457,16 @@ pub fn VectorAnimation(
         }
         let base = fit(&scene, w, h, props.resize_mode.get());
         let pixels = f64::from(pixel_ratio()).max(1.0);
+        // The plan made on load is of the file's scene, not of what an
+        // event plays.
+        let made = r
+            .compiled
+            .borrow_mut()
+            .take()
+            .filter(|(b, p, _)| on_event.is_none() && *b == base && *p == pixels)
+            .map(|(_, _, plan)| plan);
         if r.native
-            && let Ok(plan) = plan::compile_for(&scene, base, pixels)
+            && let Ok(plan) = made.map_or_else(|| plan::compile_for(&scene, base, pixels), Ok)
         {
             let nodes = Nodes::new(&plan.graph, time);
             let part = move |unit: &plan::Unit| match unit {
@@ -501,7 +522,7 @@ fn rastered(
     let view = plan::in_view(scene, base, size.0, size.1);
     let still = plan::still(scene);
     let empty = Graph::default();
-    let made = RefCell::new(Rasters::new(!still, 0.0));
+    let made = RefCell::new(Rasters::new(!still, 0.0, scene.timeline.duration));
     let held = RefCell::new(Held::default());
     canvas(move || {
         let t = if still { 0.0 } else { clock.get() };
@@ -584,6 +605,9 @@ struct Rasters {
     cost: f64,
     /// It moves: what it costs counts in [`RASTER_COST`].
     moving: bool,
+    /// Where the playback ends: drawn at its own frame, never one held
+    /// from before (a run that ends shows its last frame).
+    end: f64,
 }
 
 impl Drop for Rasters {
@@ -595,14 +619,16 @@ impl Drop for Rasters {
 }
 
 impl Rasters {
-    /// None yet, of a part that moves or not, at `ratio`.
-    fn new(moving: bool, ratio: f64) -> Rasters {
+    /// None yet, of a part that moves or not, at `ratio`, of a playback
+    /// ending at `end`.
+    fn new(moving: bool, ratio: f64, end: f64) -> Rasters {
         Rasters {
             ratio,
             by_frame: HashMap::new(),
             bytes: 0,
             cost: 0.0,
             moving,
+            end,
         }
     }
 
@@ -615,14 +641,19 @@ impl Rasters {
         make: impl FnOnce(f64) -> Option<(Arc<ImageData>, Rect)>,
     ) -> Option<(Arc<ImageData>, Rect)> {
         if ratio != self.ratio {
-            *self = Rasters::new(self.moving, ratio);
+            *self = Rasters::new(self.moving, ratio, self.end);
         }
         // As often as the parts' share of the time allows, at most each
         // frame.
         let all = RASTER_COST.with(Cell::get).max(self.cost);
         let all = if self.moving { all } else { self.cost };
         let step = (all / RASTER_SHARE).max(1.0 / RASTER_RATE);
-        let frame = ((t / step).floor() * step * RASTER_RATE).round() as i64;
+        let held = if t >= self.end {
+            t
+        } else {
+            (t / step).floor() * step
+        };
+        let frame = (held * RASTER_RATE).round() as i64;
         if let Some(kept) = self.by_frame.get(&frame) {
             return kept.clone();
         }
@@ -768,7 +799,7 @@ mod tests {
     #[test]
     fn rasters_are_made_once_a_frame_and_kept() {
         let made = Cell::new(0);
-        let mut rasters = Rasters::new(true, 0.0);
+        let mut rasters = Rasters::new(true, 0.0, f64::INFINITY);
         let make = |_| {
             made.set(made.get() + 1);
             image(10)
@@ -805,9 +836,28 @@ mod tests {
     }
 
     #[test]
+    fn the_end_is_drawn_at_its_own_frame_however_slow_rasters_are() {
+        let made = Cell::new(Vec::new());
+        let mut rasters = Rasters::new(false, 1.0, 0.5);
+        // Each takes a second: frames held long.
+        rasters.cost = 1.0;
+        let make = |t| {
+            let mut all = made.take();
+            all.push(t);
+            made.set(all);
+            image(10)
+        };
+        rasters.get(0.3, 1.0, make);
+        rasters.get(0.5, 1.0, make);
+        let made = made.take();
+        assert_eq!(made[0], 0.0, "held from the start before the end");
+        assert_eq!(made[1], 0.5, "the end's own frame");
+    }
+
+    #[test]
     fn rasters_past_the_budget_are_not_kept() {
         let made = Cell::new(0);
-        let mut rasters = Rasters::new(true, 0.0);
+        let mut rasters = Rasters::new(true, 0.0, f64::INFINITY);
         let make = |_| {
             made.set(made.get() + 1);
             image(RASTER_BYTES / 2 + 1)

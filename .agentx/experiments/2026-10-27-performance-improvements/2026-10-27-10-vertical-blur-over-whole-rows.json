@@ -1,0 +1,95 @@
+{
+  "schemaVersion": 1,
+  "id": "d160e5ca-f428-4391-9487-ab35bf43c756",
+  "loopId": "9e7a8b6d-0104-4e72-a31e-3b168c0b3881",
+  "index": 10,
+  "type": "hypothesis",
+  "name": "Vertical blur over whole rows",
+  "slug": "vertical-blur-over-whole-rows",
+  "path": "2026-10-27-10-vertical-blur-over-whole-rows.json",
+  "createdAt": "2026-10-27T20:33:37Z",
+  "startedAt": "2026-10-27T20:33:37Z",
+  "finishedAt": "2026-10-27T20:35:00Z",
+  "state": "done",
+  "status": "success",
+  "checkpointCommit": "50f02d725e32b93faa403dde457e73f6b5045a05",
+  "resultCommit": "e874f1ea300affa058ede7612e45657b111b369c",
+  "rollbackCommand": "git -C \"/Users/dinko/work-private/projects/dXn/dXn.VectorAnimation\" reset --hard 50f02d725e32b93faa403dde457e73f6b5045a05",
+  "repositories": [
+    {
+      "name": "main",
+      "path": ".",
+      "role": "main",
+      "checkpointCommit": "50f02d725e32b93faa403dde457e73f6b5045a05",
+      "resultCommit": "e874f1ea300affa058ede7612e45657b111b369c",
+      "rollbackCommand": "git -C \"/Users/dinko/work-private/projects/dXn/dXn.VectorAnimation\" reset --hard 50f02d725e32b93faa403dde457e73f6b5045a05",
+      "status": "success"
+    }
+  ],
+  "repositoryCommits": [
+    {
+      "name": "main",
+      "path": ".",
+      "role": "main",
+      "commit": "e874f1ea300affa058ede7612e45657b111b369c"
+    }
+  ],
+  "atomicDiscipline": {
+    "oneHypothesisOnly": true,
+    "singleImplementationAttempt": true,
+    "noUnplannedFixesInsideExperiment": true,
+    "failedAttemptRequiresImmediateRevert": true,
+    "successfulAttemptRequiresCommitBeforeNextExperiment": true,
+    "rule": "Run exactly the printed hypothesis. If the attempted change fails, degrades, or suggests a different fix, revert to the checkpoint and finish this experiment as failure. Start a new experiment for the next idea."
+  },
+  "primaryTarget": "wasm/web with headed Playwright and WebGPU enabled",
+  "hypothesisMarkdown": "## Vertical blur over whole rows Hypothesis\n\nThe vertical pass gathered each column into a line (a cache miss a pixel), blurred it and scattered it back. Running the same box (and small Gaussian) sums down every column at once, a row of values at a time, does the same float operations per value in the same order over contiguous memory.\\n\\n**Tested mechanism:** row-wise vertical pass. **Allowed:** render `blur`, new `blur_columns`/`box_rows`/`gaussian_rows`. **Forbidden:** horizontal pass, blur math.",
+  "measurementPlanMarkdown": "### Measurement Plan\n\nRelease bench over the 53 corpus files (median of 3 runs, best of 5 each), plus the focused tests of the touched area.",
+  "expectedOutcomeMarkdown": "### Expected Outcome\n\nThe targeted metric improves with identical graph output and passing focused tests.",
+  "diagnostics": {
+    "playwright": [],
+    "rayx": [],
+    "counters": [],
+    "artifacts": []
+  },
+  "measurements": [
+    {
+      "metric": "engine us/frame",
+      "before": "696",
+      "after": "636",
+      "delta": "",
+      "source": "scratchpad bench.sh: median of 3 `vector-animation-check bench artifacts-temp/corpus`"
+    },
+    {
+      "metric": "compile ms",
+      "before": "92.6",
+      "after": "89.5",
+      "delta": "",
+      "source": "scratchpad bench.sh: median of 3 `vector-animation-check bench artifacts-temp/corpus`"
+    },
+    {
+      "metric": "ttff MB allocated",
+      "before": "737",
+      "after": "751 (a full-size scratch buffer)",
+      "delta": "",
+      "source": "scratchpad bench.sh: median of 3 `vector-animation-check bench artifacts-temp/corpus`"
+    },
+    {
+      "metric": "reference frames (4629 PNGs)",
+      "before": "identical",
+      "after": "identical",
+      "delta": "",
+      "source": "scratchpad bench.sh: median of 3 `vector-animation-check bench artifacts-temp/corpus`"
+    },
+    {
+      "metric": "corpus fidelity",
+      "before": "identical",
+      "after": "identical",
+      "delta": "",
+      "source": "scratchpad bench.sh: median of 3 `vector-animation-check bench artifacts-temp/corpus`"
+    }
+  ],
+  "reportMarkdown": "## Vertical blur over whole rows Finished\n\n**Passed Status**: True\n\n**Attempt Count:** 1. **Out-of-scope changes:** none.\n\nEngine thread -9% a frame, compile -3%. Reference PNG hashes and corpus fidelity identical to the loop's start; render tests pass; clippy clean.\n\n| Repo | Path | Checkpoint | Result Commit | Status |\n| --- | --- | --- | --- | --- |\n| main | . | 50f02d7 | e874f1e | committed |",
+  "decisionMarkdown": "### Decision\n\nCommitted e874f1e: perf(render): blur columns a whole row at a time",
+  "notes": ""
+}

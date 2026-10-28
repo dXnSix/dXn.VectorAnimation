@@ -42,6 +42,7 @@ fn count(units: &[Unit], c: &mut Count) {
                 c.layers += 1;
                 count(units, c);
             }
+            Unit::Clip { units, .. } => count(units, c),
             Unit::Sampled(part) => c.sampled.push(part.clone()),
             Unit::Raster(part) => c.rasters.push(part.clone()),
         }

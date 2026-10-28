@@ -1,0 +1,74 @@
+{
+  "schemaVersion": 1,
+  "id": "5d6a3c93-10be-45df-a0b5-cbd602f3e324",
+  "loopId": "9e7a8b6d-0104-4e72-a31e-3b168c0b3881",
+  "index": 27,
+  "type": "hypothesis",
+  "name": "Canvas state set once",
+  "slug": "canvas-state-set-once",
+  "path": "2026-10-27-27-canvas-state-set-once.json",
+  "createdAt": "2026-10-27T21:20:03Z",
+  "startedAt": "2026-10-27T21:20:03Z",
+  "finishedAt": "2026-10-27T21:20:52Z",
+  "state": "done",
+  "status": "failure",
+  "checkpointCommit": "1fe932711e5cd165cc542a892257b11bf28f059a",
+  "resultCommit": "",
+  "rollbackCommand": "git -C \"/Users/dinko/work-private/projects/dXn/dXn.VectorAnimation\" reset --hard 1fe932711e5cd165cc542a892257b11bf28f059a",
+  "repositories": [
+    {
+      "name": "main",
+      "path": ".",
+      "role": "main",
+      "checkpointCommit": "1fe932711e5cd165cc542a892257b11bf28f059a",
+      "resultCommit": "",
+      "rollbackCommand": "git -C \"/Users/dinko/work-private/projects/dXn/dXn.VectorAnimation\" reset --hard 1fe932711e5cd165cc542a892257b11bf28f059a",
+      "status": "failure"
+    }
+  ],
+  "repositoryCommits": [],
+  "atomicDiscipline": {
+    "oneHypothesisOnly": true,
+    "singleImplementationAttempt": true,
+    "noUnplannedFixesInsideExperiment": true,
+    "failedAttemptRequiresImmediateRevert": true,
+    "successfulAttemptRequiresCommitBeforeNextExperiment": true,
+    "rule": "Run exactly the printed hypothesis. If the attempted change fails, degrades, or suggests a different fix, revert to the checkpoint and finish this experiment as failure. Start a new experiment for the next idea."
+  },
+  "primaryTarget": "wasm/web with headed Playwright and WebGPU enabled",
+  "hypothesisMarkdown": "## Canvas state set once Hypothesis\n\nState settings (fill, stroke, alpha, line style, composite, shadow) that set what a canvas has set already, tracked through saves and restores, were to be dropped: 1,319 of 2,679 alpha settings set 1.\\n\\n**Tested mechanism:** redundant state settings. **Allowed:** `plan.rs` closed. **Forbidden:** other rewriting.",
+  "measurementPlanMarkdown": "### Measurement Plan\n\nRelease bench over the 53 corpus files (median of 3 runs, best of 5 each), plus the focused tests of the touched area.",
+  "expectedOutcomeMarkdown": "### Expected Outcome\n\nThe targeted metric improves with identical graph output and passing focused tests.",
+  "diagnostics": {
+    "playwright": [],
+    "rayx": [],
+    "counters": [],
+    "artifacts": []
+  },
+  "measurements": [
+    {
+      "metric": "canvas ops (save/restore aside)",
+      "before": "45,331",
+      "after": "45,325",
+      "delta": "",
+      "source": "scratchpad bench.sh: median of 3 `vector-animation-check bench artifacts-temp/corpus`"
+    },
+    {
+      "metric": "engine allocs/frame",
+      "before": "319",
+      "after": "327",
+      "delta": "",
+      "source": "scratchpad bench.sh: median of 3 `vector-animation-check bench artifacts-temp/corpus`"
+    },
+    {
+      "metric": "ttff allocations",
+      "before": "869,378",
+      "after": "871,319",
+      "delta": "",
+      "source": "scratchpad bench.sh: median of 3 `vector-animation-check bench artifacts-temp/corpus`"
+    }
+  ],
+  "reportMarkdown": "## Canvas state set once Finished\n\n**Passed Status**: False\n\n**Attempt Count:** 1. **Out-of-scope changes:** none.\n\nFailed: 6 operations of 45,331 were redundant. The alpha settings of 1 follow another alpha (a layer's content after a faded shape) or start a canvas, whose state a platform may keep from its last drawing. Not worth the pass; reverted.\n\n| Repo | Path | Checkpoint | Result Commit | Status |\n| --- | --- | --- | --- | --- |\n| main | . | 1fe9327 | none | reverted |",
+  "decisionMarkdown": "### Decision\n\nReverted to 1fe9327.",
+  "notes": ""
+}

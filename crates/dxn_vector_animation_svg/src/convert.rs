@@ -19,7 +19,7 @@ use roxmltree::Node as XmlNode;
 
 use crate::{
     animate::{TimelineSpan, property_keyframes},
-    css::{Stylesheet, parse_declarations},
+    css::{Index, Stylesheet, parse_declarations},
     filter,
     smil::{self, Smil},
     values::{
@@ -174,6 +174,8 @@ impl Default for Style {
 pub(crate) struct Converter<'a, 'input> {
     ids: HashMap<&'a str, XmlNode<'a, 'input>>,
     sheet: Stylesheet,
+    /// The sheet's selectors by what their elements have.
+    index: Index,
     /// The root's view box: what percentages and `view-box` refer to.
     view: Rect,
     pub(crate) warnings: BTreeSet<String>,
@@ -189,7 +191,7 @@ pub(crate) struct Converter<'a, 'input> {
     patterns: HashMap<roxmltree::NodeId, Option<Paint>>,
     depth: usize,
     nodes: usize,
-    declared: HashMap<roxmltree::NodeId, Declared>,
+    declared: HashMap<roxmltree::NodeId, std::rc::Rc<Declared>>,
     /// The document's SMIL animations, their begin times, and which
     /// animate each element.
     smil: Vec<Smil>,
@@ -245,6 +247,7 @@ impl<'a, 'input> Converter<'a, 'input> {
         });
         let mut converter = Converter {
             ids,
+            index: sheet.index(),
             sheet,
             view,
             warnings,
@@ -385,7 +388,7 @@ impl<'a, 'input> Converter<'a, 'input> {
 
     /// The winning declarations of `node`: presentation attributes, then
     /// the sheets' rules by specificity and order, then its `style`.
-    fn cascade(&mut self, node: XmlNode<'a, 'input>) -> Declared {
+    fn cascade(&mut self, node: XmlNode<'a, 'input>) -> std::rc::Rc<Declared> {
         if let Some(d) = self.declared.get(&node.id()) {
             return d.clone();
         }
@@ -413,8 +416,10 @@ impl<'a, 'input> Converter<'a, 'input> {
         if let Some(d) = node.attribute("d") {
             put("d", d, (0, (0, 0, 0), 0));
         }
-        for rule in &self.sheet.rules {
-            for sel in rule.selectors.iter().filter(|s| s.matches(node)) {
+        for (r, s) in self.index.candidates(node) {
+            let rule = &self.sheet.rules[r];
+            let sel = &rule.selectors[s];
+            if sel.matches(node) {
                 for decl in &rule.declarations {
                     let level = if decl.important { 3 } else { 1 };
                     put(
@@ -431,7 +436,8 @@ impl<'a, 'input> Converter<'a, 'input> {
                 put(&decl.name, &decl.value, (level, (0, 0, 0), 0));
             }
         }
-        let declared: Declared = best.into_iter().map(|(k, (_, v))| (k, v)).collect();
+        let declared: std::rc::Rc<Declared> =
+            std::rc::Rc::new(best.into_iter().map(|(k, (_, v))| (k, v)).collect());
         self.declared.insert(node.id(), declared.clone());
         declared
     }
@@ -1365,8 +1371,14 @@ impl<'a, 'input> Converter<'a, 'input> {
         fallback: T,
     ) -> Animated<T> {
         let mut out = Vec::with_capacity(keys.len());
+        // Iterations repeat their values: each read once.
+        let mut read: HashMap<&str, Option<T>> = HashMap::new();
         for k in keys.iter().filter(|k| k.time.is_finite()) {
-            match parse(&k.value) {
+            let value = read
+                .entry(k.value.as_str())
+                .or_insert_with(|| parse(&k.value))
+                .clone();
+            match value {
                 Some(v) => out.push(Keyframe::new(k.time, v, k.easing.clone())),
                 None => {
                     self.warn(format!(
@@ -1510,8 +1522,13 @@ impl<'a, 'input> Converter<'a, 'input> {
         match animations.get("transform") {
             Some(keys) => {
                 let mut lists = Vec::with_capacity(keys.len());
+                let mut read: HashMap<&str, Option<Vec<TransformFn>>> = HashMap::new();
                 for k in keys {
-                    match transform_list(&k.value, box_size) {
+                    let list = read
+                        .entry(k.value.as_str())
+                        .or_insert_with(|| transform_list(&k.value, box_size))
+                        .clone();
+                    match list {
                         Some(list) => lists.push(Keyframe::new(k.time, list, k.easing.clone())),
                         None => {
                             self.warn(format!("animation of `transform` has a value it cannot read (`{}`) and is left out", k.value));

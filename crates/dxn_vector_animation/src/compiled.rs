@@ -4,7 +4,7 @@
 
 use std::fmt::{self, Write as _};
 
-use serde::{Serialize, ser};
+use serde::{Deserialize, Serialize, ser};
 
 use crate::{Error, FORMAT, FORMAT_VERSION, Limits, Scene};
 
@@ -24,6 +24,8 @@ struct Head {
 
 #[derive(serde::Deserialize)]
 struct In {
+    format: String,
+    version: u32,
     scene: Scene,
 }
 
@@ -61,19 +63,56 @@ pub fn from_json(data: &[u8], limits: &Limits) -> Result<Scene, Error> {
             limit: limits.max_bytes as f64,
         });
     }
+    read_in(
+        || serde_json::from_slice(data),
+        || serde_json::from_slice(data),
+        limits,
+    )
+}
+
+/// Reads a compiled scene from its JSON value (an app's import of the
+/// file), checked against `limits`: as [`from_json`] reads its text.
+pub fn from_value(value: &serde_json::Value, limits: &Limits) -> Result<Scene, Error> {
+    read_in(
+        || In::deserialize(value),
+        || Head::deserialize(value),
+        limits,
+    )
+}
+
+/// The scene `parse` reads, its format and version checked (by `head` where
+/// it does not read: a newer file's scene may not parse).
+fn read_in(
+    parse: impl FnOnce() -> Result<In, serde_json::Error>,
+    head: impl FnOnce() -> Result<Head, serde_json::Error>,
+    limits: &Limits,
+) -> Result<Scene, Error> {
     let invalid = |e: serde_json::Error| Error::Invalid(e.to_string());
-    // The format and version first: a newer file's scene may not parse.
-    let head: Head = serde_json::from_slice(data).map_err(invalid)?;
-    if head.format != FORMAT {
-        return Err(Error::Invalid(format!("not a {FORMAT} file")));
-    }
-    if head.version > FORMAT_VERSION {
-        return Err(Error::Unsupported(format!(
-            "format version {} (this library reads up to {FORMAT_VERSION})",
-            head.version
-        )));
-    }
-    let parsed: In = serde_json::from_slice(data).map_err(invalid)?;
+    let checked = |head: Head| {
+        if head.format != FORMAT {
+            return Err(Error::Invalid(format!("not a {FORMAT} file")));
+        }
+        if head.version > FORMAT_VERSION {
+            return Err(Error::Unsupported(format!(
+                "format version {} (this library reads up to {FORMAT_VERSION})",
+                head.version
+            )));
+        }
+        Ok(())
+    };
+    // Read once; where it does not read, the format and version say why
+    // first.
+    let parsed = match parse() {
+        Ok(parsed) => parsed,
+        Err(e) => {
+            checked(head().map_err(invalid)?)?;
+            return Err(invalid(e));
+        }
+    };
+    checked(Head {
+        format: parsed.format,
+        version: parsed.version,
+    })?;
     parsed.scene.check(limits)?;
     Ok(parsed.scene)
 }

@@ -13,7 +13,11 @@
 //!   content), writing each pair side by side.
 //! - `profile <dir> [--size <points>] [--ratio <pixels>]` reports what
 //!   playing each file of a folder costs (`profile.rs`).
+//! - `bench <dir> [--runs <n>] [--size <points>] [--ratio <pixels>]
+//!   [--files] [--values]` sums what loading and playing a folder's files costs:
+//!   time to first frame, allocations, held bytes, a frame (`bench.rs`).
 
+mod bench;
 mod compare;
 mod profile;
 mod scenes;
@@ -86,10 +90,12 @@ fn main() -> ExitCode {
         Some("scenes") => write_scenes(&args[1..]),
         Some("compare") => compare::run(&args[1..]),
         Some("profile") => profile::run(&args[1..]),
+        Some("bench") => bench::run(&args[1..]),
         _ => Err(
             "usage: vector-animation-check scenes <app> [--corpus <dir>] [--gallery <dir>]\n       \
                   vector-animation-check compare <shots> <app> [--tile <points>] [--out <dir>]\n       \
-                  vector-animation-check profile <dir> [--size <points>] [--ratio <pixels a point>]"
+                  vector-animation-check profile <dir> [--size <points>] [--ratio <pixels a point>]\n       \
+                  vector-animation-check bench <dir> [--runs <n>] [--size <points>] [--ratio <pixels a point>] [--files] [--values]"
                 .into(),
         ),
     };

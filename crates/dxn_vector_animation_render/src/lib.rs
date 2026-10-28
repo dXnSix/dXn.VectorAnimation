@@ -480,14 +480,44 @@ impl Renderer {
             blend_mode: sk_blend(layer.blend),
             quality: sk::FilterQuality::Nearest,
         };
-        target.draw_pixmap(
-            0,
-            0,
-            pixmap.as_ref(),
-            &paint,
-            sk::Transform::identity(),
-            None,
-        );
+        // Where it is clear it leaves what is under it, but where it takes
+        // that away: only where it draws is drawn (as `draw_pixmap` draws).
+        if matches!(
+            layer.blend,
+            BlendMode::DestinationIn | BlendMode::DestinationOut
+        ) {
+            target.draw_pixmap(
+                0,
+                0,
+                pixmap.as_ref(),
+                &paint,
+                sk::Transform::identity(),
+                None,
+            );
+            return;
+        }
+        let Some(area) = drawn(pixmap) else {
+            return;
+        };
+        if layer.blend == BlendMode::Normal
+            && (pixmap.width(), pixmap.height()) == (target.width(), target.height())
+        {
+            over(target, pixmap, paint.opacity, area);
+            return;
+        }
+        let pattern = sk::Paint {
+            shader: sk::Pattern::new(
+                pixmap.as_ref(),
+                sk::SpreadMode::Pad,
+                paint.quality,
+                paint.opacity,
+                sk::Transform::identity(),
+            ),
+            blend_mode: paint.blend_mode,
+            anti_alias: false,
+            ..sk::Paint::default()
+        };
+        target.fill_rect(area, &pattern, sk::Transform::identity(), None);
     }
 
     /// `run` applied to `pixmap`: a blur, a color change, or shadows all
@@ -827,6 +857,65 @@ fn sk_stroke(style: &StrokeStyle) -> sk::Stroke {
     }
 }
 
+/// `layer`'s pixels within `area`, at `opacity`, drawn over `target`'s (of
+/// its size) with source-over, as tiny-skia's pipeline draws a pixmap: in
+/// single precision, faded by the opacity unless it is 1, rounded to the
+/// nearest (ties to even).
+fn over(target: &mut sk::Pixmap, layer: &sk::Pixmap, opacity: f32, area: sk::Rect) {
+    const UNIT: f32 = 1.0 / 255.0;
+    let opacity = opacity.clamp(0.0, 1.0);
+    let fade = |v: u8| {
+        let v = f32::from(v) * UNIT;
+        if opacity == 1.0 { v } else { v * opacity }
+    };
+    let channel = |d: u8, s: u8, inv: f32| -> u8 {
+        let v = (f32::from(d) * UNIT) * inv + fade(s);
+        (v.clamp(0.0, 1.0) * 255.0).round_ties_even() as u8
+    };
+    let w = target.width() as usize;
+    let (x0, x1) = (area.left() as usize, (area.right() as usize).min(w));
+    let (y0, y1) = (area.top() as usize, area.bottom() as usize);
+    let rows = (layer.data().len() / (w * 4).max(1)).min(y1);
+    let (to, from) = (target.data_mut(), layer.data());
+    // Byte by byte, clear pixels too (they leave what is under them as it
+    // is): no channel comes out above its alpha.
+    for y in y0..rows {
+        let span = (y * w + x0) * 4..(y * w + x1) * 4;
+        for (t, s) in to[span.clone()]
+            .as_chunks_mut::<4>()
+            .0
+            .iter_mut()
+            .zip(from[span].as_chunks::<4>().0)
+        {
+            let inv = 1.0 - fade(s[3]);
+            *t = [
+                channel(t[0], s[0], inv),
+                channel(t[1], s[1], inv),
+                channel(t[2], s[2], inv),
+                channel(t[3], s[3], inv),
+            ];
+        }
+    }
+}
+
+/// The rectangle of `pixmap`'s pixels that are not clear, in whole pixels.
+fn drawn(pixmap: &sk::Pixmap) -> Option<sk::Rect> {
+    let w = pixmap.width() as usize;
+    let (mut x0, mut x1, mut y0, mut y1) = (usize::MAX, 0, usize::MAX, 0);
+    for (y, row) in pixmap.pixels().chunks_exact(w.max(1)).enumerate() {
+        let Some(first) = row.iter().position(|p| p.alpha() > 0) else {
+            continue;
+        };
+        let last = row.iter().rposition(|p| p.alpha() > 0).unwrap_or(first);
+        (x0, x1) = (x0.min(first), x1.max(last + 1));
+        (y0, y1) = (y0.min(y), y + 1);
+    }
+    if x0 >= x1 {
+        return None;
+    }
+    sk::Rect::from_ltrb(x0 as f32, y0 as f32, x1 as f32, y1 as f32)
+}
+
 fn sk_blend(b: BlendMode) -> sk::BlendMode {
     match b {
         BlendMode::Normal => sk::BlendMode::SourceOver,
@@ -958,7 +1047,12 @@ fn blur(pixmap: &mut sk::Pixmap, sx: f64, sy: f64) {
         blur_axis(&mut data, w, h, 4, w * 4, sx);
     }
     if sy > 0.0 {
-        blur_axis(&mut data, h, w, w * 4, 4, sy);
+        blur_columns(&mut data, w * 4, sy);
+    }
+    // Rounded into bytes, all at once; then no channel above its alpha
+    // (premultiplied).
+    for v in &mut data {
+        *v = v.round().clamp(0.0, 255.0);
     }
     let out = pixmap.data_mut();
     for (px, v) in out
@@ -967,12 +1061,13 @@ fn blur(pixmap: &mut sk::Pixmap, sx: f64, sy: f64) {
         .iter_mut()
         .zip(data.as_chunks::<4>().0)
     {
-        let a = v[3].round().clamp(0.0, 255.0);
-        px[3] = a as u8;
-        for c in 0..3 {
-            // Premultiplied: no channel above the alpha.
-            px[c] = v[c].round().clamp(0.0, a) as u8;
-        }
+        let a = v[3];
+        *px = [
+            v[0].clamp(0.0, a) as u8,
+            v[1].clamp(0.0, a) as u8,
+            v[2].clamp(0.0, a) as u8,
+            a as u8,
+        ];
     }
 }
 
@@ -983,9 +1078,13 @@ fn blur_axis(data: &mut [f32], len: usize, count: usize, step: usize, stride: us
     let mut tmp = vec![0.0f32; len * 4];
     for i in 0..count {
         let start = i * stride;
-        for x in 0..len {
-            let at = start + x * step;
-            line[x * 4..x * 4 + 4].copy_from_slice(&data[at..at + 4]);
+        if step == 4 {
+            line.copy_from_slice(&data[start..start + len * 4]);
+        } else {
+            for x in 0..len {
+                let at = start + x * step;
+                line[x * 4..x * 4 + 4].copy_from_slice(&data[at..at + 4]);
+            }
         }
         if sigma < 2.0 {
             gaussian(&line, &mut tmp, sigma);
@@ -1008,40 +1107,125 @@ fn blur_axis(data: &mut [f32], len: usize, count: usize, step: usize, stride: us
                 std::mem::swap(&mut line, &mut tmp);
             }
         }
-        for x in 0..len {
-            let at = start + x * step;
-            data[at..at + 4].copy_from_slice(&line[x * 4..x * 4 + 4]);
+        if step == 4 {
+            data[start..start + len * 4].copy_from_slice(&line);
+        } else {
+            for x in 0..len {
+                let at = start + x * step;
+                data[at..at + 4].copy_from_slice(&line[x * 4..x * 4 + 4]);
+            }
+        }
+    }
+}
+
+/// Blurs the columns of `data`, rows of `row` values, with standard
+/// deviation `sigma`: as [`blur_axis`] blurs each, a whole row at a time.
+fn blur_columns(data: &mut Vec<f32>, row: usize, sigma: f64) {
+    if row == 0 {
+        return;
+    }
+    let len = data.len() / row;
+    let mut tmp = vec![0.0f32; data.len()];
+    if sigma < 2.0 {
+        gaussian_rows(data, &mut tmp, row, sigma);
+        std::mem::swap(data, &mut tmp);
+    } else {
+        let d = (sigma * 3.0 * (2.0 * std::f64::consts::PI).sqrt() / 4.0 + 0.5).floor() as usize;
+        let d = d.clamp(1, len.max(1) * 2);
+        if d % 2 == 1 {
+            for _ in 0..3 {
+                box_rows(data, &mut tmp, row, d, (d - 1) / 2);
+                std::mem::swap(data, &mut tmp);
+            }
+        } else {
+            box_rows(data, &mut tmp, row, d, d / 2);
+            box_rows(&tmp, data, row, d, d / 2 - 1);
+            box_rows(data, &mut tmp, row, d + 1, d / 2);
+            std::mem::swap(data, &mut tmp);
+        }
+    }
+}
+
+/// [`box_blur`] down every column of `src` (rows of `row` values) at once.
+fn box_rows(src: &[f32], dst: &mut [f32], row: usize, size: usize, before: usize) {
+    let len = src.len() / row;
+    let line = |i: usize| &src[i * row..(i + 1) * row];
+    let mut sum = vec![0.0f32; row];
+    for i in 0..size.saturating_sub(before).min(len) {
+        for (s, v) in sum.iter_mut().zip(line(i)) {
+            *s += v;
+        }
+    }
+    let n = size as f32;
+    for (y, out) in dst.chunks_exact_mut(row).enumerate().take(len) {
+        for (o, s) in out.iter_mut().zip(&sum) {
+            *o = s / n;
+        }
+        if let Some(i) = (y + size).checked_sub(before).filter(|i| *i < len) {
+            for (s, v) in sum.iter_mut().zip(line(i)) {
+                *s += v;
+            }
+        }
+        if let Some(i) = y.checked_sub(before).filter(|i| *i < len) {
+            for (s, v) in sum.iter_mut().zip(line(i)) {
+                *s -= v;
+            }
+        }
+    }
+}
+
+/// [`gaussian`] down every column of `src` (rows of `row` values) at once.
+fn gaussian_rows(src: &[f32], dst: &mut [f32], row: usize, sigma: f64) {
+    let len = (src.len() / row) as isize;
+    let r = (sigma * 3.0).ceil() as isize;
+    let weights: Vec<f32> = (-r..=r)
+        .map(|k| (-(k * k) as f64 / (2.0 * sigma * sigma)).exp() as f32)
+        .collect();
+    let total: f32 = weights.iter().sum();
+    let mut acc = vec![0.0f32; row];
+    for (y, out) in dst.chunks_exact_mut(row).enumerate() {
+        acc.fill(0.0);
+        for (k, w) in (-r..=r).zip(&weights) {
+            let i = y as isize + k;
+            if i >= 0 && i < len {
+                let i = i as usize;
+                for (a, v) in acc.iter_mut().zip(&src[i * row..(i + 1) * row]) {
+                    *a += v * w;
+                }
+            }
+        }
+        for (o, a) in out.iter_mut().zip(&acc) {
+            *o = a / total;
         }
     }
 }
 
 /// The average of each pixel's `size` pixels from `before` before it.
 fn box_blur(src: &[f32], dst: &mut [f32], size: usize, before: usize) {
-    let len = src.len() / 4;
+    let src = src.as_chunks::<4>().0;
+    let dst = dst.as_chunks_mut::<4>().0;
+    let len = src.len();
     let mut sum = [0.0f32; 4];
-    let at = |x: isize| -> Option<usize> { (x >= 0 && (x as usize) < len).then_some(x as usize) };
-    // The window of pixel 0: from -before to size - 1 - before.
-    for x in 0..size as isize {
-        if let Some(i) = at(x - before as isize) {
-            for c in 0..4 {
-                sum[c] += src[i * 4 + c];
-            }
+    let add = |sum: &mut [f32; 4], px: &[f32; 4]| {
+        for c in 0..4 {
+            sum[c] += px[c];
         }
+    };
+    // The window of pixel 0: from -before to size - 1 - before.
+    for px in src.iter().take(size.saturating_sub(before)) {
+        add(&mut sum, px);
     }
     let n = size as f32;
-    for x in 0..len {
+    for (x, out) in dst.iter_mut().enumerate().take(len) {
         for c in 0..4 {
-            dst[x * 4 + c] = sum[c] / n;
+            out[c] = sum[c] / n;
         }
-        let x = x as isize;
-        if let Some(i) = at(x + size as isize - before as isize) {
-            for c in 0..4 {
-                sum[c] += src[i * 4 + c];
-            }
+        if let Some(px) = (x + size).checked_sub(before).and_then(|i| src.get(i)) {
+            add(&mut sum, px);
         }
-        if let Some(i) = at(x - before as isize) {
+        if let Some(px) = x.checked_sub(before).and_then(|i| src.get(i)) {
             for c in 0..4 {
-                sum[c] -= src[i * 4 + c];
+                sum[c] -= px[c];
             }
         }
     }
@@ -1067,6 +1251,57 @@ fn gaussian(src: &[f32], dst: &mut [f32], sigma: f64) {
         }
         for c in 0..4 {
             dst[x as usize * 4 + c] = acc[c] / total;
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used)]
+
+    use super::*;
+
+    /// Every premultiplied source channel and alpha over every destination
+    /// channel (each row a source, each column a destination; the alpha
+    /// channel is the same function of them), at `opacity`.
+    fn assert_over_as_the_pipeline(opacity: f32) {
+        let pairs: Vec<(u8, u8)> = (0..=255u8)
+            .flat_map(|a| (0..=a).map(move |c| (c, a)))
+            .collect();
+        let (w, h) = (256u32, pairs.len() as u32);
+        let mut layer = sk::Pixmap::new(w, h).unwrap();
+        let mut under = sk::Pixmap::new(w, h).unwrap();
+        for (y, &(c, a)) in pairs.iter().enumerate() {
+            for x in 0..w as usize {
+                let i = y * w as usize + x;
+                layer.pixels_mut()[i] = sk::PremultipliedColorU8::from_rgba(c, c, c, a).unwrap();
+                under.pixels_mut()[i] =
+                    sk::PremultipliedColorU8::from_rgba(x as u8, x as u8, x as u8, 255).unwrap();
+            }
+        }
+        let mut ours = under.clone();
+        let mut theirs = under;
+        let all = sk::Rect::from_xywh(0.0, 0.0, w as f32, h as f32).unwrap();
+        over(&mut ours, &layer, opacity, all);
+        theirs.draw_pixmap(
+            0,
+            0,
+            layer.as_ref(),
+            &sk::PixmapPaint {
+                opacity,
+                blend_mode: sk::BlendMode::SourceOver,
+                quality: sk::FilterQuality::Nearest,
+            },
+            sk::Transform::identity(),
+            None,
+        );
+        assert!(ours.data() == theirs.data(), "at opacity {opacity}");
+    }
+
+    #[test]
+    fn over_draws_as_the_pipeline_draws_every_pixel() {
+        for opacity in [1.0, 0.98018646, 0.5, 0.17481671] {
+            assert_over_as_the_pipeline(opacity);
         }
     }
 }

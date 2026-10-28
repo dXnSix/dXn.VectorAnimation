@@ -1,10 +1,12 @@
 //! Groups that only move (and fade) are layers the platform moves: their
 //! still content drawn once, in their own lengths scaled up to stay sharp,
 //! on canvases whose operations hold no animated value; groups that only
-//! fade are layers it fades. Groups whose
-//! content moves, or that need the view's coordinates (inside a clip,
-//! casting a shadow), are drawn as before. All draw what the reference
-//! draws.
+//! fade are layers it fades. A still group inside one whose content
+//! moves is a moving layer of its own, moved as the groups it is in move.
+//! Inside still rectangle clips (a Figma frame), a moving layer is shown
+//! within a view clipping there. Groups whose content moves, or that need
+//! the view's coordinates (inside other clips, casting a shadow), are drawn
+//! as before. All draw what the reference draws.
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
@@ -147,4 +149,91 @@ fn a_group_that_only_fades_is_a_layer_it_fades() {
     assert!(matches!(opacity, Num::Node(_)), "its opacity bound");
     assert!(moving_layers(&units).1, "its canvas still");
     assert_matches(&scene, 0.002);
+}
+
+/// A group turning about (50, 50) and holding a still group and one that
+/// grows (its content moves, so it is no moving layer of its own).
+fn turning_with_moving_content(dur: &str) -> Scene {
+    read(&format!(
+        r##"<g transform="translate(50 50)"><g><animateTransform attributeName="transform" type="rotate" from="0" to="90" dur="{dur}" repeatCount="indefinite"/>
+<g transform="translate(0 -25)"><circle r="12" fill="#3070e0"/><rect x="-4" y="-4" width="8" height="8" fill="#f0c020"/></g>
+<g transform="translate(0 25)"><rect x="-8" y="-8" width="16" height="16" fill="#e04020"><animate attributeName="width" from="8" to="20" dur="{dur}" repeatCount="indefinite"/></rect></g>
+</g></g>"##
+    ))
+}
+
+#[test]
+fn a_still_group_in_a_moving_one_whose_content_moves_is_a_moving_layer() {
+    let scene = turning_with_moving_content("1s");
+    let plan = plan::compile(&scene, Matrix::IDENTITY).unwrap();
+    let (layers, still) = moving_layers(&plan.units);
+    assert_eq!(
+        layers, 1,
+        "the still group, moved as the group it is in turns"
+    );
+    assert!(still, "its canvas draws once");
+    assert_matches(&scene, 0.015);
+}
+
+#[test]
+fn over_a_playback_too_long_to_sample_whole_it_is_drawn_as_before() {
+    // 30 s: more frames than the matrix is sampled at.
+    let scene = turning_with_moving_content("30s");
+    let plan = plan::compile(&scene, Matrix::IDENTITY).unwrap();
+    assert_eq!(moving_layers(&plan.units).0, 0);
+}
+
+/// The moving layers within clips of `units`, with their rectangles.
+fn clipped(units: &[Unit]) -> Vec<dxn_vector_animation::Rect> {
+    units
+        .iter()
+        .flat_map(|u| match u {
+            Unit::Clip { rect, units } => {
+                assert_eq!(
+                    moving_layers(units),
+                    (1, true),
+                    "a moving layer, still inside"
+                );
+                vec![*rect]
+            }
+            Unit::Layer { units, .. } => clipped(units),
+            _ => Vec::new(),
+        })
+        .collect()
+}
+
+#[test]
+fn a_group_moving_inside_a_still_rectangle_clip_is_a_moving_layer_clipped_there() {
+    let scene = read(&format!(
+        r##"<defs><clipPath id="frame"><rect x="10" y="20" width="70" height="60"/></clipPath></defs>
+<g transform="translate(5 0)"><g clip-path="url(#frame)"><rect width="100" height="100" fill="#d0e0f0"/>
+<g><animateTransform attributeName="transform" type="translate" values="20 30; 75 60; 40 50" dur="1s" fill="freeze"/>{CONTENT}</g></g></g>"##
+    ));
+    let plan = plan::compile(&scene, Matrix::IDENTITY).unwrap();
+    let rects = clipped(&plan.units);
+    assert_eq!(rects.len(), 1, "{:?}", plan.units);
+    let r = rects[0];
+    assert_eq!(
+        (r.x, r.y, r.width, r.height),
+        (15.0, 20.0, 70.0, 60.0),
+        "in the view"
+    );
+    assert_matches(&scene, 0.015);
+}
+
+#[test]
+fn inside_a_rounded_or_turned_clip_it_is_drawn_as_before() {
+    for clip in [
+        r#"<rect x="10" y="20" width="70" height="60" rx="8"/>"#,
+        r#"<rect x="10" y="20" width="70" height="60" transform="rotate(10 50 50)"/>"#,
+    ] {
+        let scene = read(&format!(
+            r##"<defs><clipPath id="frame">{clip}</clipPath></defs>
+<g clip-path="url(#frame)"><g><animateTransform attributeName="transform" type="translate" from="20 50" to="80 50" dur="1s"/>{CONTENT}</g></g>"##
+        ));
+        let plan = plan::compile(&scene, Matrix::IDENTITY).unwrap();
+        assert_eq!(moving_layers(&plan.units).0, 0, "{clip}");
+        assert!(clipped(&plan.units).is_empty());
+        assert_matches(&scene, 0.004);
+    }
 }

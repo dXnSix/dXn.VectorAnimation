@@ -12,10 +12,10 @@
 use std::sync::Arc;
 
 use dxn_vector_animation::{
-    Animated, BlendMode, Clip, Dash, Direction, EllipseStart, Fill, FillRule, Frame, FramePaint,
-    FrameTextSpan, Geometry, Group, ImageData, Item, Keyframe, LineCap, LineJoin, Mask, Matrix,
-    MotionPath, MotionRotate, Node, Paint as ScenePaint, PaintOrder, Path, PathEl, Point, Rect,
-    Scene, Shape, ShapePath, Stroke, Text, TextAnchor, TextSpan, TimeMap, TimeRange, Track,
+    Animated, BlendMode, Clip, Dash, Direction, Easing, EllipseStart, Fill, FillRule, Frame,
+    FramePaint, FrameTextSpan, Geometry, Group, ImageData, Item, Keyframe, LineCap, LineJoin, Mask,
+    Matrix, MotionPath, MotionRotate, Node, Paint as ScenePaint, PaintOrder, Path, PathEl, Point,
+    Rect, Scene, Shape, ShapePath, Stroke, Text, TextAnchor, TextSpan, TimeMap, TimeRange, Track,
     TransformOp, Trim, TrimMode,
     outline::{geometry_path, path_length, trim_paths},
     transform::{decompose, point_along, transform_at, unwrap_angles},
@@ -164,9 +164,39 @@ pub fn needs_raster(node: &Node) -> bool {
 /// Whether `scene` draws the same at every time: sampled at its keyframes'
 /// span, every frame alike.
 pub fn still(scene: &Scene) -> bool {
+    // Nothing that changes over time, nothing shown only for a time: the
+    // same at every time.
+    if scene.stats().animated_properties == 0 && !shown_for_a_time(&scene.root) {
+        return true;
+    }
     let d = scene.timeline.duration.max(0.0);
     let first = scene.frame_at(0.0);
     (1..=16).all(|k| scene.frame_at(d * f64::from(k) / 16.0) == first)
+}
+
+/// Whether `g` or a group in it (its masks' and patterns' too) shows only
+/// for a time.
+fn shown_for_a_time(g: &Group) -> bool {
+    let pattern = |paint: &ScenePaint| match paint {
+        ScenePaint::Pattern(p) => shown_for_a_time(&p.content),
+        _ => false,
+    };
+    g.active.is_some()
+        || g.mask
+            .as_ref()
+            .is_some_and(|m| shown_for_a_time(&m.content))
+        || g.children.iter().any(|child| match child {
+            Node::Group(g) => shown_for_a_time(g),
+            Node::Shape(s) => {
+                s.fill.as_ref().is_some_and(|f| pattern(&f.paint))
+                    || s.stroke.as_ref().is_some_and(|s| pattern(&s.paint))
+            }
+            Node::Text(t) => t.spans.iter().any(|span| {
+                span.fill.as_ref().is_some_and(|f| pattern(&f.paint))
+                    || span.stroke.as_ref().is_some_and(|s| pattern(&s.paint))
+            }),
+            Node::Image(_) => false,
+        })
 }
 
 /// How far `ops` scale lengths, at most over a playback of `duration`.
@@ -237,16 +267,14 @@ pub fn raster(view: &Scene, time: f64, ratio: f64) -> Option<(Arc<ImageData>, Re
 
 /// `pixmap` as a PNG made fast rather than small (`fdeflate`, each row less
 /// the one above): a part that moves is rastered again frame after frame,
-/// each decoded at once.
+/// each decoded at once, and the images a plan holds are made before its
+/// first frame.
 fn png(pixmap: &tiny_skia::Pixmap) -> Option<Vec<u8>> {
-    let data: Vec<u8> = pixmap
-        .pixels()
-        .iter()
-        .flat_map(|p| {
-            let c = p.demultiply();
-            [c.red(), c.green(), c.blue(), c.alpha()]
-        })
-        .collect();
+    let mut data = Vec::with_capacity(pixmap.data().len());
+    for p in pixmap.pixels() {
+        let c = p.demultiply();
+        data.extend_from_slice(&[c.red(), c.green(), c.blue(), c.alpha()]);
+    }
     let mut out = Vec::new();
     let mut encoder = png::Encoder::new(&mut out, pixmap.width(), pixmap.height());
     encoder.set_color(png::ColorType::Rgba);
@@ -317,9 +345,19 @@ fn switches(track: &Track<Path>) -> Vec<f64> {
         .filter_map(|w| {
             let (a, b) = (w[0].last()?, w[1].first()?);
             let (mut lo, mut hi) = (a.time, b.time);
+            // Between the two (of other commands), `Track::sample` gives the
+            // later's commands once the eased progress is halfway.
+            let later = |t: f64| {
+                let span = b.time - a.time;
+                if span <= 0.0 {
+                    return true;
+                }
+                let eased = a.easing.apply(((t - a.time) / span).clamp(0.0, 1.0));
+                !(matches!(a.easing, Easing::Hold) || eased == 0.0 || eased < 0.5)
+            };
             for _ in 0..60 {
                 let mid = (lo + hi) / 2.0;
-                if track.sample(mid).same_structure(&b.value) {
+                if later(mid) {
                     hi = mid;
                 } else {
                     lo = mid;
@@ -448,7 +486,7 @@ fn outline_times(keys: &[f64]) -> Vec<f64> {
 /// their neighbors kept stands for within `tolerance`: in one pass, the
 /// slopes from the last sample kept that pass every sample since within
 /// the tolerance narrowing as it goes.
-fn simplified(times: &[f64], values: &[f64], tolerance: f64) -> (Vec<f64>, Vec<f64>) {
+pub(crate) fn simplified(times: &[f64], values: &[f64], tolerance: f64) -> (Vec<f64>, Vec<f64>) {
     let n = times.len();
     if values.iter().all(|v| (v - values[0]).abs() <= tolerance) {
         return (vec![times[0]], vec![values[0]]);
@@ -588,6 +626,26 @@ pub enum Op {
     },
 }
 
+impl Op {
+    /// Whether it reads a node (a canvas with one is drawn again each
+    /// frame).
+    pub fn moves(&self) -> bool {
+        let n = |n: &Num| matches!(n, Num::Node(_));
+        let p = |p: &Paint| matches!(p, Paint::Node(_));
+        match self {
+            Op::Translate(a, b) | Op::Scale(a, b) | Op::MoveTo(a, b) | Op::LineTo(a, b) => {
+                n(a) || n(b)
+            }
+            Op::Rotate(a) | Op::LineWidth(a) | Op::LineDashOffset(a) | Op::GlobalAlpha(a) => n(a),
+            Op::Transform(a) | Op::CubicTo(a) | Op::EllipseArc(a, _) => a.iter().any(n),
+            Op::QuadTo(a) | Op::Ellipse(a, _) => a.iter().any(n),
+            Op::RoundRect(a, r) => a.iter().any(n) || n(r),
+            Op::FillColor(c) | Op::StrokeColor(c) => p(c),
+            _ => false,
+        }
+    }
+}
+
 /// A font text is set in.
 #[derive(Debug, Clone, PartialEq)]
 pub struct TextFont {
@@ -704,6 +762,14 @@ pub enum Unit {
         /// How it moves (about its top left corner), where it does: what it
         /// holds is then in the coordinates it moves.
         transform: Option<LayerTransform>,
+    },
+    /// What `units` draw (in the coordinates of what holds it) shown within
+    /// `rect` only: still rectangle clips around layers that move.
+    Clip {
+        /// What shows.
+        rect: Rect,
+        /// What it holds, bottom first.
+        units: Vec<Unit>,
     },
 }
 
@@ -860,13 +926,14 @@ pub fn compile_for(scene: &Scene, base: Matrix, pixels: f64) -> Result<Plan, Uns
     };
     c.group(&scene.root, TIME, 0)?;
     c.flush();
+    let mut root = c.layers.pop().map(|l| l.units).unwrap_or_default();
+    c.fit_moving(&mut root);
     if c.g.nodes().len() > MAX_GRAPH_NODES {
         return unsupported(format!(
             "{} graph nodes, more than NSH's graph is given at once ({MAX_GRAPH_NODES})",
             c.g.nodes().len()
         ));
     }
-    let root = c.layers.pop().map(|l| l.units).unwrap_or_default();
     Ok(Plan {
         graph: c.g,
         units: root,
@@ -905,7 +972,9 @@ fn mask_units(units: &mut [Unit], mask: &[Op]) -> bool {
                 }
             }
             Unit::Sampled(_) | Unit::Raster(_) => {}
-            Unit::Wide { .. } | Unit::Area { .. } | Unit::Layer { .. } => return false,
+            Unit::Wide { .. } | Unit::Area { .. } | Unit::Layer { .. } | Unit::Clip { .. } => {
+                return false;
+            }
         }
     }
     true
@@ -922,7 +991,48 @@ fn closed(mut ops: Vec<Op>) -> Vec<Op> {
         _ => depth,
     });
     ops.extend(std::iter::repeat_n(Op::Restore, open));
-    ops
+    unsaved(ops)
+}
+
+/// `ops` without the saves that keep nothing: one restored at once, and
+/// one right inside another and restored right before it (the state it
+/// keeps, the outer keeps).
+fn unsaved(mut ops: Vec<Op>) -> Vec<Op> {
+    loop {
+        // The restore of each save.
+        let mut restore = vec![usize::MAX; ops.len()];
+        let mut open = Vec::new();
+        for (i, op) in ops.iter().enumerate() {
+            match op {
+                Op::Save => open.push(i),
+                Op::Restore => {
+                    if let Some(s) = open.pop() {
+                        restore[s] = i;
+                    }
+                }
+                _ => {}
+            }
+        }
+        let mut keep = vec![true; ops.len()];
+        let mut fewer = false;
+        for i in 0..ops.len() {
+            let r = restore[i];
+            if r == usize::MAX {
+                continue;
+            }
+            let at_once = r == i + 1;
+            let inside = i > 0 && keep[i - 1] && restore[i - 1] == r + 1;
+            if at_once || inside {
+                (keep[i], keep[r]) = (false, false);
+                fewer = true;
+            }
+        }
+        if !fewer {
+            return ops;
+        }
+        let mut k = keep.into_iter();
+        ops.retain(|_| k.next().unwrap_or(true));
+    }
 }
 
 fn frame_items(items: &[Item], base: Matrix, alpha: &mut Vec<f64>, ops: &mut Vec<Op>) {
@@ -1246,6 +1356,60 @@ impl Compiler {
         }
     }
 
+    /// The canvases of `units` (in the view's coordinates) that draw again
+    /// each frame, each over where it draws where that is at most half the
+    /// scene: fewer pixels drawn again.
+    fn fit_moving(&self, units: &mut [Unit]) {
+        for unit in units {
+            match unit {
+                Unit::Canvas(ops) if ops.iter().any(Op::moves) => {
+                    if let Some(area) = self.moving_area(ops) {
+                        let mut moved =
+                            vec![Op::Translate(Num::Const(-area.x), Num::Const(-area.y))];
+                        moved.append(ops);
+                        *unit = Unit::Area {
+                            area,
+                            shown: None,
+                            ops: closed(moved),
+                        };
+                    }
+                }
+                Unit::Layer {
+                    units,
+                    transform: None,
+                    ..
+                } => self.fit_moving(units),
+                _ => {}
+            }
+        }
+    }
+
+    /// Where the moving canvas `ops` draws over the playback, in whole
+    /// points a couple around, where that is known (the playback short
+    /// enough for its bounds to be sampled throughout; no text, no shadow)
+    /// and at most half the scene.
+    fn moving_area(&self, ops: &[Op]) -> Option<Rect> {
+        let samples = self.stage.timeline.duration * shadow::BOUNDS_RATE;
+        if samples > shadow::PROBES as f64
+            || ops
+                .iter()
+                .any(|op| matches!(op, Op::Text { .. } | Op::Shadow { .. } | Op::Copy))
+        {
+            return None;
+        }
+        let b = self.clipped_bounds(ops)?;
+        let area = Rect::new(
+            b.x.floor() - 2.0,
+            b.y.floor() - 2.0,
+            b.width.ceil() + 4.0,
+            b.height.ceil() + 4.0,
+        );
+        let m = self.base;
+        let scale = (m.a * m.d - m.b * m.c).abs();
+        let scene = self.stage.width * self.stage.height * scale;
+        (area.width * area.height <= scene / 2.0).then_some(area)
+    }
+
     /// Where it is now.
     fn mark(&mut self) -> Mark {
         let (layers, graph, context, ancestors) = (
@@ -1314,16 +1478,20 @@ impl Compiler {
         if let Some(i) = joins
             && i + 1 == open.units.len()
             && open.canvas.is_empty()
-            && let Some(Unit::Sampled(scene) | Unit::Raster(scene)) = open.units.get(i)
+            && matches!(open.units[i], Unit::Sampled(_) | Unit::Raster(_))
             && matches!(open.units[i], Unit::Raster(_)) == raster
         {
-            let mut scene = scene.clone();
-            add_within(&mut Arc::make_mut(&mut scene).root, depth - 1, node.clone());
-            open.units[i] = if raster {
-                Unit::Raster(scene)
-            } else {
-                Unit::Sampled(scene)
-            };
+            // Taken out of its unit, the part is not copied to be added to.
+            if let Unit::Sampled(mut scene) | Unit::Raster(mut scene) =
+                std::mem::replace(&mut open.units[i], Unit::Canvas(Vec::new()))
+            {
+                add_within(&mut Arc::make_mut(&mut scene).root, depth - 1, node.clone());
+                open.units[i] = if raster {
+                    Unit::Raster(scene)
+                } else {
+                    Unit::Sampled(scene)
+                };
+            }
             return i;
         }
         // The layers it is drawn in fade and blend it already.
@@ -1814,7 +1982,20 @@ impl Compiler {
             match op {
                 TransformOp::Translate { x, y } => {
                     let (x, y) = (self.g.track(x, time, |v| v), self.g.track(y, time, |v| v));
-                    if !(x.is(0.0) && y.is(0.0)) {
+                    // Still after still (a position, then less the anchor):
+                    // one translation.
+                    if let (
+                        Some(Op::Translate(Num::Const(a), Num::Const(b))),
+                        Num::Const(c),
+                        Num::Const(d),
+                    ) = (out.last(), x, y)
+                    {
+                        let (x, y) = (a + c, b + d);
+                        out.pop();
+                        if !(x == 0.0 && y == 0.0) {
+                            out.push(Op::Translate(Num::Const(x), Num::Const(y)));
+                        }
+                    } else if !(x.is(0.0) && y.is(0.0)) {
                         out.push(Op::Translate(x, y));
                     }
                 }

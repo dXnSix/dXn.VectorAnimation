@@ -998,8 +998,12 @@ fn walk<'v>(
                 return;
             }
             for (key, child) in map {
-                let key = key.replace('~', "~0").replace('/', "~1");
-                descend(child, &key, pointer, depth, skip, out);
+                if key.contains(['~', '/']) {
+                    let key = key.replace('~', "~0").replace('/', "~1");
+                    descend(child, &key, pointer, depth, skip, out);
+                } else {
+                    descend(child, key, pointer, depth, skip, out);
+                }
             }
         }
         Value::Array(list) => {

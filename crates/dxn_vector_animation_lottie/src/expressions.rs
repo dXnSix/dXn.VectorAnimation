@@ -33,36 +33,45 @@ use host::Baked;
 /// Bakes the expressions of document `root` into keyframes; the warnings
 /// name those left out.
 pub(crate) fn bake(root: &mut Value, limits: &Limits) -> Vec<String> {
+    let (edits, warnings) = baked(root, limits);
+    apply(root, edits);
+    warnings
+}
+
+/// What [`bake`] writes into `root` (each property's JSON pointer and its
+/// baked keyframes), and its warnings.
+pub(crate) fn baked(root: &Value, limits: &Limits) -> (Vec<(String, Value)>, Vec<String>) {
     let mut warnings = BTreeSet::new();
-    let edits = {
-        let Some(mut engine) = Engine::new(root) else {
-            return Vec::new();
-        };
-        let mut keyframes_left = limits.max_keyframes / 2;
-        let mut edits = Vec::new();
-        for id in engine.expressions() {
-            match engine.bake(id, keyframes_left) {
-                Ok(baked) => {
-                    let Some(original) = engine.json(id) else {
-                        continue;
-                    };
-                    let (property, written) = baked_property(original, baked);
-                    keyframes_left = keyframes_left.saturating_sub(written);
-                    edits.push((engine.props[id].pointer.clone(), property));
-                }
-                Err(fail) => {
-                    warnings.insert(warning(&fail));
-                }
+    let Some(mut engine) = Engine::new(root) else {
+        return (Vec::new(), Vec::new());
+    };
+    let mut keyframes_left = limits.max_keyframes / 2;
+    let mut edits = Vec::new();
+    for id in engine.expressions() {
+        match engine.bake(id, keyframes_left) {
+            Ok(baked) => {
+                let Some(original) = engine.json(id) else {
+                    continue;
+                };
+                let (property, written) = baked_property(original, baked);
+                keyframes_left = keyframes_left.saturating_sub(written);
+                edits.push((engine.props[id].pointer.clone(), property));
+            }
+            Err(fail) => {
+                warnings.insert(warning(&fail));
             }
         }
-        edits
-    };
+    }
+    (edits, warnings.into_iter().collect())
+}
+
+/// `edits` (of [`baked`]) written into `root`.
+pub(crate) fn apply(root: &mut Value, edits: Vec<(String, Value)>) {
     for (pointer, property) in edits {
         if let Some(slot) = root.pointer_mut(&pointer) {
             *slot = property;
         }
     }
-    warnings.into_iter().collect()
 }
 
 /// Property `original` with the baked values as its keyframes (a constant

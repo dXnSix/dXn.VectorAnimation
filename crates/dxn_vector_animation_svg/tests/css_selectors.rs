@@ -135,3 +135,30 @@ fn is_where_and_not_of_lists() {
     let import = read("rect:not(.c, #q) { fill: red }", RECTS);
     assert_eq!(fills(&import), vec![RED, BLACK, BLACK]);
 }
+
+#[test]
+fn rules_apply_in_order_whatever_an_element_is_matched_by() {
+    // Selectors of an id, classes in either order, a tag and an attribute
+    // alone, over elements naming a class twice: later rules of equal
+    // weight win, as in the sheet's order.
+    let css = ".a.b { fill: red } rect.b.a { fill: blue } [data-x] { fill: red } \
+               #one.a { fill: blue } rect { fill: red } .b { fill: blue }";
+    let import = read(
+        css,
+        r#"<rect class="b a b" width="1" height="1"/><rect id="one" class="a a" width="1" height="1"/><rect data-x="1" class="b" width="1" height="1"/><circle data-x="1" r="1"/>"#,
+    );
+    assert_eq!(fills(&import), vec![BLUE, BLUE, BLUE, RED]);
+}
+
+#[test]
+fn important_declarations_win_however_written() {
+    // `!important` in any case, after comments, wins over a later rule and
+    // the `style` attribute; the last of two in a value is the one.
+    let css = "rect { fill: blue !IMPORTANT } /* note */ rect { fill: red } \
+               circle { fill: red /* x */ ! important } circle { fill: blue !Important }";
+    let import = read(
+        css,
+        r#"<rect width="1" height="1" style="fill: red"/><circle r="1"/>"#,
+    );
+    assert_eq!(fills(&import), vec![BLUE, BLUE]);
+}

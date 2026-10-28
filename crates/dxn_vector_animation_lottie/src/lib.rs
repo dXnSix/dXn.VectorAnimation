@@ -105,7 +105,7 @@ pub fn read_with(data: &[u8], limits: &Limits) -> Result<Import, Error> {
             limit: limits.max_bytes as f64,
         });
     }
-    let (mut root, mut left_out) = if dotlottie::sniff(data) {
+    let (root, left_out) = if dotlottie::sniff(data) {
         dotlottie::unpack(data, limits)?
     } else {
         (
@@ -113,8 +113,37 @@ pub fn read_with(data: &[u8], limits: &Limits) -> Result<Import, Error> {
             Vec::new(),
         )
     };
+    convert_root(root, left_out, limits)
+}
+
+/// Reads the Lottie document `root`, a JSON value (an app's import of a
+/// `.json` file), within `limits`: as [`read_with`] reads its text (a copy
+/// made only where expressions are baked into it).
+pub fn read_value(root: &serde_json::Value, limits: &Limits) -> Result<Import, Error> {
+    let (edits, left_out) = expressions::baked(root, limits);
+    if edits.is_empty() {
+        return converted(root, left_out, limits);
+    }
+    let mut root = root.clone();
+    expressions::apply(&mut root, edits);
+    converted(&root, left_out, limits)
+}
+
+fn convert_root(
+    mut root: serde_json::Value,
+    mut left_out: Vec<String>,
+    limits: &Limits,
+) -> Result<Import, Error> {
     left_out.extend(expressions::bake(&mut root, limits));
-    let (scene, warnings) = convert::Converter::run(&root, *limits)?;
+    converted(&root, left_out, limits)
+}
+
+fn converted(
+    root: &serde_json::Value,
+    mut left_out: Vec<String>,
+    limits: &Limits,
+) -> Result<Import, Error> {
+    let (scene, warnings) = convert::Converter::run(root, *limits)?;
     scene.check(limits)?;
     left_out.extend(warnings);
     Ok(Import {

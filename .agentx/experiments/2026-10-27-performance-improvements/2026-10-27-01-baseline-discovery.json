@@ -1,0 +1,88 @@
+{
+  "schemaVersion": 1,
+  "id": "f0287285-7a36-4cb5-8eef-94cdd163e5a7",
+  "loopId": "9e7a8b6d-0104-4e72-a31e-3b168c0b3881",
+  "index": 1,
+  "type": "baseline",
+  "name": "Baseline discovery",
+  "slug": "baseline-discovery",
+  "path": "2026-10-27-01-baseline-discovery.json",
+  "createdAt": "2026-10-27T20:14:29Z",
+  "startedAt": "2026-10-27T20:14:29Z",
+  "finishedAt": "2026-10-27T20:16:00Z",
+  "state": "done",
+  "status": "success",
+  "checkpointCommit": "a9eba8e8fb24625468974d341186c970ecfdad3c",
+  "resultCommit": "a9eba8e8fb24625468974d341186c970ecfdad3c",
+  "rollbackCommand": "git -C \"/Users/dinko/work-private/projects/dXn/dXn.VectorAnimation\" reset --hard a9eba8e8fb24625468974d341186c970ecfdad3c",
+  "repositories": [
+    {
+      "name": "main",
+      "path": ".",
+      "role": "main",
+      "checkpointCommit": "a9eba8e8fb24625468974d341186c970ecfdad3c",
+      "resultCommit": "a9eba8e8fb24625468974d341186c970ecfdad3c",
+      "rollbackCommand": "git -C \"/Users/dinko/work-private/projects/dXn/dXn.VectorAnimation\" reset --hard a9eba8e8fb24625468974d341186c970ecfdad3c",
+      "status": "success"
+    }
+  ],
+  "repositoryCommits": [
+    {
+      "name": "main",
+      "path": ".",
+      "role": "main",
+      "commit": "a9eba8e8fb24625468974d341186c970ecfdad3c"
+    }
+  ],
+  "atomicDiscipline": {
+    "oneHypothesisOnly": true,
+    "singleImplementationAttempt": true,
+    "noUnplannedFixesInsideExperiment": true,
+    "failedAttemptRequiresImmediateRevert": true,
+    "successfulAttemptRequiresCommitBeforeNextExperiment": true,
+    "rule": "Run exactly the printed hypothesis. If the attempted change fails, degrades, or suggests a different fix, revert to the checkpoint and finish this experiment as failure. Start a new experiment for the next idea."
+  },
+  "primaryTarget": "native release build on macOS over the 53-file corpus (artifacts-temp/corpus)",
+  "hypothesisMarkdown": "## Baseline Discovery\n\nRead-only discovery of where playback time, allocations, memory and time to first frame go in the scene model (`Scene::frame_at`), the importers, the reference renderer and the NSH player (`source::read`, `plan::compile`, rasters, the component's load path). No source edits.",
+  "measurementPlanMarkdown": "### Measurement Plan\n\n- `cargo build --release -p dxn_vector_animation_check` then `vector-animation-check profile artifacts-temp/corpus` (53 corpus files, 200 points, 3 pixels a point): plan compile time, graph nodes and breakpoints, canvases, layers, ops a frame, engine-thread ms a frame.\n- Source reading of the hot paths.\n- Gap: no allocation counter, no import or time-to-first-frame timing, no `frame_at` timing exists in the repository: the next experiment adds a corpus bench (measurement enablement only).",
+  "expectedOutcomeMarkdown": "### Expected Outcome\n\nStarting numbers and a ranked backlog of single-mechanism candidates.",
+  "diagnostics": {
+    "playwright": [],
+    "rayx": [],
+    "counters": [],
+    "artifacts": []
+  },
+  "measurements": [
+    {
+      "metric": "plan compile, sum over 53 files",
+      "before": "~70 ms (max 21.7 ms repeater, 18.2 ms merge paths)",
+      "after": "",
+      "delta": "",
+      "source": "vector-animation-check profile artifacts-temp/corpus"
+    },
+    {
+      "metric": "graph nodes, sum",
+      "before": "~6,100",
+      "after": "",
+      "delta": "",
+      "source": "profile"
+    },
+    {
+      "metric": "graph breakpoints, sum",
+      "before": "~124,000 (thunder.svg 29,142; blend-28 22,483; repeater 17,107; merge paths 12,634)",
+      "after": "",
+      "delta": "",
+      "source": "profile"
+    },
+    {
+      "metric": "engine-thread work a frame",
+      "before": "0 except tristate 0.03 ms, onboarding 0.22 ms (moving blur rasters), merge paths 0.019 ms (sampled)",
+      "after": "",
+      "delta": "",
+      "source": "profile"
+    }
+  ],
+  "reportMarkdown": "## Baseline Discovery Finished\n\n### Where the work is\n\n- **Time to first frame (player)**: `component.rs` reads the source off thread, then compiles the plan **twice** (`plan::compile` at identity only to learn native/mixed, then `plan::compile_for` at the fitted base), clones the whole scene for `played` (`Rc::new(scene.clone())`), and per raster unit runs `plan::in_view` (deep clone of the scene root), `plan::still` (17 `frame_at` calls compared) and the first `plan::raster` (render + PNG encode + base64 data URI).\n- **Playback (UI thread)**: NSH evaluates the graph (nodes, interpolation breakpoints) and replays canvases whose values move; fewer nodes, breakpoints and ops are less work each frame and less memory. Breakpoints dominate the graph's size (124k over the corpus).\n- **Playback (engine thread / reference)**: `Scene::frame_at` allocates per shape: a `Vec<Path>` of its paths, a merged `Path`, then clones that path for the fill and again for the stroke; `Animated::Static` paths are cloned on every sample; gradient stops are collected per sample. `from_frame` + painter run each frame for sampled parts. Moving rasters render, convert premultiplied pixels into a new Vec and PNG-encode each frame.\n- **Import**: SVG (roxmltree + CSS + SMIL) and Lottie (serde_json into a Value tree, then conversion) are not timed or allocation-counted anywhere.\n\n### Ranked candidate backlog\n\n1. Measurement: a corpus bench with an allocation counter (read, compile, time to first frame, retained bytes, frame_at and engine work a frame, graph size). Mechanism: measurement only.\n2. Player: compile the plan once on load instead of twice (TTFF, allocations).\n3. Core `frame_at`: move the shape's path into the last item that takes it instead of cloning for each (allocations a frame).\n4. Core `frame_at`: a shape of one path without trim or path transform takes it without the intermediate `Vec<Path>` and merged copy.\n5. Plan: `still()` short-circuits when nothing in the scene is animated (TTFF for still rasters).\n6. Plan/graph: interpolation breakpoints thinned where a straight line stands for the samples (memory, UI-thread work) — needs pixel-equivalence via `tests/plans.rs`.\n7. Graph: dedupe identical interpolation nodes / constant folding (nodes).\n8. Rasters: PNG encode without the intermediate RGBA Vec; cheaper filter (engine work a frame).\n9. Importers: avoid intermediate `serde_json::Value` copies / string allocations (TTFF).\n10. Track sampling: `Animated::Static` sample by reference where callers only read.\n\nUncertain: tiny-skia render cost (external), NSH graph evaluation (external, not measurable here).\n\nAlready simple, leave: `Track::sample` binary search, `fit`, `Playback`.",
+  "decisionMarkdown": "### Decision\n\nBaseline recorded; no source changed. Next: the measurement harness experiment.",
+  "notes": "Raw profile output: artifacts-temp/agentx-experiments/performance-improvements/01-baseline/profile.txt (transient)."
+}

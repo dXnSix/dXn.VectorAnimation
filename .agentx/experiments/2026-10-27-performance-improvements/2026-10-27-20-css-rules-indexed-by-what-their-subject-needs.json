@@ -1,0 +1,81 @@
+{
+  "schemaVersion": 1,
+  "id": "9d552d7c-7a40-4253-a73f-df232fe96e19",
+  "loopId": "9e7a8b6d-0104-4e72-a31e-3b168c0b3881",
+  "index": 20,
+  "type": "hypothesis",
+  "name": "CSS rules indexed by what their subject needs",
+  "slug": "css-rules-indexed-by-what-their-subject-needs",
+  "path": "2026-10-27-20-css-rules-indexed-by-what-their-subject-needs.json",
+  "createdAt": "2026-10-27T21:00:20Z",
+  "startedAt": "2026-10-27T21:00:20Z",
+  "finishedAt": "2026-10-27T21:02:02Z",
+  "state": "done",
+  "status": "success",
+  "checkpointCommit": "9e333c72d345644bbb025531ebc617516552bbdc",
+  "resultCommit": "e254a8376575699bc479d53ff05c1aa43c101d66",
+  "rollbackCommand": "git -C \"/Users/dinko/work-private/projects/dXn/dXn.VectorAnimation\" reset --hard 9e333c72d345644bbb025531ebc617516552bbdc",
+  "repositories": [
+    {
+      "name": "main",
+      "path": ".",
+      "role": "main",
+      "checkpointCommit": "9e333c72d345644bbb025531ebc617516552bbdc",
+      "resultCommit": "e254a8376575699bc479d53ff05c1aa43c101d66",
+      "rollbackCommand": "git -C \"/Users/dinko/work-private/projects/dXn/dXn.VectorAnimation\" reset --hard 9e333c72d345644bbb025531ebc617516552bbdc",
+      "status": "success"
+    }
+  ],
+  "repositoryCommits": [
+    {
+      "name": "main",
+      "path": ".",
+      "role": "main",
+      "commit": "e254a8376575699bc479d53ff05c1aa43c101d66"
+    }
+  ],
+  "atomicDiscipline": {
+    "oneHypothesisOnly": true,
+    "singleImplementationAttempt": true,
+    "noUnplannedFixesInsideExperiment": true,
+    "failedAttemptRequiresImmediateRevert": true,
+    "successfulAttemptRequiresCommitBeforeNextExperiment": true,
+    "rule": "Run exactly the printed hypothesis. If the attempted change fails, degrades, or suggests a different fix, revert to the checkpoint and finish this experiment as failure. Start a new experiment for the next idea."
+  },
+  "primaryTarget": "wasm/web with headed Playwright and WebGPU enabled",
+  "hypothesisMarkdown": "## CSS rules indexed by what their subject needs Hypothesis\n\nThe cascade tried every selector of every rule against every element. Each selector is indexed by what its element must have (its first id, else its last class, else its tag; the rest always tried); an element tries those its id, classes and tag name, in the sheet's order.\\n\\n**Tested mechanism:** selector index. **Allowed:** svg `css.rs` (Index), `Converter::cascade`, a css_selectors test. **Forbidden:** matching semantics.",
+  "measurementPlanMarkdown": "### Measurement Plan\n\nRelease bench over the 53 corpus files (median of 3 runs, best of 5 each), plus the focused tests of the touched area.",
+  "expectedOutcomeMarkdown": "### Expected Outcome\n\nThe targeted metric improves with identical graph output and passing focused tests.",
+  "diagnostics": {
+    "playwright": [],
+    "rayx": [],
+    "counters": [],
+    "artifacts": []
+  },
+  "measurements": [
+    {
+      "metric": "read ms",
+      "before": "69.8",
+      "after": "68.6",
+      "delta": "",
+      "source": "scratchpad bench.sh: median of 3 `vector-animation-check bench artifacts-temp/corpus`"
+    },
+    {
+      "metric": "snake.svg read ms",
+      "before": "~4.3",
+      "after": "2.1",
+      "delta": "",
+      "source": "scratchpad bench.sh: median of 3 `vector-animation-check bench artifacts-temp/corpus`"
+    },
+    {
+      "metric": "compiled scenes and warnings",
+      "before": "identical",
+      "after": "identical",
+      "delta": "",
+      "source": "scratchpad bench.sh: median of 3 `vector-animation-check bench artifacts-temp/corpus`"
+    }
+  ],
+  "reportMarkdown": "## CSS rules indexed by what their subject needs Finished\n\n**Passed Status**: True\n\n**Attempt Count:** 1. **Out-of-scope changes:** none.\n\nRead -2% over the corpus, -50% for the sheet-heavy snake.svg. A new css_selectors test pins the order rules apply in whatever matches an element; compiled scenes identical; svg tests pass; clippy clean.\n\n| Repo | Path | Checkpoint | Result Commit | Status |\n| --- | --- | --- | --- | --- |\n| main | . | 9e333c7 | e254a83 | committed |",
+  "decisionMarkdown": "### Decision\n\nCommitted e254a83: perf(svg): index a sheet's selectors by the id, class or tag they need",
+  "notes": ""
+}

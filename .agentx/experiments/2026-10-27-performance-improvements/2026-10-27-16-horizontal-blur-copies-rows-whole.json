@@ -1,0 +1,81 @@
+{
+  "schemaVersion": 1,
+  "id": "2aa232bf-e9a9-4eb2-a5b1-4044633029f6",
+  "loopId": "9e7a8b6d-0104-4e72-a31e-3b168c0b3881",
+  "index": 16,
+  "type": "hypothesis",
+  "name": "Horizontal blur copies rows whole",
+  "slug": "horizontal-blur-copies-rows-whole",
+  "path": "2026-10-27-16-horizontal-blur-copies-rows-whole.json",
+  "createdAt": "2026-10-27T20:53:36Z",
+  "startedAt": "2026-10-27T20:53:36Z",
+  "finishedAt": "2026-10-27T20:54:47Z",
+  "state": "done",
+  "status": "success",
+  "checkpointCommit": "2eed04c9a0e696b7c1126e0895f808e9ef740298",
+  "resultCommit": "9eb585954218bd89204c15b2a09e171bdb8c0113",
+  "rollbackCommand": "git -C \"/Users/dinko/work-private/projects/dXn/dXn.VectorAnimation\" reset --hard 2eed04c9a0e696b7c1126e0895f808e9ef740298",
+  "repositories": [
+    {
+      "name": "main",
+      "path": ".",
+      "role": "main",
+      "checkpointCommit": "2eed04c9a0e696b7c1126e0895f808e9ef740298",
+      "resultCommit": "9eb585954218bd89204c15b2a09e171bdb8c0113",
+      "rollbackCommand": "git -C \"/Users/dinko/work-private/projects/dXn/dXn.VectorAnimation\" reset --hard 2eed04c9a0e696b7c1126e0895f808e9ef740298",
+      "status": "success"
+    }
+  ],
+  "repositoryCommits": [
+    {
+      "name": "main",
+      "path": ".",
+      "role": "main",
+      "commit": "9eb585954218bd89204c15b2a09e171bdb8c0113"
+    }
+  ],
+  "atomicDiscipline": {
+    "oneHypothesisOnly": true,
+    "singleImplementationAttempt": true,
+    "noUnplannedFixesInsideExperiment": true,
+    "failedAttemptRequiresImmediateRevert": true,
+    "successfulAttemptRequiresCommitBeforeNextExperiment": true,
+    "rule": "Run exactly the printed hypothesis. If the attempted change fails, degrades, or suggests a different fix, revert to the checkpoint and finish this experiment as failure. Start a new experiment for the next idea."
+  },
+  "primaryTarget": "wasm/web with headed Playwright and WebGPU enabled",
+  "hypothesisMarkdown": "## Horizontal blur copies rows whole Hypothesis\n\nThe horizontal pass copied its line in and out pixel by pixel, though a row's pixels lie together: one copy each way.\\n\\n**Tested mechanism:** contiguous row copy. **Allowed:** render blur_axis. **Forbidden:** blur math.",
+  "measurementPlanMarkdown": "### Measurement Plan\n\nRelease bench over the 53 corpus files (median of 3 runs, best of 5 each), plus the focused tests of the touched area.",
+  "expectedOutcomeMarkdown": "### Expected Outcome\n\nThe targeted metric improves with identical graph output and passing focused tests.",
+  "diagnostics": {
+    "playwright": [],
+    "rayx": [],
+    "counters": [],
+    "artifacts": []
+  },
+  "measurements": [
+    {
+      "metric": "onboarding engine us/frame (A/B, 3 runs each)",
+      "before": "597",
+      "after": "581",
+      "delta": "",
+      "source": "scratchpad bench.sh: median of 3 `vector-animation-check bench artifacts-temp/corpus`"
+    },
+    {
+      "metric": "corpus engine us/frame",
+      "before": "631",
+      "after": "624",
+      "delta": "",
+      "source": "scratchpad bench.sh: median of 3 `vector-animation-check bench artifacts-temp/corpus`"
+    },
+    {
+      "metric": "reference frames",
+      "before": "identical",
+      "after": "identical",
+      "delta": "",
+      "source": "scratchpad bench.sh: median of 3 `vector-animation-check bench artifacts-temp/corpus`"
+    }
+  ],
+  "reportMarkdown": "## Horizontal blur copies rows whole Finished\n\n**Passed Status**: True\n\n**Attempt Count:** 1. **Out-of-scope changes:** none.\n\nEngine thread -1 to -3% a frame. Reference PNG hashes identical; render tests pass; clippy clean.\n\n| Repo | Path | Checkpoint | Result Commit | Status |\n| --- | --- | --- | --- | --- |\n| main | . | 2eed04c | 9eb5859 | committed |",
+  "decisionMarkdown": "### Decision\n\nCommitted 9eb5859: perf(render): the horizontal blur copies a row whole",
+  "notes": ""
+}

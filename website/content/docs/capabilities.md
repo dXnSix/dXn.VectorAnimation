@@ -26,10 +26,16 @@ flowchart TB
 - **One time value drives the scene.** Playing is a linear timing of it from the segment's start to its end;
   each property is an interpolation of it. A track whose segments share an easing is one interpolation;
   segments of different easings share a warped time; overshooting easings (Back) add each segment's change.
+  A track that repeats (loops of different lengths over the timeline they share) is one repetition read
+  modulo its period.
 - **Transforms** are canvas transforms of animated values; motion paths are lookups of the path sampled by
   length; animated matrices animate their decomposition; skews are sampled.
 - **Groups that only move or fade** are layers the platform moves and fades: their content is drawn once, in
-  the group's own lengths, and never again as the group moves.
+  the group's own lengths, and never again as the group moves. A still group carried by a moving one (a
+  repeater's copies) is such a layer too, even where the rest of what moves with it changes, and so is one
+  inside a frame's still rectangle clip, shown within a view clipping there.
+- **Canvases that draw again each frame** are only as large as where they draw over the playback, where that
+  is at most half the scene, so each frame clears and draws fewer pixels.
 
 ```example
 demo: moving-layers

@@ -48,6 +48,18 @@ fn a_newer_version_is_unsupported_even_when_its_scene_does_not_parse() {
 }
 
 #[test]
+fn a_newer_version_whose_scene_parses_is_unsupported_too() {
+    // Read in one pass, its format and version are checked as before.
+    let json = compiled::to_json(&scene(Animated::Static(0.5)), false)
+        .unwrap()
+        .replace("\"version\":1", "\"version\":2");
+    let error = read(&json).unwrap_err();
+    assert!(matches!(error, Error::Unsupported(_)), "{error}");
+    let json = json.replace("\"version\":2", "\"version\":1");
+    assert_eq!(read(&json).unwrap(), scene(Animated::Static(0.5)));
+}
+
+#[test]
 fn another_format_is_invalid_before_its_scene_is_read() {
     let error = read(r#"{"format":"other","version":1,"scene":{}}"#).unwrap_err();
     assert_eq!(

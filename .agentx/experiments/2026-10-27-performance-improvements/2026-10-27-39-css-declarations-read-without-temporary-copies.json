@@ -1,0 +1,81 @@
+{
+  "schemaVersion": 1,
+  "id": "8fc85b2a-51cd-4fb9-a1b0-a3e619f694c5",
+  "loopId": "9e7a8b6d-0104-4e72-a31e-3b168c0b3881",
+  "index": 39,
+  "type": "hypothesis",
+  "name": "CSS declarations read without temporary copies",
+  "slug": "css-declarations-read-without-temporary-copies",
+  "path": "2026-10-27-39-css-declarations-read-without-temporary-copies.json",
+  "createdAt": "2026-10-27T21:47:24Z",
+  "startedAt": "2026-10-27T21:47:24Z",
+  "finishedAt": "2026-10-27T21:48:44Z",
+  "state": "done",
+  "status": "success",
+  "checkpointCommit": "4e039835f68cfc66ba309be63f4b90d060989fec",
+  "resultCommit": "8b6f7a2145e17f6ab09635b8e272d240156f718e",
+  "rollbackCommand": "git -C \"/Users/dinko/work-private/projects/dXn/dXn.VectorAnimation\" reset --hard 4e039835f68cfc66ba309be63f4b90d060989fec",
+  "repositories": [
+    {
+      "name": "main",
+      "path": ".",
+      "role": "main",
+      "checkpointCommit": "4e039835f68cfc66ba309be63f4b90d060989fec",
+      "resultCommit": "8b6f7a2145e17f6ab09635b8e272d240156f718e",
+      "rollbackCommand": "git -C \"/Users/dinko/work-private/projects/dXn/dXn.VectorAnimation\" reset --hard 4e039835f68cfc66ba309be63f4b90d060989fec",
+      "status": "success"
+    }
+  ],
+  "repositoryCommits": [
+    {
+      "name": "main",
+      "path": ".",
+      "role": "main",
+      "commit": "8b6f7a2145e17f6ab09635b8e272d240156f718e"
+    }
+  ],
+  "atomicDiscipline": {
+    "oneHypothesisOnly": true,
+    "singleImplementationAttempt": true,
+    "noUnplannedFixesInsideExperiment": true,
+    "failedAttemptRequiresImmediateRevert": true,
+    "successfulAttemptRequiresCommitBeforeNextExperiment": true,
+    "rule": "Run exactly the printed hypothesis. If the attempted change fails, degrades, or suggests a different fix, revert to the checkpoint and finish this experiment as failure. Start a new experiment for the next idea."
+  },
+  "primaryTarget": "wasm/web with headed Playwright and WebGPU enabled",
+  "hypothesisMarkdown": "## CSS declarations read without temporary copies Hypothesis\n\nReading declarations (every rule's block and every `style` attribute) copied the text to take its comments out, comments or not, and lowercased a copy of each value to find `!important`. Text without comments is read as it is, and `!important` is found in the value itself, in any case.\\n\\n**Tested mechanism:** no temporary copies in declaration reading. **Allowed:** svg `css.rs` strip_comments, parse_declarations; a css_selectors test. **Forbidden:** the grammar.",
+  "measurementPlanMarkdown": "### Measurement Plan\n\nRelease bench over the 53 corpus files (median of 3 runs, best of 5 each), plus the focused tests of the touched area.",
+  "expectedOutcomeMarkdown": "### Expected Outcome\n\nThe targeted metric improves with identical graph output and passing focused tests.",
+  "diagnostics": {
+    "playwright": [],
+    "rayx": [],
+    "counters": [],
+    "artifacts": []
+  },
+  "measurements": [
+    {
+      "metric": "read ms, the 25 SVG files",
+      "before": "11.6",
+      "after": "11.3",
+      "delta": "",
+      "source": "scratchpad bench.sh: median of 3 `vector-animation-check bench artifacts-temp/corpus`"
+    },
+    {
+      "metric": "ttff allocations",
+      "before": "810,888",
+      "after": "798,993",
+      "delta": "",
+      "source": "scratchpad bench.sh: median of 3 `vector-animation-check bench artifacts-temp/corpus`"
+    },
+    {
+      "metric": "compiled scenes and warnings",
+      "before": "identical",
+      "after": "identical",
+      "delta": "",
+      "source": "scratchpad bench.sh: median of 3 `vector-animation-check bench artifacts-temp/corpus`"
+    }
+  ],
+  "reportMarkdown": "## CSS declarations read without temporary copies Finished\n\n**Passed Status**: True\n\n**Attempt Count:** 1. **Out-of-scope changes:** none.\n\nSVG read -3%. New css_selectors test pins `!important` in any case after comments; compiled scenes identical; svg tests pass; clippy clean.\n\n| Repo | Path | Checkpoint | Result Commit | Status |\n| --- | --- | --- | --- | --- |\n| main | . | 4e03983 | 8b6f7a2 | committed |",
+  "decisionMarkdown": "### Decision\n\nCommitted 8b6f7a2: perf(svg): read CSS declarations without copies of their text",
+  "notes": ""
+}

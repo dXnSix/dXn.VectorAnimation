@@ -1,0 +1,81 @@
+{
+  "schemaVersion": 1,
+  "id": "234a3018-52e9-460d-aac6-e8679f7c3b10",
+  "loopId": "9e7a8b6d-0104-4e72-a31e-3b168c0b3881",
+  "index": 8,
+  "type": "hypothesis",
+  "name": "PNG pixel conversion without flat_map",
+  "slug": "png-pixel-conversion-without-flat-map",
+  "path": "2026-10-27-08-png-pixel-conversion-without-flat-map.json",
+  "createdAt": "2026-10-27T20:30:03Z",
+  "startedAt": "2026-10-27T20:30:03Z",
+  "finishedAt": "2026-10-27T20:30:50Z",
+  "state": "done",
+  "status": "success",
+  "checkpointCommit": "cc740576475de7e5d1e220167e50484346dab128",
+  "resultCommit": "bfa8a505e6684e576aee31d7df106ba219547910",
+  "rollbackCommand": "git -C \"/Users/dinko/work-private/projects/dXn/dXn.VectorAnimation\" reset --hard cc740576475de7e5d1e220167e50484346dab128",
+  "repositories": [
+    {
+      "name": "main",
+      "path": ".",
+      "role": "main",
+      "checkpointCommit": "cc740576475de7e5d1e220167e50484346dab128",
+      "resultCommit": "bfa8a505e6684e576aee31d7df106ba219547910",
+      "rollbackCommand": "git -C \"/Users/dinko/work-private/projects/dXn/dXn.VectorAnimation\" reset --hard cc740576475de7e5d1e220167e50484346dab128",
+      "status": "success"
+    }
+  ],
+  "repositoryCommits": [
+    {
+      "name": "main",
+      "path": ".",
+      "role": "main",
+      "commit": "bfa8a505e6684e576aee31d7df106ba219547910"
+    }
+  ],
+  "atomicDiscipline": {
+    "oneHypothesisOnly": true,
+    "singleImplementationAttempt": true,
+    "noUnplannedFixesInsideExperiment": true,
+    "failedAttemptRequiresImmediateRevert": true,
+    "successfulAttemptRequiresCommitBeforeNextExperiment": true,
+    "rule": "Run exactly the printed hypothesis. If the attempted change fails, degrades, or suggests a different fix, revert to the checkpoint and finish this experiment as failure. Start a new experiment for the next idea."
+  },
+  "primaryTarget": "wasm/web with headed Playwright and WebGPU enabled",
+  "hypothesisMarkdown": "## PNG pixel conversion without flat_map Hypothesis\n\n`png()` made its RGBA bytes with `flat_map` over 4-byte arrays into a growing Vec; a loop extending a buffer allocated at the pixmap's size once does the same work without the iterator's per-byte overhead or regrowth.\\n\\n**Tested mechanism:** buffer fill. **Allowed:** `plan.rs` png(). **Forbidden:** encoder settings.",
+  "measurementPlanMarkdown": "### Measurement Plan\n\nRelease bench over the 53 corpus files (median of 3 runs, best of 5 each), plus the focused tests of the touched area.",
+  "expectedOutcomeMarkdown": "### Expected Outcome\n\nThe targeted metric improves with identical graph output and passing focused tests.",
+  "diagnostics": {
+    "playwright": [],
+    "rayx": [],
+    "counters": [],
+    "artifacts": []
+  },
+  "measurements": [
+    {
+      "metric": "compile ms",
+      "before": "102.6",
+      "after": "95.1",
+      "delta": "",
+      "source": "scratchpad bench.sh: median of 3 `vector-animation-check bench artifacts-temp/corpus`"
+    },
+    {
+      "metric": "engine us/frame",
+      "before": "833",
+      "after": "823",
+      "delta": "",
+      "source": "scratchpad bench.sh: median of 3 `vector-animation-check bench artifacts-temp/corpus`"
+    },
+    {
+      "metric": "corpus fidelity",
+      "before": "identical",
+      "after": "identical",
+      "delta": "",
+      "source": "scratchpad bench.sh: median of 3 `vector-animation-check bench artifacts-temp/corpus`"
+    }
+  ],
+  "reportMarkdown": "## PNG pixel conversion without flat_map Finished\n\n**Passed Status**: True\n\n**Attempt Count:** 1. **Out-of-scope changes:** none.\n\nCompile -7% (every plan image passes through it), engine -1%. Tests: mask_images, held_rasters, blur_rasters, shadow_images, soft_masks pass, fidelity identical, clippy clean.\n\n| Repo | Path | Checkpoint | Result Commit | Status |\n| --- | --- | --- | --- | --- |\n| main | . | cc74057 | bfa8a50 | committed |",
+  "decisionMarkdown": "### Decision\n\nCommitted bfa8a50: perf(nsh): demultiply a PNG's pixels into a buffer of its size",
+  "notes": ""
+}

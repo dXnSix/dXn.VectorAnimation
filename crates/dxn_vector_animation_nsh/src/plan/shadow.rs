@@ -16,7 +16,7 @@
 //! (`source-atop`).
 
 use dxn_vector_animation::{
-    Animated, BlendMode, Clip, ClipShape, Color, Effect, Fill, Group, Item, Keyframe, Matrix,
+    Animated, BlendMode, Clip, ClipShape, Color, Effect, Fill, Group, Keyframe, Matrix,
     MotionRotate, Node, Paint as ScenePaint, Path, Point, Rect, Scene, Shape, ShapePath, Track,
     TransformOp,
     outline::geometry_path,
@@ -40,11 +40,15 @@ const BLUR_LEVELS: usize = 10;
 /// How far past the view the casters drawn past it stay from it, in points.
 const PAST: f64 = 4.0;
 
+/// How many times a second a canvas that draws again each frame is sampled
+/// for where it draws.
+pub(super) const BOUNDS_RATE: f64 = 15.0;
+
 /// How many times a second what moves is sampled for where it goes.
-const PROBE_RATE: f64 = 60.0;
+pub(super) const PROBE_RATE: f64 = 60.0;
 
 /// The most times it is sampled.
-const PROBES: usize = 600;
+pub(super) const PROBES: usize = 1200;
 
 /// The most pixels an image of content casting a shadow has.
 const CASTER_IMAGE_PIXELS: f64 = 2048.0 * 2048.0;
@@ -362,12 +366,12 @@ fn opaque_image(
                 .unwrap_or(tiny_skia::PremultipliedColorU8::TRANSPARENT);
         }
     }
-    match pixmap.encode_png() {
-        Ok(bytes) => std::sync::Arc::new(dxn_vector_animation::ImageData {
+    match super::png(&pixmap) {
+        Some(bytes) => std::sync::Arc::new(dxn_vector_animation::ImageData {
             mime: "image/png".into(),
             bytes,
         }),
-        Err(_) => data.clone(),
+        None => data.clone(),
     }
 }
 
@@ -688,55 +692,35 @@ impl Compiler {
     }
 
     /// The matrix from `g`'s lengths to the view at each of `times` (`g` not
-    /// yet among the groups drawn inside), from the scene's frames.
+    /// yet among the groups drawn inside), as the scene's frames place a
+    /// shape of `g`: each group's transform at its own time, from the
+    /// root in; where it is not finite, the one before.
     pub(super) fn chain_matrices(&self, g: &Group, times: &[f64]) -> Vec<Matrix> {
-        let mut probe = shell(g);
-        probe.effects = Vec::new();
-        probe.clip = None;
-        probe.mask = None;
-        probe.opacity = Animated::Static(1.0);
-        probe.active = None;
-        probe.children = vec![Node::shape(Shape {
-            paths: vec![ShapePath::new(dxn_vector_animation::Geometry::Rect {
-                center: dxn_vector_animation::AnimatedPoint::fixed(0.5, 0.5),
-                size: dxn_vector_animation::AnimatedPoint::fixed(1.0, 1.0),
-                radius: dxn_vector_animation::AnimatedPoint::fixed(0.0, 0.0),
-                direction: dxn_vector_animation::Direction::Clockwise,
-                start: dxn_vector_animation::RectStart::TopLeft,
-            })],
-            fill: Some(Fill {
-                paint: ScenePaint::solid(Color::rgba(0.0, 0.0, 0.0, 1.0)),
-                opacity: Animated::Static(1.0),
-                rule: Default::default(),
-            }),
-            ..Default::default()
-        })];
-        let mut part = Node::Group(probe);
-        for (ancestor, _) in self.ancestors.iter().rev() {
-            let mut a = ancestor.clone();
-            a.opacity = Animated::Static(1.0);
-            a.active = None;
-            a.clip = None;
-            a.mask = None;
-            a.effects = Vec::new();
-            a.children = vec![part];
-            part = Node::Group(a);
-        }
-        let scene = Scene {
-            root: Group {
-                children: vec![part],
-                ..Group::new()
-            },
-            ..self.stage.clone()
-        };
+        let root = Group::new();
+        let chain: Vec<&Group> = std::iter::once(&root)
+            .chain(self.ancestors.iter().map(|(a, _)| a))
+            .chain(std::iter::once(g))
+            .collect();
+        // A transform that does not move is the same at every time.
+        let still: Vec<Option<Matrix>> = chain
+            .iter()
+            .map(|group| {
+                (!group.transform.iter().any(TransformOp::is_animated))
+                    .then(|| transform_at(&group.transform, 0.0))
+            })
+            .collect();
         let mut last = Matrix::IDENTITY;
         times
             .iter()
             .map(|&t| {
-                if let Some(m) = scene.frame_at(t).items.iter().find_map(|item| match item {
-                    Item::Fill { transform, .. } => Some(*transform),
-                    _ => None,
-                }) {
+                let mut time = t;
+                let mut m = Matrix::IDENTITY;
+                let finite = chain.iter().zip(&still).all(|(group, still)| {
+                    time = group.local_time(time);
+                    m = m * still.unwrap_or_else(|| transform_at(&group.transform, time));
+                    m.is_finite()
+                });
+                if finite {
                     last = m;
                 }
                 self.base * last
@@ -1009,10 +993,18 @@ impl Compiler {
     }
 
     /// Where casters `drawing` (moved by `offset` over time) go past the
-    /// view to cast into it: the canvas's margin past each edge, and how
-    /// far left they are moved. `None` where they draw nothing.
-    fn past_view(&mut self, drawing: &[Op], offset: [Num; 2]) -> Option<([f64; 4], f64)> {
-        let b = self.drawn_bounds(drawing, offset)?;
+    /// view to cast into it: the canvas's margin past each edge (as far as
+    /// their `blur` reaches too, which their shadow needs), and how far
+    /// left they are moved. `None` where they draw nothing.
+    fn past_view(
+        &mut self,
+        drawing: &[Op],
+        offset: [Num; 2],
+        blur: f64,
+    ) -> Option<([f64; 4], f64)> {
+        let b = self
+            .drawn_bounds(drawing, offset)?
+            .grown(1.5 * blur.max(0.0) + 2.0);
         // The view's bottom, about: the scene's in it.
         let (w, h) = (self.stage.width, self.stage.height);
         let bottom = [(0.0, 0.0), (w, 0.0), (0.0, h), (w, h)]
@@ -1038,7 +1030,7 @@ impl Compiler {
         let transforms = transforms_only(setup);
         let mut drawing = transforms.clone();
         drawing.extend(cast.iter().cloned());
-        let Some((margin, dx)) = self.past_view(&drawing, s.offset) else {
+        let Some((margin, dx)) = self.past_view(&drawing, s.offset, s.blur) else {
             return Unit::Canvas(Vec::new());
         };
         let at = Op::Translate(Num::Const(margin[0]), Num::Const(margin[1]));
@@ -1100,7 +1092,7 @@ impl Compiler {
             *px = tiny_skia::PremultipliedColorU8::from_rgba(0, 0, 0, a)
                 .unwrap_or(tiny_skia::PremultipliedColorU8::TRANSPARENT);
         }
-        let Ok(bytes) = pixmap.encode_png() else {
+        let Some(bytes) = super::png(&pixmap) else {
             return unsupported("a shadow of content too large to image");
         };
         let data = std::sync::Arc::new(dxn_vector_animation::ImageData {
@@ -1164,7 +1156,7 @@ impl Compiler {
         let mut drawing = transforms.clone();
         drawing.extend(cast.iter().cloned());
         // Moved left past the view, the canvas reaching over them.
-        let Some((margin, dx)) = self.past_view(&drawing, s.offset) else {
+        let Some((margin, dx)) = self.past_view(&drawing, s.offset, s.blur) else {
             return Unit::Canvas(Vec::new());
         };
         let at = Op::Translate(Num::Const(margin[0]), Num::Const(margin[1]));
@@ -1357,6 +1349,163 @@ impl Compiler {
             out = Some(out.map_or(r, |o| o.union(r)));
         }
         out
+    }
+
+    /// Where `ops` (from the view's origin) draw over the playback, about:
+    /// what they fill, stroke and place (curves within their control
+    /// points, lines grown by the widest), within their clips. `None` where
+    /// they draw nothing.
+    ///
+    /// Sampled a few times a second: each edge is pushed out by half the
+    /// most an edge moves along its axis from one sample to the next. Between two samples an
+    /// edge moving one way stays within them; one turning back goes past
+    /// them by less, as it slows to turn.
+    pub(super) fn clipped_bounds(&self, ops: &[Op]) -> Option<Rect> {
+        let times = if ops.iter().any(Op::moves) {
+            let d = self.stage.timeline.duration.max(0.0);
+            let n = ((d * BOUNDS_RATE).ceil() as usize).clamp(1, PROBES);
+            (0..=n).map(|k| d * k as f64 / n as f64).collect()
+        } else {
+            vec![0.0]
+        };
+        let mut all: Option<Rect> = None;
+        let mut last: Option<Rect> = None;
+        // The most an edge moves along x, and along y, from one sample to
+        // the next.
+        let (mut step_x, mut step_y) = (0.0f64, 0.0f64);
+        for t in times {
+            let Some(r) = self.clipped_at(ops, t) else {
+                last = None;
+                continue;
+            };
+            if let Some(p) = last {
+                let (right, bottom) = (
+                    r.x + r.width - p.x - p.width,
+                    r.y + r.height - p.y - p.height,
+                );
+                step_x = step_x.max((r.x - p.x).abs()).max(right.abs());
+                step_y = step_y.max((r.y - p.y).abs()).max(bottom.abs());
+            }
+            last = Some(r);
+            all = Some(all.map_or(r, |a| a.union(r)));
+        }
+        all.map(|a| {
+            let (gx, gy) = (step_x / 2.0, step_y / 2.0);
+            Rect::new(a.x - gx, a.y - gy, a.width + 2.0 * gx, a.height + 2.0 * gy)
+        })
+    }
+
+    /// Where `ops` draw at `time` (see [`Self::clipped_bounds`]).
+    fn clipped_at(&self, ops: &[Op], time: f64) -> Option<Rect> {
+        let n = |v: Num| self.g.num(v, time);
+        let mut m = Matrix::IDENTITY;
+        let mut clip: Option<Rect> = None;
+        // What is drawn now adds to the canvas (it does not only take away
+        // or color what is there).
+        let mut adds = true;
+        let mut stack = Vec::new();
+        let (mut reach, mut miter) = (0.0f64, 1.0f64);
+        let mut path: Option<Rect> = None;
+        let mut drawn: Option<Rect> = None;
+        let add = |path: &mut Option<Rect>, p: Point| {
+            let r = Rect::new(p.x, p.y, 0.0, 0.0);
+            *path = Some(path.map_or(r, |o| o.union(r)));
+        };
+        let paint = |drawn: &mut Option<Rect>, r: Option<Rect>, clip: Option<Rect>| {
+            let Some(r) = r else { return };
+            let r = match clip {
+                Some(c) => match r.intersect(c) {
+                    Some(r) => r,
+                    None => return,
+                },
+                None => r,
+            };
+            *drawn = Some(drawn.map_or(r, |o| o.union(r)));
+        };
+        for op in ops {
+            match op {
+                Op::Save => stack.push((m, clip, adds)),
+                Op::Restore => {
+                    (m, clip, adds) = stack.pop().unwrap_or((Matrix::IDENTITY, None, true));
+                }
+                Op::Blend(b) => {
+                    adds = !matches!(b, BlendMode::DestinationOut | BlendMode::DestinationIn);
+                }
+                Op::Atop => adds = false,
+                Op::Translate(x, y) => m = m * Matrix::translate(n(*x), n(*y)),
+                Op::Scale(x, y) => m = m * Matrix::scale(n(*x), n(*y)),
+                Op::Rotate(a) => m = m * Matrix::rotate(n(*a).to_degrees()),
+                Op::Transform(v) => {
+                    let v = v.map(n);
+                    m = m * Matrix::new(v[0], v[1], v[2], v[3], v[4], v[5]);
+                }
+                Op::BeginPath => path = None,
+                Op::MoveTo(x, y) | Op::LineTo(x, y) => {
+                    add(&mut path, m.apply(Point::new(n(*x), n(*y))))
+                }
+                Op::QuadTo(v) => {
+                    for p in v.chunks(2) {
+                        add(&mut path, m.apply(Point::new(n(p[0]), n(p[1]))));
+                    }
+                }
+                Op::CubicTo(v) => {
+                    for p in v.chunks(2) {
+                        add(&mut path, m.apply(Point::new(n(p[0]), n(p[1]))));
+                    }
+                }
+                Op::RoundRect([x, y, w, h], _) => {
+                    let (x, y, w, h) = (n(*x), n(*y), n(*w), n(*h));
+                    for (px, py) in [(x, y), (x + w, y), (x, y + h), (x + w, y + h)] {
+                        add(&mut path, m.apply(Point::new(px, py)));
+                    }
+                }
+                Op::Ellipse([cx, cy, rx, ry], _) | Op::EllipseArc([cx, cy, rx, ry, _, _], _) => {
+                    let (cx, cy, rx, ry) = (n(*cx), n(*cy), n(*rx).abs(), n(*ry).abs());
+                    for (px, py) in [
+                        (cx - rx, cy - ry),
+                        (cx + rx, cy - ry),
+                        (cx - rx, cy + ry),
+                        (cx + rx, cy + ry),
+                    ] {
+                        add(&mut path, m.apply(Point::new(px, py)));
+                    }
+                }
+                Op::LineWidth(w) => {
+                    let scale = (m.a * m.d - m.b * m.c).abs().sqrt();
+                    reach = reach.max(n(*w).abs() * scale);
+                }
+                Op::MiterLimit(l) => miter = miter.max(*l),
+                Op::Fill(_) if adds => paint(&mut drawn, path.map(|r| r.grown(1.0)), clip),
+                Op::Stroke if adds => paint(
+                    &mut drawn,
+                    path.map(|r| r.grown(reach * miter.max(1.5) / 2.0 + 1.0)),
+                    clip,
+                ),
+                Op::Clip(_) => {
+                    let r = path?;
+                    clip = Some(match clip {
+                        Some(c) => c.intersect(r).unwrap_or(Rect::new(r.x, r.y, 0.0, 0.0)),
+                        None => r,
+                    });
+                }
+                Op::Image(_, r) if adds => {
+                    let mut image = None;
+                    for (px, py) in [
+                        (r.x, r.y),
+                        (r.x + r.width, r.y),
+                        (r.x, r.y + r.height),
+                        (r.x + r.width, r.y + r.height),
+                    ] {
+                        add(&mut image, m.apply(Point::new(px, py)));
+                    }
+                    paint(&mut drawn, image.map(|r| r.grown(1.0)), clip);
+                }
+                _ => {}
+            }
+        }
+        drawn.filter(|r| {
+            r.x.is_finite() && r.y.is_finite() && r.width.is_finite() && r.height.is_finite()
+        })
     }
 
     /// Where `ops` draw at `time` (see [`Self::drawn_bounds`]).

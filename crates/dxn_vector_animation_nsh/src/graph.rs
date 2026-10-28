@@ -5,7 +5,7 @@
 
 use std::collections::HashMap;
 
-use dxn_vector_animation::{Animated, Color, Easing, Keyframe};
+use dxn_vector_animation::{Animated, Color, Easing, Keyframe, Track};
 
 /// A curve within an interpolation's segments: what every NSH graph
 /// eases with. Holds and CSS `steps()` and `linear()` become breakpoints
@@ -137,14 +137,60 @@ pub enum Paint {
 pub struct Graph {
     nodes: Vec<Expr>,
     /// Nodes by a hash of their expression (equal ones are one).
-    index: HashMap<u64, Vec<NodeId>>,
+    index: HashMap<u64, Vec<NodeId>, Hashed>,
+}
+
+/// A map keyed by hashes already made: the key is its own hash.
+#[derive(Debug, Clone, Default)]
+struct Hashed;
+
+impl std::hash::BuildHasher for Hashed {
+    type Hasher = Fold;
+    fn build_hasher(&self) -> Fold {
+        Fold(0)
+    }
+}
+
+/// A fast hash of words (FxHash's fold): what the graph tells nodes apart
+/// by before it compares them.
+#[derive(Debug, Clone, Copy, Default)]
+struct Fold(u64);
+
+impl std::hash::Hasher for Fold {
+    fn finish(&self) -> u64 {
+        self.0
+    }
+
+    fn write(&mut self, bytes: &[u8]) {
+        for chunk in bytes.chunks(8) {
+            let mut word = [0u8; 8];
+            word[..chunk.len()].copy_from_slice(chunk);
+            self.write_u64(u64::from_le_bytes(word));
+        }
+    }
+
+    fn write_u64(&mut self, v: u64) {
+        self.0 = (self.0.rotate_left(5) ^ v).wrapping_mul(0x51_7c_c1_b7_27_22_0a_95);
+    }
+
+    fn write_usize(&mut self, v: usize) {
+        self.write_u64(v as u64);
+    }
+
+    fn write_u8(&mut self, v: u8) {
+        self.write_u64(u64::from(v));
+    }
+
+    fn write_u32(&mut self, v: u32) {
+        self.write_u64(u64::from(v));
+    }
 }
 
 impl Default for Graph {
     fn default() -> Self {
         let mut g = Graph {
             nodes: Vec::new(),
-            index: HashMap::new(),
+            index: HashMap::with_hasher(Hashed),
         };
         g.add(Expr::Time);
         g
@@ -154,14 +200,14 @@ impl Default for Graph {
 /// A hash of `expr`: its variant, nodes, and numbers' bits.
 fn hash(expr: &Expr) -> u64 {
     use std::hash::{Hash, Hasher};
-    let mut h = std::collections::hash_map::DefaultHasher::new();
-    let floats = |h: &mut std::collections::hash_map::DefaultHasher, v: &[f64]| {
+    let mut h = Fold::default();
+    let floats = |h: &mut Fold, v: &[f64]| {
         v.len().hash(h);
         for x in v {
             x.to_bits().hash(h);
         }
     };
-    let curve = |h: &mut std::collections::hash_map::DefaultHasher, c: &Curve| match c {
+    let curve = |h: &mut Fold, c: &Curve| match c {
         Curve::Linear => 0u8.hash(h),
         Curve::Bezier(a, b, c, d) => {
             1u8.hash(h);
@@ -327,6 +373,12 @@ impl Graph {
     /// `x` through the breakpoints `inputs` (ascending) to `outputs`,
     /// straight between them, clamped at both ends.
     pub fn lookup(&mut self, x: Num, inputs: &[f64], outputs: &[f64]) -> Num {
+        // One value throughout, wherever `x` is.
+        if let Some(&first) = outputs.first()
+            && outputs.iter().all(|&o| o == first)
+        {
+            return Num::Const(first);
+        }
         match x {
             Num::Const(v) => Num::Const(interpolate(
                 v,
@@ -430,8 +482,15 @@ impl Graph {
             [one] => return Num::Const(f(one.value)),
             _ => {}
         }
+        if let Some((one, local)) = self.fold(keys, time) {
+            return self.track(&Animated::Track(one), local, f);
+        }
         let times = rising(keys.iter().map(|k| k.time).collect());
         let values: Vec<f64> = keys.iter().map(|k| f(k.value)).collect();
+        // Values alike (once mapped: opacities above one) hold.
+        if values.iter().all(|&v| v == values[0]) {
+            return Num::Const(values[0]);
+        }
         let easings: Vec<&Easing> = keys[..keys.len() - 1].iter().map(|k| &k.easing).collect();
         // One curve throughout: one interpolation.
         if let Some(curve) = uniform(&easings) {
@@ -476,11 +535,17 @@ impl Graph {
             [one] => return Paint::Const(pack(one.value.with_opacity(opacity))),
             _ => {}
         }
+        if let Some((one, local)) = self.fold(keys, time) {
+            return self.color_track(&Animated::Track(one), local, opacity);
+        }
         let times = rising(keys.iter().map(|k| k.time).collect());
         let colors: Vec<u32> = keys
             .iter()
             .map(|k| pack(k.value.with_opacity(opacity)))
             .collect();
+        if colors.iter().all(|&c| c == colors[0]) {
+            return Paint::Const(colors[0]);
+        }
         let easings: Vec<&Easing> = keys[..keys.len() - 1].iter().map(|k| &k.easing).collect();
         if let Some(curve) = uniform(&easings) {
             return Paint::Node(self.add(Expr::InterpColor {
@@ -500,10 +565,62 @@ impl Graph {
         }))
     }
 
+    /// One repetition of `keys` (times from its start) and `time` read
+    /// within it, where they repeat (a looping animation over a longer
+    /// timeline): `time` held within their span, less their start, modulo
+    /// the period. A breakpoint a keyframe of one repetition, not of all.
+    fn fold<T: Clone + PartialEq>(
+        &mut self,
+        keys: &[Keyframe<T>],
+        time: NodeId,
+    ) -> Option<(Track<T>, NodeId)> {
+        // A keyframe the next repeats (a repetition's end where the next
+        // starts, a nanosecond apart at most) changes nothing: the later
+        // one holds from then.
+        let keys: Vec<&Keyframe<T>> = keys
+            .iter()
+            .zip(keys.iter().skip(1).map(Some).chain([None]))
+            .filter(|(k, next)| {
+                !next.is_some_and(|n| {
+                    (n.time - k.time).abs() <= 1e-9 * k.time.abs().max(1.0) && n.value == k.value
+                })
+            })
+            .map(|(k, _)| k)
+            .collect();
+        let m = period(&keys)?;
+        let (first, last) = (keys[0].time, keys[keys.len() - 1].time);
+        let held = self.lookup(Num::Node(time), &[first, last], &[0.0, last - first]);
+        let local = match self.math(MathOp::Mod, held, Num::Const(keys[m].time - first)) {
+            Num::Node(n) => n,
+            Num::Const(c) => self.constant(c),
+        };
+        let one = keys[..=m]
+            .iter()
+            .map(|k| Keyframe {
+                time: k.time - first,
+                ..(*k).clone()
+            })
+            .collect();
+        Some((Track { keyframes: one }, local))
+    }
+
     /// A value sampled from `f` over the keyframe times `times` (for
     /// nonlinear functions of tracks: `tan` of a skew, a radius from two
     /// points).
     pub fn sampled(&mut self, times: &[f64], time: NodeId, f: impl Fn(f64) -> f64) -> Num {
+        // Within what single precision (the native graph's) tells apart.
+        self.sampled_within(times, time, 1e-7, f)
+    }
+
+    /// [`Graph::sampled`] within `share` of its largest value: for values
+    /// that need only be about right (how far out a far shape reaches).
+    pub fn sampled_within(
+        &mut self,
+        times: &[f64],
+        time: NodeId,
+        share: f64,
+        f: impl Fn(f64) -> f64,
+    ) -> Num {
         let mut times = times.to_vec();
         times.sort_by(f64::total_cmp);
         times.dedup();
@@ -517,7 +634,13 @@ impl Graph {
             }
         }
         inputs.push(*times.last().unwrap_or(&0.0));
-        let outputs = inputs.iter().map(|&t| f(t)).collect();
+        let outputs: Vec<f64> = inputs.iter().map(|&t| f(t)).collect();
+        // Without the samples a line between their neighbors stands for.
+        let tolerance = outputs.iter().fold(0.0, |m: f64, v| m.max(v.abs())) * share;
+        let (inputs, outputs) = crate::plan::simplified(&inputs, &outputs, tolerance);
+        if let [one] = outputs.as_slice() {
+            return Num::Const(*one);
+        }
         Num::Node(self.add(Expr::Interp {
             input: time,
             inputs,
@@ -674,6 +797,29 @@ impl Graph {
             Paint::Node(id) => self.eval_color(id, time),
         }
     }
+}
+
+/// The keyframes of one repetition of `keys`, where they repeat twice or
+/// more: each a period after the one as many before it, of the same value
+/// and easing, ending with a whole repetition, with no jump where one meets
+/// the next (so the end holds what a repetition starts with, and a time
+/// read a hair either side of a period's end reads alike).
+fn period<T: PartialEq>(keys: &[&Keyframe<T>]) -> Option<usize> {
+    let n = keys.len();
+    (1..=n.saturating_sub(1) / 2).find(|&m| {
+        let p = keys[m].time - keys[0].time;
+        p > 0.0
+            && (n - 1).is_multiple_of(m)
+            && keys[1].time > keys[0].time
+            && keys[m].time > keys[m - 1].time
+            && (m..n).all(|i| {
+                let (a, b) = (keys[i - m], keys[i]);
+                let apart = b.time - a.time - p;
+                apart.abs() <= 1e-9 * b.time.abs().max(1.0)
+                    && a.value == b.value
+                    && (i == n - 1 || a.easing == b.easing)
+            })
+    })
 }
 
 /// Keyframe times made to rise: of keyframes at one time the last holds
