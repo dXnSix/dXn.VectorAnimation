@@ -522,7 +522,7 @@ fn rastered(
     let view = plan::in_view(scene, base, size.0, size.1);
     let still = plan::still(scene);
     let empty = Graph::default();
-    let made = RefCell::new(Rasters::new(!still, 0.0));
+    let made = RefCell::new(Rasters::new(!still, 0.0, scene.timeline.duration));
     let held = RefCell::new(Held::default());
     canvas(move || {
         let t = if still { 0.0 } else { clock.get() };
@@ -605,6 +605,9 @@ struct Rasters {
     cost: f64,
     /// It moves: what it costs counts in [`RASTER_COST`].
     moving: bool,
+    /// Where the playback ends: drawn at its own frame, never one held
+    /// from before (a run that ends shows its last frame).
+    end: f64,
 }
 
 impl Drop for Rasters {
@@ -616,14 +619,16 @@ impl Drop for Rasters {
 }
 
 impl Rasters {
-    /// None yet, of a part that moves or not, at `ratio`.
-    fn new(moving: bool, ratio: f64) -> Rasters {
+    /// None yet, of a part that moves or not, at `ratio`, of a playback
+    /// ending at `end`.
+    fn new(moving: bool, ratio: f64, end: f64) -> Rasters {
         Rasters {
             ratio,
             by_frame: HashMap::new(),
             bytes: 0,
             cost: 0.0,
             moving,
+            end,
         }
     }
 
@@ -636,14 +641,19 @@ impl Rasters {
         make: impl FnOnce(f64) -> Option<(Arc<ImageData>, Rect)>,
     ) -> Option<(Arc<ImageData>, Rect)> {
         if ratio != self.ratio {
-            *self = Rasters::new(self.moving, ratio);
+            *self = Rasters::new(self.moving, ratio, self.end);
         }
         // As often as the parts' share of the time allows, at most each
         // frame.
         let all = RASTER_COST.with(Cell::get).max(self.cost);
         let all = if self.moving { all } else { self.cost };
         let step = (all / RASTER_SHARE).max(1.0 / RASTER_RATE);
-        let frame = ((t / step).floor() * step * RASTER_RATE).round() as i64;
+        let held = if t >= self.end {
+            t
+        } else {
+            (t / step).floor() * step
+        };
+        let frame = (held * RASTER_RATE).round() as i64;
         if let Some(kept) = self.by_frame.get(&frame) {
             return kept.clone();
         }
@@ -789,7 +799,7 @@ mod tests {
     #[test]
     fn rasters_are_made_once_a_frame_and_kept() {
         let made = Cell::new(0);
-        let mut rasters = Rasters::new(true, 0.0);
+        let mut rasters = Rasters::new(true, 0.0, f64::INFINITY);
         let make = |_| {
             made.set(made.get() + 1);
             image(10)
@@ -826,9 +836,28 @@ mod tests {
     }
 
     #[test]
+    fn the_end_is_drawn_at_its_own_frame_however_slow_rasters_are() {
+        let made = Cell::new(Vec::new());
+        let mut rasters = Rasters::new(false, 1.0, 0.5);
+        // Each takes a second: frames held long.
+        rasters.cost = 1.0;
+        let make = |t| {
+            let mut all = made.take();
+            all.push(t);
+            made.set(all);
+            image(10)
+        };
+        rasters.get(0.3, 1.0, make);
+        rasters.get(0.5, 1.0, make);
+        let made = made.take();
+        assert_eq!(made[0], 0.0, "held from the start before the end");
+        assert_eq!(made[1], 0.5, "the end's own frame");
+    }
+
+    #[test]
     fn rasters_past_the_budget_are_not_kept() {
         let made = Cell::new(0);
-        let mut rasters = Rasters::new(true, 0.0);
+        let mut rasters = Rasters::new(true, 0.0, f64::INFINITY);
         let make = |_| {
             made.set(made.get() + 1);
             image(RASTER_BYTES / 2 + 1)
