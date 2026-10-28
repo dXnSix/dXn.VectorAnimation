@@ -32,7 +32,8 @@ flowchart TB
   length; animated matrices animate their decomposition; skews are sampled.
 - **Groups that only move or fade** are layers the platform moves and fades: their content is drawn once, in
   the group's own lengths, and never again as the group moves. A still group carried by a moving one (a
-  repeater's copies) is such a layer too, even where the rest of what moves with it changes.
+  repeater's copies) is such a layer too, even where the rest of what moves with it changes, and so is one
+  inside a frame's still rectangle clip, shown within a view clipping there.
 
 ```example
 demo: moving-layers

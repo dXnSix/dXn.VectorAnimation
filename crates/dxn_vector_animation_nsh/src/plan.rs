@@ -763,6 +763,14 @@ pub enum Unit {
         /// holds is then in the coordinates it moves.
         transform: Option<LayerTransform>,
     },
+    /// What `units` draw (in the coordinates of what holds it) shown within
+    /// `rect` only: still rectangle clips around layers that move.
+    Clip {
+        /// What shows.
+        rect: Rect,
+        /// What it holds, bottom first.
+        units: Vec<Unit>,
+    },
 }
 
 /// An animated transform: moved, turned, skewed along x and scaled, in that
@@ -918,13 +926,13 @@ pub fn compile_for(scene: &Scene, base: Matrix, pixels: f64) -> Result<Plan, Uns
     };
     c.group(&scene.root, TIME, 0)?;
     c.flush();
+    let root = c.layers.pop().map(|l| l.units).unwrap_or_default();
     if c.g.nodes().len() > MAX_GRAPH_NODES {
         return unsupported(format!(
             "{} graph nodes, more than NSH's graph is given at once ({MAX_GRAPH_NODES})",
             c.g.nodes().len()
         ));
     }
-    let root = c.layers.pop().map(|l| l.units).unwrap_or_default();
     Ok(Plan {
         graph: c.g,
         units: root,
@@ -963,7 +971,9 @@ fn mask_units(units: &mut [Unit], mask: &[Op]) -> bool {
                 }
             }
             Unit::Sampled(_) | Unit::Raster(_) => {}
-            Unit::Wide { .. } | Unit::Area { .. } | Unit::Layer { .. } => return false,
+            Unit::Wide { .. } | Unit::Area { .. } | Unit::Layer { .. } | Unit::Clip { .. } => {
+                return false;
+            }
         }
     }
     true

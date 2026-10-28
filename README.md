@@ -360,8 +360,9 @@ The view is the animation's own size unless the app sizes it.
   where it jumps). The canvases never draw again as it moves; as a whole the layer is resampled, so thin
   lines soften a little while it moves at one pixel a point. A still group inside a moving one whose other
   content changes (a repeater's copy holding a spinning star) is such a layer of its own, where the playback
-  is short enough (10 s) for its matrix to be sampled at every frame. Groups needing the view's coordinates
-  (shadows, clips or masks around them) are drawn as before.
+  is short enough (10 s) for its matrix to be sampled at every frame. Inside still rectangle clips along the
+  view's axes (a Figma frame), the layer is shown within a view clipping at their rectangle. Groups needing the
+  view's coordinates (shadows, masks or other clips around them) are drawn as before.
 - **Events.** What a file plays on an event (an SVG's `begin="click"`) is a segment of its own; the ref's
   `trigger(event)` moves it to the start and plays it once.
 - **Blurs** are drawn as images the reference renderer makes: once where they do not move, frame by frame

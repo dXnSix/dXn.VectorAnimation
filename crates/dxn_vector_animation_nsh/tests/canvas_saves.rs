@@ -14,7 +14,7 @@ fn canvases(units: &[Unit], out: &mut Vec<Vec<Op>>) {
             Unit::Canvas(ops) | Unit::Wide { ops, .. } | Unit::Area { ops, .. } => {
                 out.push(ops.clone())
             }
-            Unit::Layer { units, .. } => canvases(units, out),
+            Unit::Layer { units, .. } | Unit::Clip { units, .. } => canvases(units, out),
             Unit::Sampled(_) | Unit::Raster(_) => {}
         }
     }

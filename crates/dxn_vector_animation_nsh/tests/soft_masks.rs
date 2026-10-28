@@ -47,7 +47,7 @@ fn takes_away(units: &[Unit]) -> bool {
         Unit::Canvas(ops) | Unit::Wide { ops, .. } | Unit::Area { ops, .. } => ops
             .iter()
             .any(|op| matches!(op, Op::Blend(BlendMode::DestinationOut))),
-        Unit::Layer { units, .. } => takes_away(units),
+        Unit::Layer { units, .. } | Unit::Clip { units, .. } => takes_away(units),
         Unit::Sampled(_) | Unit::Raster(_) => false,
     })
 }

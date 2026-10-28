@@ -79,7 +79,7 @@ fn kinds(units: &[Unit]) -> (usize, usize, usize) {
         Unit::Area {
             ops, shown: None, ..
         } => (a + casts(ops), b, c),
-        Unit::Layer { units, .. } => {
+        Unit::Layer { units, .. } | Unit::Clip { units, .. } => {
             let (x, y, z) = kinds(units);
             (a + x, b + y, c + z)
         }

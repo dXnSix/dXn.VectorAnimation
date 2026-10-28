@@ -170,6 +170,7 @@ fn parts(
                 row.layers += 1;
                 parts(units, view, sampled, rasters, row);
             }
+            Unit::Clip { units, .. } => parts(units, view, sampled, rasters, row),
             Unit::Sampled(part) => sampled.push(part.clone()),
             Unit::Raster(part) => rasters.push(part.clone()),
         }
