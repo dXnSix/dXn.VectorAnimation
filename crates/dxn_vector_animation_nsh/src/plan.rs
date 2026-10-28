@@ -626,6 +626,26 @@ pub enum Op {
     },
 }
 
+impl Op {
+    /// Whether it reads a node (a canvas with one is drawn again each
+    /// frame).
+    pub fn moves(&self) -> bool {
+        let n = |n: &Num| matches!(n, Num::Node(_));
+        let p = |p: &Paint| matches!(p, Paint::Node(_));
+        match self {
+            Op::Translate(a, b) | Op::Scale(a, b) | Op::MoveTo(a, b) | Op::LineTo(a, b) => {
+                n(a) || n(b)
+            }
+            Op::Rotate(a) | Op::LineWidth(a) | Op::LineDashOffset(a) | Op::GlobalAlpha(a) => n(a),
+            Op::Transform(a) | Op::CubicTo(a) | Op::EllipseArc(a, _) => a.iter().any(n),
+            Op::QuadTo(a) | Op::Ellipse(a, _) => a.iter().any(n),
+            Op::RoundRect(a, r) => a.iter().any(n) || n(r),
+            Op::FillColor(c) | Op::StrokeColor(c) => p(c),
+            _ => false,
+        }
+    }
+}
+
 /// A font text is set in.
 #[derive(Debug, Clone, PartialEq)]
 pub struct TextFont {

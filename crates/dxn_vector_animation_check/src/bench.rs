@@ -87,6 +87,10 @@ struct Row {
     ops: usize,
     canvases: usize,
     layers: usize,
+    /// Operations replayed a frame (on canvases drawn again each frame).
+    moving_ops: usize,
+    /// Pixels those canvases cover.
+    moving_px: f64,
 }
 
 impl std::ops::AddAssign<&Row> for Row {
@@ -102,6 +106,8 @@ impl std::ops::AddAssign<&Row> for Row {
         self.ops += o.ops;
         self.canvases += o.canvases;
         self.layers += o.layers;
+        self.moving_ops += o.moving_ops;
+        self.moving_px += o.moving_px;
     }
 }
 
@@ -129,25 +135,40 @@ fn files(dir: &Path, out: &mut Vec<PathBuf>) {
 }
 
 /// The parts of `units` sampled frame by frame and rastered, and what
-/// the canvases hold.
+/// the canvases hold; `px` is a canvas the size of the view, in pixels.
 fn parts(
     units: &[Unit],
+    view: (f64, f64, f64),
     sampled: &mut Vec<Arc<Scene>>,
     rasters: &mut Vec<Arc<Scene>>,
     row: &mut Row,
 ) {
+    let (w, h, ratio) = view;
     for unit in units {
         match unit {
             Unit::Canvas(ops) | Unit::Wide { ops, .. } | Unit::Area { ops, .. } => {
                 row.canvases += 1;
-                row.ops += ops
+                let drawn = ops
                     .iter()
                     .filter(|op| !matches!(op, Op::Save | Op::Restore))
                     .count();
+                row.ops += drawn;
+                if ops.iter().any(Op::moves) {
+                    let (cw, ch) = match unit {
+                        Unit::Wide {
+                            margin: [l, t, r, b],
+                            ..
+                        } => (w + l + r, h + t + b),
+                        Unit::Area { area, .. } => (area.width, area.height),
+                        _ => (w, h),
+                    };
+                    row.moving_ops += drawn;
+                    row.moving_px += cw * ch * ratio * ratio;
+                }
             }
             Unit::Layer { units, .. } => {
                 row.layers += 1;
-                parts(units, sampled, rasters, row);
+                parts(units, view, sampled, rasters, row);
             }
             Unit::Sampled(part) => sampled.push(part.clone()),
             Unit::Raster(part) => rasters.push(part.clone()),
@@ -190,7 +211,13 @@ fn bench(bytes: &[u8], values: bool, runs: usize, size: f64, ratio: f64) -> Opti
     let mut whole = None;
     let plan = match compiled {
         Some(plan) => {
-            parts(&plan.units, &mut sampled, &mut rasters, &mut row);
+            parts(
+                &plan.units,
+                (w, h, ratio),
+                &mut sampled,
+                &mut rasters,
+                &mut row,
+            );
             row.nodes = plan.graph.nodes().len();
             row.breaks = plan
                 .graph
@@ -275,7 +302,7 @@ fn per_frame(c: Cost) -> Cost {
 fn line(name: &str, r: &Row) {
     let ttff = r.ttff();
     println!(
-        "{name:<36} {:>8.2} {:>8.2} {:>8.2} {:>8} {:>8.2} {:>8.2} {:>8.1} {:>7} {:>8.1} {:>7} {:>6} {:>7} {:>6} {:>4} {:>4}",
+        "{name:<36} {:>8.2} {:>8.2} {:>8.2} {:>8} {:>8.2} {:>8.2} {:>8.1} {:>7} {:>8.1} {:>7} {:>6} {:>7} {:>6} {:>4} {:>4} {:>7} {:>7.2}",
         r.read.ms,
         r.compile.ms,
         ttff.ms,
@@ -291,6 +318,8 @@ fn line(name: &str, r: &Row) {
         r.ops,
         r.canvases,
         r.layers,
+        r.moving_ops,
+        r.moving_px / 1e6,
     );
 }
 
@@ -312,7 +341,7 @@ pub fn run(args: &[String]) -> Result<(), String> {
     files(&dir, &mut list);
     list.sort();
     println!(
-        "{:<36} {:>8} {:>8} {:>8} {:>8} {:>8} {:>8} {:>8} {:>7} {:>8} {:>7} {:>6} {:>7} {:>6} {:>4} {:>4}",
+        "{:<36} {:>8} {:>8} {:>8} {:>8} {:>8} {:>8} {:>8} {:>7} {:>8} {:>7} {:>6} {:>7} {:>6} {:>4} {:>4} {:>7} {:>7}",
         "file",
         "read",
         "compile",
@@ -328,7 +357,9 @@ pub fn run(args: &[String]) -> Result<(), String> {
         "breaks",
         "ops",
         "cnv",
-        "lyr"
+        "lyr",
+        "mv ops",
+        "mv Mpx"
     );
     println!(
         "{:<36} {:>8} {:>8} {:>8} {:>8} {:>8} {:>8} {:>8} {:>7} {:>8} {:>7}",
