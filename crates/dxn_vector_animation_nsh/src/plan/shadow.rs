@@ -993,10 +993,18 @@ impl Compiler {
     }
 
     /// Where casters `drawing` (moved by `offset` over time) go past the
-    /// view to cast into it: the canvas's margin past each edge, and how
-    /// far left they are moved. `None` where they draw nothing.
-    fn past_view(&mut self, drawing: &[Op], offset: [Num; 2]) -> Option<([f64; 4], f64)> {
-        let b = self.drawn_bounds(drawing, offset)?;
+    /// view to cast into it: the canvas's margin past each edge (as far as
+    /// their `blur` reaches too, which their shadow needs), and how far
+    /// left they are moved. `None` where they draw nothing.
+    fn past_view(
+        &mut self,
+        drawing: &[Op],
+        offset: [Num; 2],
+        blur: f64,
+    ) -> Option<([f64; 4], f64)> {
+        let b = self
+            .drawn_bounds(drawing, offset)?
+            .grown(1.5 * blur.max(0.0) + 2.0);
         // The view's bottom, about: the scene's in it.
         let (w, h) = (self.stage.width, self.stage.height);
         let bottom = [(0.0, 0.0), (w, 0.0), (0.0, h), (w, h)]
@@ -1022,7 +1030,7 @@ impl Compiler {
         let transforms = transforms_only(setup);
         let mut drawing = transforms.clone();
         drawing.extend(cast.iter().cloned());
-        let Some((margin, dx)) = self.past_view(&drawing, s.offset) else {
+        let Some((margin, dx)) = self.past_view(&drawing, s.offset, s.blur) else {
             return Unit::Canvas(Vec::new());
         };
         let at = Op::Translate(Num::Const(margin[0]), Num::Const(margin[1]));
@@ -1148,7 +1156,7 @@ impl Compiler {
         let mut drawing = transforms.clone();
         drawing.extend(cast.iter().cloned());
         // Moved left past the view, the canvas reaching over them.
-        let Some((margin, dx)) = self.past_view(&drawing, s.offset) else {
+        let Some((margin, dx)) = self.past_view(&drawing, s.offset, s.blur) else {
             return Unit::Canvas(Vec::new());
         };
         let at = Op::Translate(Num::Const(margin[0]), Num::Const(margin[1]));
