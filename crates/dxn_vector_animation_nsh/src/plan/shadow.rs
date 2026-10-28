@@ -1308,7 +1308,7 @@ impl Compiler {
     /// Where `ops` (from the view's origin) draw over the playback, moved by
     /// `offset`, about: their path points (curves within their control
     /// points) through their transforms, grown by the widest line.
-    pub(super) fn drawn_bounds(&self, ops: &[Op], offset: [Num; 2]) -> Option<Rect> {
+    fn drawn_bounds(&self, ops: &[Op], offset: [Num; 2]) -> Option<Rect> {
         let moves = offset
             .iter()
             .copied()
@@ -1329,6 +1329,135 @@ impl Compiler {
             out = Some(out.map_or(r, |o| o.union(r)));
         }
         out
+    }
+
+    /// Where `ops` (from the view's origin) draw over the playback, about:
+    /// what they fill, stroke and place (curves within their control
+    /// points, lines grown by the widest), within their clips. `None` where
+    /// they draw nothing.
+    pub(super) fn clipped_bounds(&self, ops: &[Op]) -> Option<Rect> {
+        let times = if ops.iter().any(Op::moves) {
+            probe_times(self.stage.timeline.duration)
+        } else {
+            vec![0.0]
+        };
+        times
+            .into_iter()
+            .filter_map(|t| self.clipped_at(ops, t))
+            .reduce(Rect::union)
+    }
+
+    /// Where `ops` draw at `time` (see [`Self::clipped_bounds`]).
+    fn clipped_at(&self, ops: &[Op], time: f64) -> Option<Rect> {
+        let n = |v: Num| self.g.num(v, time);
+        let mut m = Matrix::IDENTITY;
+        let mut clip: Option<Rect> = None;
+        // What is drawn now adds to the canvas (it does not only take away
+        // or color what is there).
+        let mut adds = true;
+        let mut stack = Vec::new();
+        let (mut reach, mut miter) = (0.0f64, 1.0f64);
+        let mut path: Option<Rect> = None;
+        let mut drawn: Option<Rect> = None;
+        let add = |path: &mut Option<Rect>, p: Point| {
+            let r = Rect::new(p.x, p.y, 0.0, 0.0);
+            *path = Some(path.map_or(r, |o| o.union(r)));
+        };
+        let paint = |drawn: &mut Option<Rect>, r: Option<Rect>, clip: Option<Rect>| {
+            let Some(r) = r else { return };
+            let r = match clip {
+                Some(c) => match r.intersect(c) {
+                    Some(r) => r,
+                    None => return,
+                },
+                None => r,
+            };
+            *drawn = Some(drawn.map_or(r, |o| o.union(r)));
+        };
+        for op in ops {
+            match op {
+                Op::Save => stack.push((m, clip, adds)),
+                Op::Restore => {
+                    (m, clip, adds) = stack.pop().unwrap_or((Matrix::IDENTITY, None, true));
+                }
+                Op::Blend(b) => {
+                    adds = !matches!(b, BlendMode::DestinationOut | BlendMode::DestinationIn);
+                }
+                Op::Atop => adds = false,
+                Op::Translate(x, y) => m = m * Matrix::translate(n(*x), n(*y)),
+                Op::Scale(x, y) => m = m * Matrix::scale(n(*x), n(*y)),
+                Op::Rotate(a) => m = m * Matrix::rotate(n(*a).to_degrees()),
+                Op::Transform(v) => {
+                    let v = v.map(n);
+                    m = m * Matrix::new(v[0], v[1], v[2], v[3], v[4], v[5]);
+                }
+                Op::BeginPath => path = None,
+                Op::MoveTo(x, y) | Op::LineTo(x, y) => {
+                    add(&mut path, m.apply(Point::new(n(*x), n(*y))))
+                }
+                Op::QuadTo(v) => {
+                    for p in v.chunks(2) {
+                        add(&mut path, m.apply(Point::new(n(p[0]), n(p[1]))));
+                    }
+                }
+                Op::CubicTo(v) => {
+                    for p in v.chunks(2) {
+                        add(&mut path, m.apply(Point::new(n(p[0]), n(p[1]))));
+                    }
+                }
+                Op::RoundRect([x, y, w, h], _) => {
+                    let (x, y, w, h) = (n(*x), n(*y), n(*w), n(*h));
+                    for (px, py) in [(x, y), (x + w, y), (x, y + h), (x + w, y + h)] {
+                        add(&mut path, m.apply(Point::new(px, py)));
+                    }
+                }
+                Op::Ellipse([cx, cy, rx, ry], _) | Op::EllipseArc([cx, cy, rx, ry, _, _], _) => {
+                    let (cx, cy, rx, ry) = (n(*cx), n(*cy), n(*rx).abs(), n(*ry).abs());
+                    for (px, py) in [
+                        (cx - rx, cy - ry),
+                        (cx + rx, cy - ry),
+                        (cx - rx, cy + ry),
+                        (cx + rx, cy + ry),
+                    ] {
+                        add(&mut path, m.apply(Point::new(px, py)));
+                    }
+                }
+                Op::LineWidth(w) => {
+                    let scale = (m.a * m.d - m.b * m.c).abs().sqrt();
+                    reach = reach.max(n(*w).abs() * scale);
+                }
+                Op::MiterLimit(l) => miter = miter.max(*l),
+                Op::Fill(_) if adds => paint(&mut drawn, path.map(|r| r.grown(1.0)), clip),
+                Op::Stroke if adds => paint(
+                    &mut drawn,
+                    path.map(|r| r.grown(reach * miter.max(1.5) / 2.0 + 1.0)),
+                    clip,
+                ),
+                Op::Clip(_) => {
+                    let r = path?;
+                    clip = Some(match clip {
+                        Some(c) => c.intersect(r).unwrap_or(Rect::new(r.x, r.y, 0.0, 0.0)),
+                        None => r,
+                    });
+                }
+                Op::Image(_, r) if adds => {
+                    let mut image = None;
+                    for (px, py) in [
+                        (r.x, r.y),
+                        (r.x + r.width, r.y),
+                        (r.x, r.y + r.height),
+                        (r.x + r.width, r.y + r.height),
+                    ] {
+                        add(&mut image, m.apply(Point::new(px, py)));
+                    }
+                    paint(&mut drawn, image.map(|r| r.grown(1.0)), clip);
+                }
+                _ => {}
+            }
+        }
+        drawn.filter(|r| {
+            r.x.is_finite() && r.y.is_finite() && r.width.is_finite() && r.height.is_finite()
+        })
     }
 
     /// Where `ops` draw at `time` (see [`Self::drawn_bounds`]).

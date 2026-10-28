@@ -93,3 +93,59 @@ fn text_that_changes_stays_the_size_of_the_view() {
     let plan = plan::compile(&scene, Matrix::IDENTITY).unwrap();
     assert!(moving(&plan.units).0.is_empty());
 }
+
+#[test]
+fn within_a_clip_it_draws_over_the_clip_and_what_it_fills() {
+    // A large frame clip around a small moving bar: the clip's outline
+    // draws nothing.
+    let scene = read(
+        r##"<defs><clipPath id="frame"><rect x="2" y="2" width="96" height="96"/></clipPath></defs>
+<g clip-path="url(#frame)"><rect x="10" y="40" width="10" height="12" fill="#3070e0">
+<animate attributeName="x" values="10; 50; 60" dur="1s" fill="freeze"/></rect></g>"##,
+    );
+    let plan = plan::compile(&scene, Matrix::IDENTITY).unwrap();
+    let (areas, whole) = moving(&plan.units);
+    assert_eq!((areas.len(), whole), (1, 0), "{:?}", plan.units);
+    assert!(areas[0].height < 30.0, "{:?}", areas[0]);
+    assert_matches(&scene, 0.002);
+}
+
+#[test]
+fn what_a_mask_takes_away_draws_nothing() {
+    // A moving bar masked by a still disc: what takes away (over all the
+    // view) adds nothing to where the canvas draws.
+    let scene = read(
+        r##"<defs><mask id="m"><rect width="100" height="100" fill="#000"/><circle cx="40" cy="46" r="20" fill="#fff" fill-opacity="0.6"/></mask></defs>
+<g mask="url(#m)"><rect x="10" y="40" width="10" height="12" fill="#3070e0">
+<animate attributeName="x" values="10; 50; 60" dur="1s" fill="freeze"/></rect></g>"##,
+    );
+    let plan = plan::compile(&scene, Matrix::IDENTITY).unwrap();
+    let takes_away = |units: &[Unit]| {
+        fn any(units: &[Unit]) -> bool {
+            units.iter().any(|u| match u {
+                Unit::Canvas(ops) | Unit::Area { ops, .. } | Unit::Wide { ops, .. } => {
+                    ops.iter().any(|op| {
+                        matches!(
+                            op,
+                            Op::Blend(
+                                dxn_vector_animation::BlendMode::DestinationIn
+                                    | dxn_vector_animation::BlendMode::DestinationOut
+                            )
+                        )
+                    })
+                }
+                Unit::Layer { units, .. } | Unit::Clip { units, .. } => any(units),
+                _ => false,
+            })
+        }
+        any(units)
+    };
+    assert!(
+        takes_away(&plan.units),
+        "the mask takes away: {:?}",
+        plan.units
+    );
+    let (areas, whole) = moving(&plan.units);
+    assert_eq!((areas.len(), whole), (1, 0), "{:?}", plan.units);
+    assert_matches(&scene, 0.004);
+}

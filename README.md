@@ -364,7 +364,8 @@ The view is the animation's own size unless the app sizes it.
   view's axes (a Figma frame), the layer is shown within a view clipping at their rectangle. Groups needing the
   view's coordinates (shadows, masks or other clips around them) are drawn as before.
 - **Canvases that draw again each frame** (they read an animated value) are as large as where they draw over
-  the playback, a couple of points around, where that is at most half the scene: fewer pixels cleared and
+  the playback (what they fill, stroke and place, within their clips; what only takes away or colors over
+  adds nothing), a couple of points around, where that is at most half the scene: fewer pixels cleared and
   drawn each frame. Ones drawing text or shadows, or over a playback too long to sample at every frame, stay
   the size of the view.
 - **Events.** What a file plays on an event (an SVG's `begin="click"`) is a segment of its own; the ref's

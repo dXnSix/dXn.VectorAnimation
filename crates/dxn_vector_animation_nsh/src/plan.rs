@@ -1397,7 +1397,7 @@ impl Compiler {
         {
             return None;
         }
-        let b = self.drawn_bounds(ops, [Num::Const(0.0); 2])?;
+        let b = self.clipped_bounds(ops)?;
         let area = Rect::new(
             b.x.floor() - 2.0,
             b.y.floor() - 2.0,
