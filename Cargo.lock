@@ -1044,7 +1044,7 @@ dependencies = [
 [[package]]
 name = "nsh-core"
 version = "0.3.0"
-source = "git+https://github.com/dXnSix/nsh?branch=main#960c314c910f37e99796225322753b03de2471fe"
+source = "git+https://github.com/dXnSix/nsh?branch=main#634fb48fe66a930d8491dafc55dd97f0f149cfea"
 dependencies = [
  "cap-std",
  "crc32fast",
@@ -1073,7 +1073,7 @@ dependencies = [
 [[package]]
 name = "nsh-engine"
 version = "0.3.0"
-source = "git+https://github.com/dXnSix/nsh?branch=main#960c314c910f37e99796225322753b03de2471fe"
+source = "git+https://github.com/dXnSix/nsh?branch=main#634fb48fe66a930d8491dafc55dd97f0f149cfea"
 dependencies = [
  "crossbeam-channel",
  "libc",
@@ -1088,7 +1088,7 @@ dependencies = [
 [[package]]
 name = "nsh-macros"
 version = "0.3.0"
-source = "git+https://github.com/dXnSix/nsh?branch=main#960c314c910f37e99796225322753b03de2471fe"
+source = "git+https://github.com/dXnSix/nsh?branch=main#634fb48fe66a930d8491dafc55dd97f0f149cfea"
 dependencies = [
  "imagesize",
  "proc-macro2",
@@ -1101,7 +1101,7 @@ dependencies = [
 [[package]]
 name = "nsh-shader"
 version = "0.3.0"
-source = "git+https://github.com/dXnSix/nsh?branch=main#960c314c910f37e99796225322753b03de2471fe"
+source = "git+https://github.com/dXnSix/nsh?branch=main#634fb48fe66a930d8491dafc55dd97f0f149cfea"
 dependencies = [
  "naga",
 ]
@@ -1109,7 +1109,7 @@ dependencies = [
 [[package]]
 name = "nsh-testing"
 version = "0.3.0"
-source = "git+https://github.com/dXnSix/nsh?branch=main#960c314c910f37e99796225322753b03de2471fe"
+source = "git+https://github.com/dXnSix/nsh?branch=main#634fb48fe66a930d8491dafc55dd97f0f149cfea"
 dependencies = [
  "crossbeam-channel",
  "log",
