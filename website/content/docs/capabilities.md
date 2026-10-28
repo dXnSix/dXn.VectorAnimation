@@ -31,7 +31,8 @@ flowchart TB
 - **Transforms** are canvas transforms of animated values; motion paths are lookups of the path sampled by
   length; animated matrices animate their decomposition; skews are sampled.
 - **Groups that only move or fade** are layers the platform moves and fades: their content is drawn once, in
-  the group's own lengths, and never again as the group moves.
+  the group's own lengths, and never again as the group moves. A still group carried by a moving one (a
+  repeater's copies) is such a layer too, even where the rest of what moves with it changes.
 
 ```example
 demo: moving-layers

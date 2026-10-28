@@ -41,10 +41,10 @@ const BLUR_LEVELS: usize = 10;
 const PAST: f64 = 4.0;
 
 /// How many times a second what moves is sampled for where it goes.
-const PROBE_RATE: f64 = 60.0;
+pub(super) const PROBE_RATE: f64 = 60.0;
 
 /// The most times it is sampled.
-const PROBES: usize = 600;
+pub(super) const PROBES: usize = 600;
 
 /// The most pixels an image of content casting a shadow has.
 const CASTER_IMAGE_PIXELS: f64 = 2048.0 * 2048.0;

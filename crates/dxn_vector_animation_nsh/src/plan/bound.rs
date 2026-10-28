@@ -11,7 +11,11 @@
 
 use dxn_vector_animation::{Group, Matrix, Rect, Scene, TransformOp};
 
-use super::{Compiler, NodeId, Num, Op, Open, Unit, Unsupported, closed, shell};
+use super::{
+    Compiler, NodeId, Num, Op, Open, Unit, Unsupported, closed,
+    shadow::{PROBE_RATE, PROBES},
+    shell,
+};
 
 /// Where a group drawn as a moving layer starts: what its canvases' setup
 /// is taken from, and how much its lengths are scaled up on them.
@@ -80,13 +84,16 @@ fn placed(units: Vec<Unit>, area: Rect) -> Option<Vec<Unit>> {
 }
 
 impl Compiler {
-    /// Whether `g` may be drawn as a moving layer: its transform moves,
-    /// its content holds still, and nothing about it needs the view's
-    /// coordinates.
+    /// Whether `g` may be drawn as a moving layer: its transform moves (or
+    /// one of the groups it is in does, where the playback is short enough
+    /// for its matrix to be sampled at every frame), its content holds
+    /// still, and nothing about it needs the view's coordinates.
     pub(super) fn can_bind(&self, g: &Group) -> bool {
+        let moves = |g: &Group| g.transform.iter().any(TransformOp::is_animated);
+        let sampled_whole = self.stage.timeline.duration * PROBE_RATE <= PROBES as f64;
         self.casting.is_none()
             && self.bound.is_none()
-            && g.transform.iter().any(TransformOp::is_animated)
+            && (moves(g) || sampled_whole && self.ancestors.iter().any(|(a, _)| moves(a)))
             && g.effects.is_empty()
             && g.mask.is_none()
             && !self

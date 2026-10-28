@@ -1,10 +1,11 @@
 //! Groups that only move (and fade) are layers the platform moves: their
 //! still content drawn once, in their own lengths scaled up to stay sharp,
 //! on canvases whose operations hold no animated value; groups that only
-//! fade are layers it fades. Groups whose
-//! content moves, or that need the view's coordinates (inside a clip,
-//! casting a shadow), are drawn as before. All draw what the reference
-//! draws.
+//! fade are layers it fades. A still group inside one whose content
+//! moves is a moving layer of its own, moved as the groups it is in move.
+//! Groups whose content moves, or that need the view's coordinates (inside
+//! a clip, casting a shadow), are drawn as before. All draw what the
+//! reference draws.
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
@@ -147,4 +148,36 @@ fn a_group_that_only_fades_is_a_layer_it_fades() {
     assert!(matches!(opacity, Num::Node(_)), "its opacity bound");
     assert!(moving_layers(&units).1, "its canvas still");
     assert_matches(&scene, 0.002);
+}
+
+/// A group turning about (50, 50) and holding a still group and one that
+/// grows (its content moves, so it is no moving layer of its own).
+fn turning_with_moving_content(dur: &str) -> Scene {
+    read(&format!(
+        r##"<g transform="translate(50 50)"><g><animateTransform attributeName="transform" type="rotate" from="0" to="90" dur="{dur}" repeatCount="indefinite"/>
+<g transform="translate(0 -25)"><circle r="12" fill="#3070e0"/><rect x="-4" y="-4" width="8" height="8" fill="#f0c020"/></g>
+<g transform="translate(0 25)"><rect x="-8" y="-8" width="16" height="16" fill="#e04020"><animate attributeName="width" from="8" to="20" dur="{dur}" repeatCount="indefinite"/></rect></g>
+</g></g>"##
+    ))
+}
+
+#[test]
+fn a_still_group_in_a_moving_one_whose_content_moves_is_a_moving_layer() {
+    let scene = turning_with_moving_content("1s");
+    let plan = plan::compile(&scene, Matrix::IDENTITY).unwrap();
+    let (layers, still) = moving_layers(&plan.units);
+    assert_eq!(
+        layers, 1,
+        "the still group, moved as the group it is in turns"
+    );
+    assert!(still, "its canvas draws once");
+    assert_matches(&scene, 0.015);
+}
+
+#[test]
+fn over_a_playback_too_long_to_sample_whole_it_is_drawn_as_before() {
+    // 20 s: more frames than the matrix is sampled at.
+    let scene = turning_with_moving_content("20s");
+    let plan = plan::compile(&scene, Matrix::IDENTITY).unwrap();
+    assert_eq!(moving_layers(&plan.units).0, 0);
 }
