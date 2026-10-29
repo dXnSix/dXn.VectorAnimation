@@ -4,7 +4,7 @@ Animated vector graphics independent of any renderer or UI framework (the scene 
 importers, the reference renderer and the CLI: `dxn_vector_animation`, `_svg`, `_lottie`, `_render`, `_cli`),
 and the NSH player built on them (`dxn_vector_animation_nsh`, a UI set with the `VectorAnimation` component, and
 `dxn_vector_animation_check`, its device check tool). What it reads, how the scene works and how the player plays
-it is in `README.md`.
+it is on the site (`website/content/`; see Documentation below); `README.md` is the short overview.
 
 ## Boundaries
 
@@ -51,7 +51,7 @@ Tests are grouped by feature: one file per feature in each crate's `tests/` (sel
 file (or a test in the file of its feature) and runs only that group while iterating; the full list of what
 it touches (the core's, the player's, or both) runs once before committing. The player's `component.rs` runs
 the component on a headless engine; the example apps' TSX tests run with an `nsh` CLI (`nsh test
-examples/gallery`, and `examples/check` on devices: `README.md`, "Device checks").
+examples/gallery`, and `examples/check` on devices: the site's "Platforms and device checks" page).
 
 ## Documentation
 
